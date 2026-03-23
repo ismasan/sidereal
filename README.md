@@ -22,7 +22,40 @@ gem install UPDATE_WITH_YOUR_GEM_NAME_IMMEDIATELY_AFTER_RELEASE_TO_RUBYGEMS_ORG
 
 ## Usage
 
-TODO: Write usage instructions here
+```ruby
+class App < Sidereal::App
+  page '/' do
+    on AddThing::Ok do |evt|  
+    end
+
+    template do
+      control AddThing do |f|
+        f.text_field :name
+        f.submit 'Add'
+      end
+    end
+  end
+
+  page ThingsPage
+
+  class AddThing < Sidereal::Message
+    attribute :name, String
+  end
+
+  command AddThing do |cmd|
+    # session
+    # update state, database, send email, etc  
+    # dispatching a command message enqueues that command to be handled next
+    dispatch SendEmail.new(email: some_email)
+    # dispatching any other message is a transient event
+    # that can be reacted to by pages
+    dispatch AddThing::Ok.new(name: cmd.name)
+  end
+end
+
+# config.ru
+run App
+```
 
 ## Development
 

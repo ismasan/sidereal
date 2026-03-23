@@ -127,6 +127,12 @@ module Sidereal
         }
       end
 
+      def inherited(subclass)
+        routes.each do |k, v|
+          subclass.routes[k] = v.dup
+        end
+      end
+
       # Register a GET route.
       #
       # @param path [String] URL pattern, may include named params (e.g. +/items/:id+)
