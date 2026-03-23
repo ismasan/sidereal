@@ -16,12 +16,6 @@ class RemoveTodo < Sidereal::Message
   attribute :todo_id, Sidereal::Types::UUID::V4
 end
 
-# class TodoAdded < Sidereal::Message
-#   attribute :title, Sidereal::Types::String
-# end
-
-# -- Pages --
-
 class TodoPage < Sidereal::Page
   path '/'
 
@@ -75,8 +69,6 @@ end
 class TodoApp < Sidereal::App
   session secret: 'a' * 64
 
-  page TodoPage
-
   command AddTodo do |cmd|
     TODOS[cmd.todo_id] = cmd
   end
@@ -84,4 +76,6 @@ class TodoApp < Sidereal::App
   command RemoveTodo do |cmd|
     TODOS.delete cmd.todo_id
   end
+
+  page TodoPage
 end
