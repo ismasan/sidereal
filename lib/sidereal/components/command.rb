@@ -40,7 +40,7 @@ module Sidereal
             'indicator-fetching' => true
           }
           @on.each do |event|
-            local_data["on:#{event}"] = %(@post('#{@href}', {contentType: 'form'}))
+            local_data["on:#{event}"] = %(@post('#{context.url(@href)}', {contentType: 'form'}))
           end
           data.merge!(local_data)
         else

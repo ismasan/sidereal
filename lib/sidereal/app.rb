@@ -1,9 +1,12 @@
 # frozen_string_literal: true
 
 require 'datastar'
+require_relative 'request_helpers'
 
 module Sidereal
   class App < Router
+    include RequestHelpers
+
     CMD_METHOD_PREFIX = '__cmd_'
 
     def phlex(component)
