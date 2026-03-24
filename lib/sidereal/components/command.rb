@@ -40,7 +40,7 @@ module Sidereal
             'indicator-fetching' => true
           }
           @on.each do |event|
-            local_data["on:#{event}"] = %(@post('#{context.url(@href)}', {contentType: 'form'}))
+            local_data["on:#{event}"] = %(@post('#{@href}', {contentType: 'form'}))
           end
           data.merge!(local_data)
         else
@@ -50,7 +50,7 @@ module Sidereal
         attrs = @attrs.merge(data:)
 
         form(**attrs) do
-          input(type: 'hidden', name: 'command[type]', value: command.class.name)
+          input(type: 'hidden', name: 'command[type]', value: command.type)
           input(type: 'hidden', name: 'command[_cid]', value: @cid.to_s)
 
           yield
