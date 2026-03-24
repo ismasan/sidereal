@@ -19,8 +19,8 @@ module Sidereal
           raise ArgumentError, "unknown arguments #{args.inspect}"
         end
 
-        command_registry[cmd_class.name] = cmd_class
-        method_name = Sidereal.message_method_name(CMD_METHOD_PREFIX, cmd_class.name)
+        command_registry[cmd_class.type] = cmd_class
+        method_name = Sidereal.message_method_name(CMD_METHOD_PREFIX, cmd_class.type)
         block ||= DEFAULT_CMD_HANDLER
         define_method(method_name, block)
         private(method_name)
@@ -30,26 +30,27 @@ module Sidereal
 
     def initialize(pubsub:)
       @pubsub = pubsub
+      @__current_msg = nil
     end
 
     def from(data)
       data = CMD_HASH.parse(data)
       cmd_class = self.class.command_registry.fetch(data[:type])
-      cmd_class.new(data[:payload])
+      cmd_class.new(data)
     end
 
     def handle(cmd)
-      method_name = Sidereal.message_method_name(CMD_METHOD_PREFIX, cmd.class.name)
+      @__current_msg = cmd
+      method_name = Sidereal.message_method_name(CMD_METHOD_PREFIX, cmd.class.type)
       send(method_name, cmd)
       dispatched_events.slice(0..).each do |msg|
-        pubsub.publish cmd.channel, msg
+        publish(msg)
       end
 
-      pubsub.publish cmd.channel, cmd
+      pubsub.publish cmd.metadata.fetch(:channel), cmd
       # TODO: enqueue dispatched_commands
       # dispatched_commands.slice(0..).each do |c|
-      #   c = before_command(c)
-      #   handle_command(c)
+      #   self.class.new(pubsub:).handle(c)
       # end
     end
 
@@ -57,8 +58,14 @@ module Sidereal
 
     attr_reader :pubsub
 
-    def dispatch(msg)
-      if self.class.command_registry[msg.class.name]
+    def publish(msg)
+      pubsub.publish msg.metadata.fetch(:channel), msg
+    end
+
+    def dispatch(msg_class, payload = {})
+      msg = msg_class.new(payload: payload.to_h)
+      msg = @__current_msg.correlate(msg)
+      if self.class.command_registry[msg.class.type]
         dispatched_commands << msg
       else
         dispatched_events << msg
