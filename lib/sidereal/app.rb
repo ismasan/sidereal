@@ -73,7 +73,7 @@ module Sidereal
       payload = Types::SymbolizedHash.parse(request.params['command'])
       cmd = commander.from(payload)
       streaming_command_errors(cmd, datastar) do
-        cmd = before_command(cmd)
+        cmd = before_command(cmd.with_metadata(channel: channel_name))
         commander.handle(cmd)
         NO_CONTENT
       end
@@ -99,7 +99,7 @@ module Sidereal
     end
 
     private def before_command(cmd)
-      cmd.with(channel: channel_name)
+      cmd
     end
 
     private def channel_name = 'system'
