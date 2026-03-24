@@ -1,8 +1,14 @@
 # frozen_string_literal: true
 
 require 'datastar'
+require 'datastar/async_executor'
 require_relative 'request_helpers'
 require_relative 'commander'
+
+Datastar.configure do |config|
+  config.compression = true
+  config.executor = Datastar::AsyncExecutor.new
+end
 
 module Sidereal
   class App < Router
@@ -13,6 +19,11 @@ module Sidereal
     end
 
     class << self
+      def inherited(subclass)
+        super
+        Sidereal.register(subclass)
+      end
+
       def page(pg, layout: BasicLayout, &block)
         page_class = case pg
         in String => path if block_given?
@@ -50,7 +61,7 @@ module Sidereal
     NO_CONTENT = [200, { 'Content-Type' => 'text/plain' }.freeze, [].freeze].freeze
 
     get '/updates' do
-      channel = pubsub.subscribe('system')
+      channel = pubsub.subscribe(channel_name)
 
       datastar.on_client_disconnect do |*args|
         Console.info 'client disconnect'
@@ -71,10 +82,11 @@ module Sidereal
 
     post '/commands' do
       payload = Types::SymbolizedHash.parse(request.params['command'])
-      cmd = commander.from(payload)
+      cmd = self.class.commander.from(payload)
       streaming_command_errors(cmd, datastar) do
         cmd = before_command(cmd.with_metadata(channel: channel_name))
-        commander.handle(cmd)
+        store.append(cmd)
+        # commander.handle(cmd)
         NO_CONTENT
       end
     end
@@ -84,11 +96,11 @@ module Sidereal
     end
 
     def pubsub
-      @pubsub ||= Sidereal::PubSub::Memory.instance
+      Sidereal.pubsub
     end
 
-    private def commander
-      @commander ||= self.class.commander.new(pubsub:)
+    private def store
+      Sidereal.store
     end
 
     private def datastar

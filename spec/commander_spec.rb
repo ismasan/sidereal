@@ -16,23 +16,7 @@ TestSendEmail = Sidereal::Message.define('test.send_email') do
   attribute :to, Sidereal::Types::String
 end
 
-# -- Fake pubsub --
-
-class FakePubSub
-  attr_reader :published
-
-  def initialize
-    @published = []
-  end
-
-  def publish(channel, message)
-    @published << { channel: channel, message: message }
-  end
-end
-
 RSpec.describe Sidereal::Commander do
-  let(:pubsub) { FakePubSub.new }
-
   describe '.command' do
     it 'registers a message class in the command registry' do
       cmdr = Class.new(Sidereal::Commander) do
@@ -58,13 +42,11 @@ RSpec.describe Sidereal::Commander do
       end
 
       cmd = TestAddItem.new(payload: { title: 'test' })
-      cmd = cmd.with_metadata(channel: 'ch')
-      cmdr = cmdr_class.new(pubsub: pubsub)
-      expect { cmdr.handle(cmd) }.not_to raise_error
+      expect { cmdr_class.handle(cmd) }.not_to raise_error
     end
   end
 
-  describe '#from' do
+  describe '.from' do
     let(:cmdr_class) do
       Class.new(Sidereal::Commander) do
         command TestAddItem
@@ -72,16 +54,14 @@ RSpec.describe Sidereal::Commander do
     end
 
     it 'instantiates a registered command from a hash' do
-      cmdr = cmdr_class.new(pubsub: pubsub)
-      cmd = cmdr.from(type: 'test.add_item', payload: { title: 'hello' })
+      cmd = cmdr_class.from(type: 'test.add_item', payload: { title: 'hello' })
       expect(cmd).to be_a(TestAddItem)
       expect(cmd.payload.title).to eq('hello')
     end
 
     it 'raises for unregistered types' do
-      cmdr = cmdr_class.new(pubsub: pubsub)
       expect {
-        cmdr.from(type: 'test.unknown', payload: {})
+        cmdr_class.from(type: 'test.unknown', payload: {})
       }.to raise_error(KeyError)
     end
   end
@@ -96,26 +76,23 @@ RSpec.describe Sidereal::Commander do
       end
 
       cmd = TestAddItem.new(payload: { title: 'buy milk' })
-      cmd = cmd.with_metadata(channel: 'ch')
-      cmdr_class.new(pubsub: pubsub).handle(cmd)
+      cmdr_class.handle(cmd)
       expect(called_with).to eq(cmd)
     end
 
-    it 'publishes the command itself on its channel' do
+    it 'returns a Result with the command' do
       cmdr_class = Class.new(Sidereal::Commander) do
         command TestAddItem
       end
 
       cmd = TestAddItem.new(payload: { title: 'x' })
-      cmd = cmd.with_metadata(channel: 'test-ch')
-      cmdr_class.new(pubsub: pubsub).handle(cmd)
+      result = cmdr_class.handle(cmd)
 
-      cmd_pub = pubsub.published.find { |p| p[:message].is_a?(TestAddItem) }
-      expect(cmd_pub).not_to be_nil
-      expect(cmd_pub[:channel]).to eq('test-ch')
+      expect(result).to be_a(Sidereal::Commander::Result)
+      expect(result.msg).to eq(cmd)
     end
 
-    it 'publishes dispatched events with correlation' do
+    it 'returns dispatched events with correlation in the Result' do
       cmdr_class = Class.new(Sidereal::Commander) do
         command TestAddItem do |cmd|
           dispatch TestItemAdded, cmd.payload
@@ -123,31 +100,62 @@ RSpec.describe Sidereal::Commander do
       end
 
       cmd = TestAddItem.new(payload: { title: 'hello' })
-      cmd = cmd.with_metadata(channel: 'ch')
-      cmdr_class.new(pubsub: pubsub).handle(cmd)
+      result = cmdr_class.handle(cmd)
 
-      evt_pub = pubsub.published.find { |p| p[:message].is_a?(TestItemAdded) }
-      expect(evt_pub).not_to be_nil
-      expect(evt_pub[:channel]).to eq('ch')
-      evt = evt_pub[:message]
+      expect(result.events.size).to eq(1)
+      evt = result.events.first
+      expect(evt).to be_a(TestItemAdded)
       expect(evt.payload.title).to eq('hello')
       expect(evt.causation_id).to eq(cmd.id)
       expect(evt.correlation_id).to eq(cmd.correlation_id)
     end
 
-    it 'publishes dispatched events before the command' do
+    it 'returns dispatched commands in the Result' do
+      cmdr_class = Class.new(Sidereal::Commander) do
+        command TestAddItem do |cmd|
+          dispatch TestSendEmail, to: 'user@example.com'
+        end
+        command TestSendEmail
+      end
+
+      cmd = TestAddItem.new(payload: { title: 'x' })
+      result = cmdr_class.handle(cmd)
+
+      expect(result.commands.size).to eq(1)
+      expect(result.commands.first).to be_a(TestSendEmail)
+      expect(result.commands.first.payload.to).to eq('user@example.com')
+    end
+
+    it 'separates events from commands in the Result' do
+      cmdr_class = Class.new(Sidereal::Commander) do
+        command TestAddItem do |cmd|
+          dispatch TestItemAdded, cmd.payload
+          dispatch TestSendEmail, to: 'user@example.com'
+        end
+        command TestSendEmail
+      end
+
+      cmd = TestAddItem.new(payload: { title: 'x' })
+      result = cmdr_class.handle(cmd)
+
+      expect(result.events.map(&:class)).to eq([TestItemAdded])
+      expect(result.commands.map(&:class)).to eq([TestSendEmail])
+    end
+  end
+
+  describe '.handle' do
+    it 'delegates to a new instance' do
       cmdr_class = Class.new(Sidereal::Commander) do
         command TestAddItem do |cmd|
           dispatch TestItemAdded, cmd.payload
         end
       end
 
-      cmd = TestAddItem.new(payload: { title: 'x' })
-      cmd = cmd.with_metadata(channel: 'ch')
-      cmdr_class.new(pubsub: pubsub).handle(cmd)
+      cmd = TestAddItem.new(payload: { title: 'hi' })
+      result = cmdr_class.handle(cmd)
 
-      types = pubsub.published.map { |p| p[:message].class }
-      expect(types).to eq([TestItemAdded, TestAddItem])
+      expect(result.msg).to eq(cmd)
+      expect(result.events.size).to eq(1)
     end
   end
 

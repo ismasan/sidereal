@@ -26,28 +26,35 @@ module Sidereal
         private(method_name)
         self
       end
+
+      def from(data)
+        data = CMD_HASH.parse(data)
+        cmd_class = command_registry.fetch(data[:type])
+        cmd_class.new(data)
+      end
+
+      def handle(msg)
+        new.handle(msg)
+      end
     end
 
-    def initialize(pubsub:)
-      @pubsub = pubsub
+    def initialize
       @__current_msg = nil
     end
 
-    def from(data)
-      data = CMD_HASH.parse(data)
-      cmd_class = self.class.command_registry.fetch(data[:type])
-      cmd_class.new(data)
-    end
+    Result = Data.define(:msg, :events, :commands)
 
     def handle(cmd)
       @__current_msg = cmd
       method_name = Sidereal.message_method_name(CMD_METHOD_PREFIX, cmd.class.type)
       send(method_name, cmd)
-      dispatched_events.slice(0..).each do |msg|
-        publish(msg)
-      end
 
-      pubsub.publish cmd.metadata.fetch(:channel), cmd
+      Result.new(
+        cmd,
+        dispatched_events.slice(0..),
+        dispatched_commands.slice(0..),
+      )
+      # pubsub.publish cmd.metadata.fetch(:channel), cmd
       # TODO: enqueue dispatched_commands
       # dispatched_commands.slice(0..).each do |c|
       #   self.class.new(pubsub:).handle(c)
@@ -55,12 +62,6 @@ module Sidereal
     end
 
     private
-
-    attr_reader :pubsub
-
-    def publish(msg)
-      pubsub.publish msg.metadata.fetch(:channel), msg
-    end
 
     def dispatch(msg_class, payload = {})
       msg = msg_class.new(payload: payload.to_h)
