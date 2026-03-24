@@ -10,6 +10,8 @@ module Sidereal
     class Memory
       include Singleton
 
+      public_class_method :new
+
       def initialize
         @mutex = Mutex.new
         @subscribers = {}
