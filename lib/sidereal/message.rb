@@ -4,22 +4,44 @@ module Sidereal
   UnknownMessageError = Class.new(ArgumentError)
 
   class Message < Types::Data
-    attribute? :channel, Types::String
-    attribute :id, Types::AutoUUID
+    EMPTY_ARRAY = [].freeze
 
+    attribute :id, Types::AutoUUID
+    attribute :type, Types::String.present
+    attribute? :causation_id, Types::UUID::V4
+    attribute? :correlation_id, Types::UUID::V4
+    attribute :created_at, Types::Forms::Time.default { Time.now }
+    attribute :metadata, Types::Hash.default(Plumb::BLANK_HASH)
+    attribute :payload, Types::Static[nil]
+
+    # Lookup table mapping type strings to message subclasses.
+    # Separate from {Sourced::Message}'s registry.
     class Registry
+      # @param message_class [Class] the root message class for this registry
       def initialize(message_class)
         @message_class = message_class
         @lookup = {}
       end
 
+      # @return [Array<String>] registered type strings
       def keys = @lookup.keys
+
+      # @return [Array<Class>] direct subclasses of the root message class
       def subclasses = message_class.subclasses
 
+      # Register a message class under a type string.
+      #
+      # @param key [String] message type string
+      # @param klass [Class] message subclass
       def []=(key, klass)
         @lookup[key] = klass
       end
 
+      # Look up a message class by type string.
+      # Searches this registry first, then recurses into subclass registries.
+      #
+      # @param key [String] message type string
+      # @return [Class, nil]
       def [](key)
         klass = lookup[key]
         return klass if klass
@@ -31,8 +53,15 @@ module Sidereal
         nil
       end
 
-      def inspect
-        %(<#{self.class}:#{object_id} #{lookup.size} keys, #{subclasses.size} child registries>)
+      # All registered message classes across this registry and subclass registries.
+      #
+      # @return [Enumerator<Class>] if no block given
+      # @yield [Class] each registered message class
+      def all(&block)
+        return enum_for(:all) unless block
+
+        lookup.each_value(&block)
+        subclasses.each { |c| c.registry.all(&block) }
       end
 
       private
@@ -40,28 +69,121 @@ module Sidereal
       attr_reader :lookup, :message_class
     end
 
+    # @return [Registry] the message type registry for this class
     def self.registry
       @registry ||= Registry.new(self)
     end
 
-    def self.inherited(subclass)
-      self.registry[subclass.name] = subclass
-      super
+    # Base class for typed message payloads.
+    class Payload < Types::Data
+      # @param key [Symbol] attribute name
+      # @return [Object] attribute value
+      def [](key) = attributes[key]
+
+      # @see Hash#fetch
+      def fetch(...) = to_h.fetch(...)
     end
 
+    # Define a new message type. Registers it in the {.registry} and
+    # optionally defines a typed payload.
+    #
+    # @param type_str [String] unique message type identifier (e.g. 'course.created')
+    # @yield optional block to define payload attributes via +attribute+ DSL
+    # @return [Class] the new message subclass
+    #
+    # @example
+    #   UserJoined = CCC::Message.define('user.joined') do
+    #     attribute :course_name, String
+    #     attribute :user_id, String
+    #   end
+    def self.define(type_str, &payload_block)
+      type_str.freeze unless type_str.frozen?
+
+      registry[type_str] = Class.new(self) do
+        def self.node_name = :data
+        define_singleton_method(:type) { type_str }
+
+        attribute :type, Types::Static[type_str]
+        if block_given?
+          payload_class = Class.new(Payload, &payload_block)
+          const_set(:Payload, payload_class)
+          attribute :payload, payload_class
+          names = payload_class._schema.to_h.keys.map(&:to_sym).freeze
+          define_singleton_method(:payload_attribute_names) { names }
+        end
+      end
+    end
+
+    # Instantiate the correct message subclass from a hash with a +:type+ key.
+    #
+    # @param attrs [Hash] must include +:type+ matching a registered type string
+    # @return [Message] instance of the appropriate subclass
+    # @raise [Sourced::UnknownMessageError] if the type string is not registered
     def self.from(attrs)
       klass = registry[attrs[:type]]
-      raise UnknownMessageError, "Unknown event type: #{attrs[:type]}" unless klass
+      raise UnknownMessageError, "Unknown message type: #{attrs[:type]}" unless klass
 
-      klass.new(attrs.fetch(:payload, Plumb::BLANK_HASH))
+      klass.new(attrs)
     end
 
-    def to_h
-      { type: self.class.name, payload: super }
+    def initialize(attrs = {})
+      attrs = attrs.merge(payload: {}) unless attrs[:payload]
+      super(attrs)
     end
 
-    def to_json(*)
-      to_h.to_json(*)
+    def with_metadata(meta = {})
+      return self if meta.empty?
+
+      with(metadata: metadata.merge(meta))
+    end
+
+    def with_payload(attrs = {})
+      hash = to_h
+      (hash[:payload] ||= {}).merge!(attrs)
+      self.class.new(hash)
+    end
+
+    def at(datetime)
+      if datetime < created_at
+        raise Sourced::PastMessageDateError, "Message #{type} can't be delayed to a date in the past"
+      end
+
+      with(created_at: datetime)
+    end
+
+    # Set causation and correlation IDs on another message, establishing
+    # a causal link from this message to +message+. Merges metadata.
+    #
+    # @param message [Message] the message to correlate
+    # @return [Message] a copy of +message+ with causation/correlation set
+    #
+    # @example
+    #   caused = source_event.correlate(SomeCommand.new(payload: { ... }))
+    #   caused.causation_id  # => source_event.id
+    #   caused.correlation_id # => source_event.correlation_id
+    def correlate(message)
+      attrs = {
+        causation_id: id,
+        correlation_id: correlation_id,
+        metadata: metadata.merge(message.metadata || Plumb::BLANK_HASH)
+      }
+      message.with(attrs)
+    end
+
+    # Returns the declared payload attribute names for this message class.
+    # Subclasses created via {.define} override this with a cached frozen array.
+    #
+    # @return [Array<Symbol>] attribute names (e.g. +[:course_name, :user_id]+)
+    def self.payload_attribute_names = EMPTY_ARRAY
+
+    private
+
+    # Hook called by Plumb after schema parsing, when +:id+ has been resolved.
+    # Defaults +causation_id+ and +correlation_id+ to the message's own +id+.
+    def prepare_attributes(attrs)
+      attrs[:correlation_id] = attrs[:id] unless attrs[:correlation_id]
+      attrs[:causation_id] = attrs[:id] unless attrs[:causation_id]
+      attrs
     end
   end
 end
