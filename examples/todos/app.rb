@@ -7,12 +7,16 @@ TODOS = {}
 
 # -- Messages --
 
-class AddTodo < Sidereal::Message
+AddTodo = Sidereal::Message.define('todos.add') do
   attribute :todo_id, Sidereal::Types::AutoUUID
   attribute :title, Sidereal::Types::String.present
 end
 
-class RemoveTodo < Sidereal::Message
+Notify = Sidereal::Message.define('todos.notify') do
+  attribute :message, String
+end
+
+RemoveTodo = Sidereal::Message.define('todos.remove') do
   attribute :todo_id, Sidereal::Types::UUID::V4
 end
 
@@ -22,6 +26,10 @@ class TodoPage < Sidereal::Page
   # Re-render the page when a todo is added
   on AddTodo do |_evt|
     browser.patch_elements load(params)
+  end
+
+  on Notify do |cmd|
+    browser.patch_elements %(<p id="notifications">#{cmd.payload.message}</p>)
   end
 
   on RemoveTodo do |_evt|
@@ -44,6 +52,8 @@ class TodoPage < Sidereal::Page
         f.text_field :title
         button(type: :submit, style: 'padding:0.4rem 1rem;') { 'Add' }
       end
+
+      p(id: 'notifications') { '-- ' }
 
       if @todos.any?
         ul do
@@ -70,11 +80,17 @@ class TodoApp < Sidereal::App
   session secret: 'a' * 64
 
   command AddTodo do |cmd|
-    TODOS[cmd.todo_id] = cmd
+    TODOS[cmd.payload.todo_id] = cmd.payload
+    dispatch Notify, message: "Done: #{cmd.payload.todo_id}"
+  end
+
+  command Notify do |cmd|
+    Console.info "NOTI #{cmd}"
+    sleep 3
   end
 
   command RemoveTodo do |cmd|
-    TODOS.delete cmd.todo_id
+    TODOS.delete cmd.payload.todo_id
   end
 
   page TodoPage
