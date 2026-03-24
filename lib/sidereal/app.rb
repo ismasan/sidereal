@@ -8,6 +8,7 @@ module Sidereal
     include RequestHelpers
 
     CMD_METHOD_PREFIX = '__cmd_'
+    DEFAULT_CMD_HANDLER = ->(*_) {}
 
     def phlex(component)
       [200, { 'content-type' => 'text/html' }, [component.call(context: self)]]
@@ -48,7 +49,8 @@ module Sidereal
 
         command_registry[cmd_class.name] = cmd_class
         method_name = Sidereal.message_method_name(CMD_METHOD_PREFIX, cmd_class.name)
-        define_method(method_name, &block)
+        block ||= DEFAULT_CMD_HANDLER
+        define_method(method_name, block)
         private(method_name)
         self
       end
@@ -99,14 +101,15 @@ module Sidereal
     def handle_command(cmd)
       method_name = Sidereal.message_method_name(CMD_METHOD_PREFIX, cmd.class.name)
       send(method_name, cmd)
-      if dispatched_events.any?
-        dispatched_events.each do |msg|
-          pubsub.publish cmd.channel, msg
-        end
-      else
-        pubsub.publish cmd.channel, cmd
+      dispatched_events.slice(0..).each do |msg|
+        pubsub.publish cmd.channel, msg
       end
+      pubsub.publish cmd.channel, cmd
       # TODO: enqueue dispatched_commands
+      # dispatched_commands.slice(0..).each do |c|
+      #   c = before_command(c)
+      #   handle_command(c)
+      # end
     end
 
     def pubsub
