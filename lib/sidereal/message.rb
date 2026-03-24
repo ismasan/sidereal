@@ -2,6 +2,7 @@
 
 module Sidereal
   UnknownMessageError = Class.new(ArgumentError)
+  PastMessageDateError = Class.new(ArgumentError)
 
   class Message < Types::Data
     EMPTY_ARRAY = [].freeze
@@ -145,7 +146,7 @@ module Sidereal
 
     def at(datetime)
       if datetime < created_at
-        raise Sourced::PastMessageDateError, "Message #{type} can't be delayed to a date in the past"
+        raise PastMessageDateError, "Message #{type} can't be delayed to a date in the past"
       end
 
       with(created_at: datetime)
