@@ -2,13 +2,11 @@
 
 require 'datastar'
 require_relative 'request_helpers'
+require_relative 'commander'
 
 module Sidereal
   class App < Router
     include RequestHelpers
-
-    CMD_METHOD_PREFIX = '__cmd_'
-    DEFAULT_CMD_HANDLER = ->(*_) {}
 
     def phlex(component)
       [200, { 'content-type' => 'text/html' }, [component.call(context: self)]]
@@ -35,29 +33,17 @@ module Sidereal
         self
       end
 
-      def command_registry
-        @command_registry ||= {}
-      end
-
-      def command(*args, &block)
-        cmd_class = case args
-        in [Class => klass] if klass < Sidereal::Message
-          klass
-        else
-          raise ArgumentError, "unknown arguments #{args.inspect}"
-        end
-
-        command_registry[cmd_class.name] = cmd_class
-        method_name = Sidereal.message_method_name(CMD_METHOD_PREFIX, cmd_class.name)
-        block ||= DEFAULT_CMD_HANDLER
-        define_method(method_name, block)
-        private(method_name)
-        self
+      def commander
+        @commander ||= Class.new(Commander)
       end
 
       def before_command(&block)
         define_method(:before_command, &block)
         private :before_command
+      end
+
+      def command(...)
+        commander.command(...)
       end
     end
 
@@ -85,11 +71,10 @@ module Sidereal
 
     post '/commands' do
       payload = Types::SymbolizedHash.parse(request.params['command'])
-      cmd_class = self.class.command_registry.fetch(payload[:type])
-      cmd = cmd_class.new(payload[:payload])
+      cmd = commander.from(payload)
       streaming_command_errors(cmd, datastar) do
         cmd = before_command(cmd)
-        handle_command(cmd)
+        commander.handle(cmd)
         NO_CONTENT
       end
     end
@@ -98,22 +83,12 @@ module Sidereal
       request.env.fetch('router.params', {})
     end
 
-    def handle_command(cmd)
-      method_name = Sidereal.message_method_name(CMD_METHOD_PREFIX, cmd.class.name)
-      send(method_name, cmd)
-      dispatched_events.slice(0..).each do |msg|
-        pubsub.publish cmd.channel, msg
-      end
-      pubsub.publish cmd.channel, cmd
-      # TODO: enqueue dispatched_commands
-      # dispatched_commands.slice(0..).each do |c|
-      #   c = before_command(c)
-      #   handle_command(c)
-      # end
-    end
-
     def pubsub
       @pubsub ||= Sidereal::PubSub::Memory.instance
+    end
+
+    private def commander
+      @commander ||= self.class.commander.new(pubsub:)
     end
 
     private def datastar
@@ -128,23 +103,6 @@ module Sidereal
     end
 
     private def channel_name = 'system'
-
-    private def dispatch(msg)
-      if self.class.command_registry[msg.class.name]
-        dispatched_commands << msg
-      else
-        dispatched_events << msg
-      end
-      self
-    end
-
-    private def dispatched_commands
-      @dispatched_commands ||= []
-    end
-
-    private def dispatched_events
-      @dispatched_events ||= []
-    end
 
     # A helper to handle commands in web controllers
     # and stream errors back to the UI.
