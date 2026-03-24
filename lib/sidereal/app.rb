@@ -109,11 +109,11 @@ module Sidereal
     # UI forms are assumed to use the Sourced::UI::Components::Command component
     # which includes the expected input names and _cid value.
     # @example
-    #   Sourced::UI.streaming_command_errors(cmd, datastar) do |cmd|
-    #     Sourced::CCC.handle!(MyDecider, cmd)
+    #   streaming_command_errors(cmd, datastar) do |cmd|
+    #     dispatch(cmd)
     #   end
     #
-    # @param cmd [Sourced::CCC::Command] the command to process
+    # @param cmd [Sidereal::Message] the command to process
     # @param datastar [Datastar::Dispatcher] the datastar instance to stream errors to
     private def streaming_command_errors(cmd, datastar, &)
       if cmd.valid? # <== schedule valid command for processing
@@ -123,7 +123,7 @@ module Sidereal
 
         #[cid]-[name]-errors
         datastar.send(:stream_no_heartbeat) do |sse|
-          cmd.errors.each do |field, error|
+          cmd.payload.errors.each do |field, error|
             # 'text', "can't be blank"
             field_id = [cid, field].join('-')
             sse.patch_elements Components::Command::ErrorMessages.new(field_id, error)
