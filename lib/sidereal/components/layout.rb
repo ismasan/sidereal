@@ -4,7 +4,6 @@ require_relative 'base_component'
 
 module Sidereal
   class Layout < BaseComponent
-
     private
 
     def sidereal_head

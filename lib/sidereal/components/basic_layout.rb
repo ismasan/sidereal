@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require_relative 'layout'
-
 module Sidereal
   class BasicLayout < Layout
     STYLES = <<~CSS.strip

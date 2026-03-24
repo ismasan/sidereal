@@ -46,6 +46,7 @@ end
 require_relative 'sidereal/types'
 require_relative 'sidereal/message'
 require_relative 'sidereal/router'
+require_relative 'sidereal/components/layout'
 require_relative 'sidereal/page'
 require_relative 'sidereal/pubsub/memory'
 require_relative 'sidereal/store/memory'
