@@ -33,9 +33,20 @@ module Sidereal
 
   class Page < BaseComponent
     METHOD_PREFIX = '__on_'
+    BLANK_HASH = {}.freeze
+
+    def params
+      context.request.env.fetch('router.params', BLANK_HASH)
+    end
 
     private def command(klass, *args, &block)
       render Sidereal::Components::Command.new(klass, *args, &block)
+    end
+
+    private def page_key = self.class.page_key
+
+    private def page_signals
+      { page_key:, params: context.request.params }
     end
 
     class << self
@@ -65,10 +76,6 @@ module Sidereal
 
         # Build on connect
         sse.patch_elements page_class.load(sse.signals['params'], ctx)
-
-        ctxs = registry.values
-          .filter { |p| p.interested?(sse) }
-          .map { |p| PageContext.new(sse, ctx, p) }
 
         page_context = PageContext.new(sse, ctx, page_class)
 
