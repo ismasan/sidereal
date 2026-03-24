@@ -4,6 +4,7 @@ require 'datastar'
 require 'datastar/async_executor'
 require_relative 'request_helpers'
 require_relative 'commander'
+require_relative 'components/basic_layout'
 
 Datastar.configure do |config|
   config.compression = true
@@ -24,7 +25,14 @@ module Sidereal
         Sidereal.register(subclass)
       end
 
-      def page(pg, layout: BasicLayout, &block)
+      def layout(ly = nil)
+        @layout = ly if ly
+        @layout || BasicLayout
+      end
+
+      def page(pg, layout: nil, &block)
+        layout ||= self.layout
+
         page_class = case pg
         in String => path if block_given?
           pagek = Class.new(Page, &block)

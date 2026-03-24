@@ -3,34 +3,6 @@
 require_relative 'components/base_component'
 
 module Sidereal
-  class BasicLayout < BaseComponent
-    def initialize(page)
-      @page = page
-    end
-
-    def view_template
-      doctype
-
-      html do
-        head do
-          meta(name: 'viewport', content: 'width=device-width, initial-scale=1.0')
-          title { 'basic' }
-          script(type: "module", src: "https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.0-RC.8/bundles/datastar.js")
-        end
-        body do
-          div(class: 'page') do
-            render @page
-          end
-
-          onload = _d.init.get('/updates')
-          # onload needs to be at the end
-          # to make sure to collect all signals on the page
-          div(data: onload.to_h)
-        end
-      end
-    end
-  end
-
   class Page < BaseComponent
     METHOD_PREFIX = '__on_'
     BLANK_HASH = {}.freeze
