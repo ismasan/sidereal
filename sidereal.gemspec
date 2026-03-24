@@ -38,6 +38,7 @@ Gem::Specification.new do |spec|
   spec.add_dependency "rack-session"
   spec.add_dependency 'phlex'
   spec.add_dependency 'datastar'
+  spec.add_dependency 'brotli'
   spec.add_dependency 'async'
 
   # For more information and examples about making a new gem, check out our

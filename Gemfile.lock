@@ -3,6 +3,7 @@ PATH
   specs:
     sidereal (0.1.0)
       async
+      brotli
       datastar
       phlex
       plumb (~> 0.0.17)
@@ -20,6 +21,7 @@ GEM
       traces (~> 0.18)
     base64 (0.3.0)
     bigdecimal (4.0.1)
+    brotli (0.8.0)
     concurrent-ruby (1.3.6)
     console (1.34.3)
       fiber-annotation
@@ -108,6 +110,7 @@ CHECKSUMS
   async (2.38.1) sha256=72ba6b7de04d852355458bfe891221226bb7d29f055f5cb043ae3345497f8cec
   base64 (0.3.0) sha256=27337aeabad6ffae05c265c450490628ef3ebd4b67be58257393227588f5a97b
   bigdecimal (4.0.1) sha256=8b07d3d065a9f921c80ceaea7c9d4ae596697295b584c296fe599dd0ad01c4a7
+  brotli (0.8.0) sha256=0c5a42046b3b603fb109656881147fd76064c034b7d19c1b4fcc32a093a4d55d
   concurrent-ruby (1.3.6) sha256=6b56837e1e7e5292f9864f34b69c5a2cbc75c0cf5338f1ce9903d10fa762d5ab
   console (1.34.3) sha256=869fbd74697efc4c606f102d2812b0b008e4e7fd738a91c591e8577140ec0dcc
   datastar (1.0.2) sha256=3fd1430a279f0668142e9d5ec5f7f81087b1ea3defc75f55ea8aa2ac036f651c
