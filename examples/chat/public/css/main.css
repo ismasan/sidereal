@@ -1,0 +1,183 @@
+/* ── Page override ─────────────────────────── */
+
+.page { max-width: 56rem; }
+
+/* ── Columns ───────────────────────────────── */
+
+.columns {
+  display: flex;
+  gap: 2.5rem;
+  height: calc(100vh - 8rem);
+}
+
+.col-main {
+  flex: 1 1 0%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.col-sidebar {
+  flex: 0 0 16rem;
+  overflow-y: auto;
+}
+
+.col-sidebar h2 {
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #888;
+  margin-bottom: 0.75rem;
+}
+
+@media (max-width: 640px) {
+  .columns { flex-direction: column; height: auto; }
+  .col-sidebar { flex-basis: auto; }
+}
+
+/* ── Header ─────────────────────────────────── */
+
+.header {
+  padding-bottom: 1rem;
+  margin-bottom: 1.5rem;
+  border-bottom: 1px solid #e5e5e5;
+}
+
+.header h1 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+/* ── Message feed ──────────────────────────── */
+
+.message-feed {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.5rem 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.message-bubble {
+  padding: 0.6rem 0.85rem;
+  background: #fff;
+  border: 1px solid #efefef;
+  border-radius: 8px;
+  max-width: 85%;
+}
+
+.message-bubble__header {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin-bottom: 0.2rem;
+}
+
+.message-bubble__author {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #2563eb;
+}
+
+.message-bubble__time {
+  font-size: 0.7rem;
+  color: #aaa;
+  font-variant-numeric: tabular-nums;
+}
+
+.message-bubble__body {
+  font-size: 0.9rem;
+  margin-bottom: 0;
+  line-height: 1.4;
+}
+
+/* ── Compose form ──────────────────────────── */
+
+.compose-form {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid #e5e5e5;
+  flex-shrink: 0;
+}
+
+.compose-form > * + * { margin-top: 0; }
+
+.compose-form__row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.compose-form__row > * { margin-top: 0 !important; }
+
+.compose-form__row .command-field:first-child {
+  flex: 0 0 8rem;
+  margin-bottom: 0;
+}
+
+.compose-form__row .command-field:nth-child(2) {
+  flex: 1 1 0%;
+  min-width: 0;
+  margin-bottom: 0;
+}
+
+.compose-form__row .command-field input[type="text"] {
+  width: 100%;
+  padding: 0.6rem 0.75rem;
+  font-size: 0.9rem;
+}
+
+.compose-form__row > button[type="submit"] {
+  flex: none;
+  padding: 0.6rem 1.25rem;
+  font-size: 0.9rem;
+  align-self: stretch;
+}
+
+/* ── Activity feed ─────────────────────────── */
+
+.feed-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid #efefef;
+  font-size: 0.8rem;
+}
+
+.feed-item:first-child {
+  padding-top: 0;
+}
+
+.feed-item .datetime {
+  color: #aaa;
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.feed-item .message {
+  color: #444;
+}
+
+/* ── Field errors ──────────────────────────── */
+
+.command-field.errors input,
+.command-field.errors textarea,
+.command-field.errors select {
+  border-color: #dc2626;
+}
+
+.command-field.errors input:focus,
+.command-field.errors textarea:focus,
+.command-field.errors select:focus {
+  box-shadow: 0 0 0 2px rgba(220,38,38,0.15);
+}
+
+.command-field__errors {
+  display: block;
+  font-size: 0.75rem;
+  color: #dc2626;
+  margin-top: 0.2em;
+}
