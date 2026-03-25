@@ -34,6 +34,8 @@ ChatNotify = Sidereal::Message.define('chat.notify') do
   attribute :message, String
 end
 
+Working = Sidereal::Message.define('chat.working')
+
 require_relative 'ui/layout'
 require_relative 'ui/chat_page'
 
@@ -77,6 +79,8 @@ class ChatApp < Sidereal::App
   end
 
   command AskLLM do |cmd|
+    broadcast Working
+
     chat = RubyLLM.chat
     # Load recent chat history
     MessageLog.messages.last(50).each do |m|

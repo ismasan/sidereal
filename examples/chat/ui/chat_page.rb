@@ -7,13 +7,19 @@ class ChatPage < Sidereal::Page
 
   on SendMessage do |evt|
     # browser.patch_elements load(params)
-    browser.patch_elements MessageBubble.new(evt), mode: 'append', selector: '#messages'
+    browser.patch_elements MessageList.new(MessageLog.messages)
+    # browser.patch_elements MessageBubble.new(evt), mode: 'append', selector: '#messages'
     browser.execute_script %(document.querySelector('[data-target="message-body"]').value = '')
     browser.execute_script %(scrollToBottom('messages'))
   end
 
   on ChatNotify do |evt|
     browser.patch_elements ActivityItem.new(evt), mode: 'append', selector: '#activity'
+  end
+
+  on Working do |evt|
+    browser.patch_elements %(<p class="thinking">Thinking...</p>), mode: 'append', selector: '#messages'
+    browser.execute_script %(scrollToBottom('messages'))
   end
 
   def self.load(_params, _ctx)
@@ -51,6 +57,20 @@ class ChatPage < Sidereal::Page
     end
   end
 
+  class MessageList < Sidereal::Components::BaseComponent
+    def initialize(messages)
+      @messages = messages
+    end
+
+    def view_template
+      div(id: 'messages', class: 'message-feed', data: _d.init.run(%(scrollToBottom('messages'))).to_h) do
+        @messages.each do |msg|
+          render MessageBubble.new(msg)
+        end
+      end
+    end
+  end
+
   def initialize(messages: [])
     @messages = messages
   end
@@ -74,11 +94,7 @@ class ChatPage < Sidereal::Page
 
       div(class: 'columns') do
         main(class: 'col-main') do
-          div(id: 'messages', class: 'message-feed', data: _d.init.run(%(scrollToBottom('messages'))).to_h) do
-            @messages.each do |msg|
-              render MessageBubble.new(msg)
-            end
-          end
+          render MessageList.new(@messages)
 
           command SendMessage, class: 'compose-form' do |f|
             div(class: 'compose-form__row') do
