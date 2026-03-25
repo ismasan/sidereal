@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-class Layout < Sidereal::Layout
+class Layout < Sidereal::Components::Layout
   def initialize(page)
     @page = page
   end

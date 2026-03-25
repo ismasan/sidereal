@@ -5,19 +5,73 @@ class TodoPage < Sidereal::Page
 
   # Re-render the page when a todo is added
   on AddTodo do |_evt|
-    browser.patch_elements load(params)
+    # browser.patch_elements load(params)
+    browser.patch_elements TodoList.new(TODOS.values.dup)
   end
 
   on Notify do |cmd|
-    browser.patch_elements %(<p id="notifications">#{cmd.payload.message}</p>)
+    browser.patch_elements ActivityItem.new(cmd), mode: 'append', selector: '#feed'
   end
 
   on RemoveTodo do |_evt|
-    browser.patch_elements load(params)
+    # browser.patch_elements load(params)
+    browser.patch_elements TodoList.new(TODOS.values.dup)
   end
 
   def self.load(_params, _ctx)
     new(todos: TODOS.values.dup)
+  end
+
+  class ActivityItem < Sidereal::Components::BaseComponent
+    def initialize(notification)
+      @notification = notification
+    end
+
+    def view_template
+      div(class: 'feed-item') do
+        span(class: 'datetime') { @notification.created_at.iso8601 }
+        span(class: 'message') { @notification.payload.message }
+      end
+    end
+  end
+
+  class TodoList < Sidereal::Components::BaseComponent
+    def initialize(todos)
+      @todos = todos
+    end
+
+    def view_template
+      div id: 'todos' do
+        command AddTodo, class: 'add-form' do |f|
+          div(class: 'add-form__row') do
+            f.text_field :title, placeholder: 'What needs to be done?'
+            button(type: :submit) { 'Add' }
+          end
+        end
+
+        if @todos.any?
+          div(class: 'todo-count') do
+            span { "#{@todos.size} #{@todos.size == 1 ? 'item' : 'items'}" }
+          end
+          ul(class: 'todo-list') do
+            @todos.each do |todo|
+              li(class: 'todo-item') do
+                span(class: 'todo-item__title') { todo.title }
+                command RemoveTodo, class: 'todo-item__remove' do |f|
+                  f.payload_fields(todo_id: todo.todo_id)
+                  button(type: :submit, class: 'btn-remove') { "\u00d7" }
+                end
+              end
+            end
+          end
+        else
+          div(class: 'empty-state') do
+            p { 'No todos yet.' }
+            p { 'Add one above to get started.' }
+          end
+        end
+      end
+    end
   end
 
   def initialize(todos: [])
@@ -30,34 +84,15 @@ class TodoPage < Sidereal::Page
         h1 { 'Todos' }
       end
 
-      command AddTodo, class: 'add-form' do |f|
-        div(class: 'add-form__row') do
-          f.text_field :title, placeholder: 'What needs to be done?'
-          button(type: :submit) { 'Add' }
+      div(class: 'columns') do
+        main(id: 'col-main', class: 'col-main') do
+          render TodoList.new(@todos)
         end
-      end
 
-      p(id: 'notifications', class: 'notification') { '' }
-
-      if @todos.any?
-        div(class: 'todo-count') do
-          span { "#{@todos.size} #{@todos.size == 1 ? 'item' : 'items'}" }
-        end
-        ul(class: 'todo-list') do
-          @todos.each do |todo|
-            li(class: 'todo-item') do
-              span(class: 'todo-item__title') { todo.title }
-              command RemoveTodo, class: 'todo-item__remove' do |f|
-                f.payload_fields(todo_id: todo.todo_id)
-                button(type: :submit, class: 'btn-remove') { "\u00d7" }
-              end
-            end
+        aside(class: 'col-sidebar') do
+          h2 { 'Activity' }
+          div(id: 'feed', class: 'feed') do
           end
-        end
-      else
-        div(class: 'empty-state') do
-          p { 'No todos yet.' }
-          p { 'Add one above to get started.' }
         end
       end
     end

@@ -1,3 +1,37 @@
+/* ── Page override ─────────────────────────── */
+
+.page { max-width: 56rem; }
+
+/* ── Columns ───────────────────────────────── */
+
+.columns {
+  display: flex;
+  gap: 2.5rem;
+}
+
+.col-main {
+  flex: 1 1 0%;
+  min-width: 0;
+}
+
+.col-sidebar {
+  flex: 0 0 16rem;
+}
+
+.col-sidebar h2 {
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #888;
+  margin-bottom: 0.75rem;
+}
+
+@media (max-width: 640px) {
+  .columns { flex-direction: column; gap: 2rem; }
+  .col-sidebar { flex-basis: auto; }
+}
+
 /* ── Header ─────────────────────────────────── */
 
 .header {
@@ -136,4 +170,29 @@
 
 .empty-state p + p {
   margin-top: 0.25rem;
+}
+
+/* ── Activity feed ─────────────────────────── */
+
+.feed-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid #efefef;
+  font-size: 0.8rem;
+}
+
+.feed-item:first-child {
+  padding-top: 0;
+}
+
+.feed-item .datetime {
+  color: #aaa;
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.feed-item .message {
+  color: #444;
 }

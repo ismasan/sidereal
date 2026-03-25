@@ -32,16 +32,16 @@ class TodoApp < Sidereal::App
 
   command AddTodo do |cmd|
     TODOS[cmd.payload.todo_id] = cmd.payload
-    dispatch Notify, message: "Done: #{cmd.payload.todo_id}"
+    dispatch Notify, message: "Added: #{cmd.payload.title}"
   end
 
   command Notify do |cmd|
-    Console.info "NOTI #{cmd}"
     sleep 3
   end
 
   command RemoveTodo do |cmd|
-    TODOS.delete cmd.payload.todo_id
+    item = TODOS.delete(cmd.payload.todo_id)
+    dispatch Notify, message: "Removed: #{item.title}"
   end
 
   page TodoPage
