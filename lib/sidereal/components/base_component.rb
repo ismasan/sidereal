@@ -7,6 +7,7 @@ require_relative 'datastar_helpers'
 module Sidereal
   module Components
     class BaseComponent < Phlex::HTML
+      BLANK_HASH = {}.freeze
       include DatastarHelpers
 
       private

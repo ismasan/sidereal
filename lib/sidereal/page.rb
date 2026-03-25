@@ -5,12 +5,11 @@ require_relative 'components/base_component'
 module Sidereal
   class Page < Components::BaseComponent
     METHOD_PREFIX = '__on_'
-    BLANK_HASH = {}.freeze
 
     private def page_key = self.class.page_key
 
-    private def page_signals
-      { page_key:, params: context.request.params }
+    def page_signals
+      { page_key: }
     end
 
     class << self

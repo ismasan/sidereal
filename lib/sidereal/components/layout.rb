@@ -5,7 +5,17 @@ require_relative 'base_component'
 module Sidereal
   module Components
     class Layout < BaseComponent
+      def initialize(page)
+        @page = page
+      end
+
       private
+
+      attr_reader :page
+
+      def sidereal_signals
+        _d.signals(page.page_signals.merge(params:))
+      end
 
       def sidereal_head
         script(type: "module", src: "https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.0-RC.8/bundles/datastar.js")

@@ -1,10 +1,6 @@
 # frozen_string_literal: true
 
 class Layout < Sidereal::Components::Layout
-  def initialize(page)
-    @page = page
-  end
-
   def view_template
     doctype
 
@@ -15,9 +11,9 @@ class Layout < Sidereal::Components::Layout
         link(rel: 'stylesheet', href: '/css/main.css')
         sidereal_head
       end
-      body do
+      body(data: sidereal_signals) do
         div(class: 'page') do
-          render @page
+          render page
         end
 
         sidereal_foot

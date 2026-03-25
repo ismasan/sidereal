@@ -79,7 +79,7 @@ class TodoPage < Sidereal::Page
   end
 
   def view_template
-    div(id: 'todos-page', data: _d.signals(page_key: self.class.page_key, params: {}).to_h) do
+    div(id: 'todos-page') do
       header(class: 'header') do
         h1 { 'Todos' }
       end

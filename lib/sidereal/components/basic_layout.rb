@@ -123,10 +123,6 @@ module Sidereal
         }
       CSS
 
-      def initialize(page)
-        @page = page
-      end
-
       def view_template
         doctype
 
@@ -137,9 +133,9 @@ module Sidereal
             sidereal_head
             style { STYLES }
           end
-          body do
+          body(data: sidereal_signals) do
             div(class: 'page') do
-              render @page
+              render page
             end
 
             sidereal_foot
