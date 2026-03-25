@@ -5,6 +5,7 @@ module Sidereal
     CMD_METHOD_PREFIX = '__cmd_'
     CMD_HASH = Types::Hash[type: String, payload?: Hash]
     DEFAULT_CMD_HANDLER = ->(*_) {}
+    BLANK_ARRAY = [].freeze
 
     class << self
       def command_registry
@@ -22,7 +23,7 @@ module Sidereal
         command_registry[cmd_class.type] = cmd_class
         method_name = Sidereal.message_method_name(CMD_METHOD_PREFIX, cmd_class.type)
         block ||= DEFAULT_CMD_HANDLER
-        define_method(method_name, block)
+        define_method(method_name, &block)
         private(method_name)
         self
       end
@@ -47,7 +48,12 @@ module Sidereal
     def handle(cmd)
       @__current_msg = cmd
       method_name = Sidereal.message_method_name(CMD_METHOD_PREFIX, cmd.class.type)
-      send(method_name, cmd)
+      begin
+        send(method_name, cmd)
+      rescue StandardError => ex
+        on_error(ex)
+        return Result.new(cmd, BLANK_ARRAY, BLANK_ARRAY)
+      end
 
       Result.new(
         cmd,
@@ -62,6 +68,10 @@ module Sidereal
     end
 
     private
+
+    def on_error(ex)
+      Console.warn ex
+    end
 
     def dispatch(msg_class, payload = {})
       msg = msg_class.new(payload: payload.to_h)
