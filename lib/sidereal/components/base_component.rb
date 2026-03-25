@@ -5,13 +5,23 @@ require 'securerandom'
 require_relative 'datastar_helpers'
 
 module Sidereal
-  class BaseComponent < Phlex::HTML
-    include DatastarHelpers
+  module Components
+    class BaseComponent < Phlex::HTML
+      include DatastarHelpers
 
-    private
+      private
 
-    def dom_id(prefix)
-      [prefix, SecureRandom.hex(4)].join('-')
+      def params
+        context.request.env.fetch('router.params', BLANK_HASH)
+      end
+
+      private def command(klass, *args, &block)
+        render Sidereal::Components::Command.new(klass, *args, &block)
+      end
+
+      def dom_id(prefix)
+        [prefix, SecureRandom.hex(4)].join('-')
+      end
     end
   end
 end
