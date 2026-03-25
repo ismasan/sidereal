@@ -15,6 +15,11 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
+  width: 100%;
+}
+
+.col-main > * {
+  width: 100%;
 }
 
 .col-sidebar {
@@ -91,7 +96,39 @@
 .message-bubble__body {
   font-size: 0.9rem;
   margin-bottom: 0;
-  line-height: 1.4;
+  line-height: 1.5;
+}
+
+.message-bubble__body > *:first-child { margin-top: 0; }
+.message-bubble__body > *:last-child { margin-bottom: 0; }
+.message-bubble__body p { margin: 0.4em 0; }
+.message-bubble__body ul, .message-bubble__body ol { margin: 0.4em 0; padding-left: 1.25em; }
+.message-bubble__body code {
+  font-size: 0.85em;
+  padding: 0.15em 0.35em;
+  background: #f0f0f0;
+  border-radius: 3px;
+}
+.message-bubble__body pre {
+  margin: 0.5em 0;
+  padding: 0.6em 0.8em;
+  background: #f5f5f5;
+  border-radius: 6px;
+  overflow-x: auto;
+}
+.message-bubble__body pre code {
+  padding: 0;
+  background: none;
+}
+.message-bubble__body blockquote {
+  margin: 0.4em 0;
+  padding-left: 0.75em;
+  border-left: 3px solid #d0d0d0;
+  color: #666;
+}
+.message-bubble__body h1, .message-bubble__body h2, .message-bubble__body h3 {
+  font-size: 0.95em;
+  margin: 0.6em 0 0.3em;
 }
 
 /* ── Compose form ──────────────────────────── */
@@ -101,6 +138,7 @@
   padding-top: 0.75rem;
   border-top: 1px solid #e5e5e5;
   flex-shrink: 0;
+  width: 100%;
 }
 
 .compose-form > * + * { margin-top: 0; }
@@ -108,19 +146,22 @@
 .compose-form__row {
   display: flex;
   gap: 0.5rem;
+  width: 100%;
 }
 
 .compose-form__row > * { margin-top: 0 !important; }
 
-.compose-form__row .command-field:first-child {
-  flex: 0 0 8rem;
+.compose-form__row .command-field {
   margin-bottom: 0;
 }
 
-.compose-form__row .command-field:nth-child(2) {
+.compose-form__row .command-field:first-of-type {
+  flex: 0 0 8rem;
+}
+
+.compose-form__row .command-field:last-of-type {
   flex: 1 1 0%;
   min-width: 0;
-  margin-bottom: 0;
 }
 
 .compose-form__row .command-field input[type="text"] {

@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require 'kramdown'
+
 class ChatPage < Sidereal::Page
   path '/'
 
@@ -7,6 +9,7 @@ class ChatPage < Sidereal::Page
     # browser.patch_elements load(params)
     browser.patch_elements MessageBubble.new(evt), mode: 'append', selector: '#messages'
     browser.execute_script %(document.querySelector('[data-target="message-body"]').value = '')
+    browser.execute_script %(scrollToBottom('messages'))
   end
 
   on ChatNotify do |evt|
@@ -14,7 +17,7 @@ class ChatPage < Sidereal::Page
   end
 
   def self.load(_params, _ctx)
-    new(messages: MESSAGES.dup)
+    new(messages: MessageLog.messages)
   end
 
   class MessageBubble < Sidereal::Components::BaseComponent
@@ -28,7 +31,9 @@ class ChatPage < Sidereal::Page
           span(class: 'message-bubble__author') { @message.payload.author }
           span(class: 'message-bubble__time') { @message.created_at.strftime('%H:%M') }
         end
-        p(class: 'message-bubble__body') { @message.payload.body }
+        div(class: 'message-bubble__body') do
+          raw safe(Kramdown::Document.new(@message.payload.content).to_html)
+        end
       end
     end
   end
@@ -50,15 +55,26 @@ class ChatPage < Sidereal::Page
     @messages = messages
   end
 
+  JS = <<~CODE
+  function scrollToBottom(id) {
+    const el = document.getElementById(id); 
+    el.scrollTop = el.scrollHeight
+  }
+  CODE
+
   def view_template
     div(id: 'chat-page') do
       header(class: 'header') do
         h1 { 'Chat' }
       end
 
+      script do
+        safe JS  
+      end
+
       div(class: 'columns') do
         main(class: 'col-main') do
-          div(id: 'messages', class: 'message-feed') do
+          div(id: 'messages', class: 'message-feed', data: _d.init.run(%(scrollToBottom('messages'))).to_h) do
             @messages.each do |msg|
               render MessageBubble.new(msg)
             end
@@ -67,7 +83,8 @@ class ChatPage < Sidereal::Page
           command SendMessage, class: 'compose-form' do |f|
             div(class: 'compose-form__row') do
               f.text_field :author, placeholder: 'Name'
-              f.text_field :body, data: {target: 'message-body'}, placeholder: 'Type a message...'
+              f.payload_fields(role: 'user')
+              f.text_field :content, data: {target: 'message-body'}, placeholder: 'Type a message...'
               button(type: :submit) { 'Send' }
             end
           end
