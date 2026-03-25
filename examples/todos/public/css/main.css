@@ -1,1 +1,139 @@
-/* App-specific styles */
+/* ── Header ─────────────────────────────────── */
+
+.header {
+  padding-bottom: 1rem;
+  margin-bottom: 1.5rem;
+  border-bottom: 1px solid #e5e5e5;
+}
+
+.header h1 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+/* ── Add form ──────────────────────────────── */
+
+.add-form {
+  margin-bottom: 1.5rem;
+}
+
+.add-form > * + * { margin-top: 0; }
+
+.add-form__row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.add-form__row > * {
+  margin-top: 0 !important;
+}
+
+.add-form__row .command-field {
+  flex: 1 1 0%;
+  min-width: 0;
+  margin-bottom: 0;
+}
+
+.add-form__row .command-field input[type="text"] {
+  width: 100%;
+  padding: 0.7rem 0.85rem;
+  font-size: 1rem;
+}
+
+.add-form__row > button[type="submit"] {
+  flex: none;
+  padding: 0.7rem 1.25rem;
+  font-size: 1rem;
+  align-self: stretch;
+}
+
+/* ── Notification ──────────────────────────── */
+
+.notification:empty {
+  display: none;
+}
+
+.notification {
+  padding: 0.5rem 0.75rem;
+  margin-bottom: 1rem;
+  font-size: 0.85rem;
+  color: #166534;
+  background: #f0fdf4;
+  border-radius: 6px;
+}
+
+/* ── Todo count ────────────────────────────── */
+
+.todo-count {
+  font-size: 0.8rem;
+  color: #888;
+  margin-bottom: 0.5rem;
+}
+
+/* ── Todo list ─────────────────────────────── */
+
+.todo-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  border: 1px solid #e5e5e5;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.todo-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.65rem 0.85rem;
+  background: #fff;
+}
+
+.todo-item + .todo-item {
+  border-top: 1px solid #efefef;
+}
+
+.todo-item__title {
+  font-size: 0.95rem;
+}
+
+.todo-item__remove {
+  display: inline;
+  margin: 0;
+}
+
+.btn-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  padding: 0;
+  font-size: 1rem;
+  line-height: 1;
+  color: #999;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: color 0.1s, background 0.1s;
+}
+
+.btn-remove:hover {
+  color: #dc2626;
+  background: #fef2f2;
+}
+
+/* ── Empty state ───────────────────────────── */
+
+.empty-state {
+  text-align: center;
+  padding: 2.5rem 1rem;
+  color: #aaa;
+  font-size: 0.9rem;
+}
+
+.empty-state p + p {
+  margin-top: 0.25rem;
+}

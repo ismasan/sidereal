@@ -26,29 +26,39 @@ class TodoPage < Sidereal::Page
 
   def view_template
     div(id: 'todos-page', data: _d.signals(page_key: self.class.page_key, params: {}).to_h) do
-      h1 { 'Todos' }
-
-      command AddTodo do |f|
-        f.text_field :title
-        button(type: :submit, style: 'padding:0.4rem 1rem;') { 'Add' }
+      header(class: 'header') do
+        h1 { 'Todos' }
       end
 
-      p(id: 'notifications') { '-- ' }
+      command AddTodo, class: 'add-form' do |f|
+        div(class: 'add-form__row') do
+          f.text_field :title, placeholder: 'What needs to be done?'
+          button(type: :submit) { 'Add' }
+        end
+      end
+
+      p(id: 'notifications', class: 'notification') { '' }
 
       if @todos.any?
-        ul do
+        div(class: 'todo-count') do
+          span { "#{@todos.size} #{@todos.size == 1 ? 'item' : 'items'}" }
+        end
+        ul(class: 'todo-list') do
           @todos.each do |todo|
-            li do
-              strong { todo.title }
-              command RemoveTodo do |f|
+            li(class: 'todo-item') do
+              span(class: 'todo-item__title') { todo.title }
+              command RemoveTodo, class: 'todo-item__remove' do |f|
                 f.payload_fields(todo_id: todo.todo_id)
-                button(type: :submit) { 'x' }
+                button(type: :submit, class: 'btn-remove') { "\u00d7" }
               end
             end
           end
         end
       else
-        p(style: 'color:#888;') { 'No todos yet. Add one above!' }
+        div(class: 'empty-state') do
+          p { 'No todos yet.' }
+          p { 'Add one above to get started.' }
+        end
       end
     end
   end

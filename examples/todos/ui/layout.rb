@@ -11,7 +11,7 @@ class Layout < Sidereal::Layout
     html do
       head do
         meta(name: 'viewport', content: 'width=device-width, initial-scale=1.0')
-        title { 'basic' }
+        title { 'Todos' }
         link(rel: 'stylesheet', href: '/css/main.css')
         sidereal_head
       end
