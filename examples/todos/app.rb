@@ -2,9 +2,6 @@
 
 require 'sidereal'
 
-# In-memory store (good enough for a demo)
-TODOS = {}
-
 # -- Messages --
 
 AddTodo = Sidereal::Message.define('todos.add') do
@@ -24,6 +21,8 @@ require_relative 'ui/layout'
 require_relative 'ui/todo_page'
 
 # -- App --
+# In-memory store (good enough for a demo)
+TODOS = {}
 
 class TodoApp < Sidereal::App
   session secret: 'a' * 64
@@ -36,6 +35,7 @@ class TodoApp < Sidereal::App
   end
 
   command Notify do |cmd|
+    # Simulate slow operation, IO, APIs, etc
     sleep 3
   end
 
@@ -46,3 +46,5 @@ class TodoApp < Sidereal::App
 
   page TodoPage
 end
+
+
