@@ -16,7 +16,27 @@ TestSendEmail = Sidereal::Message.define('test.send_email') do
   attribute :to, Sidereal::Types::String
 end
 
+TestNotification = Sidereal::Message.define('test.notification') do
+  attribute :text, Sidereal::Types::String
+end
+
+# -- Fake pubsub --
+
+class FakePubSub
+  attr_reader :published
+
+  def initialize
+    @published = []
+  end
+
+  def publish(channel, message)
+    @published << { channel: channel, message: message }
+  end
+end
+
 RSpec.describe Sidereal::Commander do
+  let(:pubsub) { FakePubSub.new }
+
   describe '.command' do
     it 'registers a message class in the command registry' do
       cmdr = Class.new(Sidereal::Commander) do
@@ -42,7 +62,7 @@ RSpec.describe Sidereal::Commander do
       end
 
       cmd = TestAddItem.new(payload: { title: 'test' })
-      expect { cmdr_class.handle(cmd) }.not_to raise_error
+      expect { cmdr_class.handle(cmd, pubsub: pubsub) }.not_to raise_error
     end
   end
 
@@ -76,7 +96,7 @@ RSpec.describe Sidereal::Commander do
       end
 
       cmd = TestAddItem.new(payload: { title: 'buy milk' })
-      cmdr_class.handle(cmd)
+      cmdr_class.handle(cmd, pubsub: pubsub)
       expect(called_with).to eq(cmd)
     end
 
@@ -86,7 +106,7 @@ RSpec.describe Sidereal::Commander do
       end
 
       cmd = TestAddItem.new(payload: { title: 'x' })
-      result = cmdr_class.handle(cmd)
+      result = cmdr_class.handle(cmd, pubsub: pubsub)
 
       expect(result).to be_a(Sidereal::Commander::Result)
       expect(result.msg).to eq(cmd)
@@ -100,7 +120,7 @@ RSpec.describe Sidereal::Commander do
       end
 
       cmd = TestAddItem.new(payload: { title: 'hello' })
-      result = cmdr_class.handle(cmd)
+      result = cmdr_class.handle(cmd, pubsub: pubsub)
 
       expect(result.events.size).to eq(1)
       evt = result.events.first
@@ -119,7 +139,7 @@ RSpec.describe Sidereal::Commander do
       end
 
       cmd = TestAddItem.new(payload: { title: 'x' })
-      result = cmdr_class.handle(cmd)
+      result = cmdr_class.handle(cmd, pubsub: pubsub)
 
       expect(result.commands.size).to eq(1)
       expect(result.commands.first).to be_a(TestSendEmail)
@@ -136,15 +156,30 @@ RSpec.describe Sidereal::Commander do
       end
 
       cmd = TestAddItem.new(payload: { title: 'x' })
-      result = cmdr_class.handle(cmd)
+      result = cmdr_class.handle(cmd, pubsub: pubsub)
 
       expect(result.events.map(&:class)).to eq([TestItemAdded])
       expect(result.commands.map(&:class)).to eq([TestSendEmail])
     end
+
+    it 'returns empty Result when handler raises' do
+      cmdr_class = Class.new(Sidereal::Commander) do
+        command TestAddItem do |cmd|
+          raise 'boom'
+        end
+      end
+
+      cmd = TestAddItem.new(payload: { title: 'x' })
+      result = cmdr_class.handle(cmd, pubsub: pubsub)
+
+      expect(result.msg).to eq(cmd)
+      expect(result.events).to be_empty
+      expect(result.commands).to be_empty
+    end
   end
 
   describe '.handle' do
-    it 'delegates to a new instance' do
+    it 'delegates to a new instance with pubsub' do
       cmdr_class = Class.new(Sidereal::Commander) do
         command TestAddItem do |cmd|
           dispatch TestItemAdded, cmd.payload
@@ -152,10 +187,64 @@ RSpec.describe Sidereal::Commander do
       end
 
       cmd = TestAddItem.new(payload: { title: 'hi' })
-      result = cmdr_class.handle(cmd)
+      result = cmdr_class.handle(cmd, pubsub: pubsub)
 
       expect(result.msg).to eq(cmd)
       expect(result.events.size).to eq(1)
+    end
+  end
+
+  describe '#broadcast' do
+    it 'publishes directly to pubsub during handling' do
+      cmdr_class = Class.new(Sidereal::Commander) do
+        command TestAddItem do |cmd|
+          broadcast TestNotification, text: 'hello'
+        end
+      end
+
+      cmd = TestAddItem.new(payload: { title: 'x' })
+      cmd = cmd.with_metadata(channel: 'test-ch')
+      cmdr_class.handle(cmd, pubsub: pubsub)
+
+      expect(pubsub.published.size).to eq(1)
+      pub = pubsub.published.first
+      expect(pub[:channel]).to eq('test-ch')
+      expect(pub[:message]).to be_a(TestNotification)
+      expect(pub[:message].payload.text).to eq('hello')
+    end
+
+    it 'correlates broadcast messages to the source command' do
+      cmdr_class = Class.new(Sidereal::Commander) do
+        command TestAddItem do |cmd|
+          broadcast TestNotification, text: 'hey'
+        end
+      end
+
+      cmd = TestAddItem.new(payload: { title: 'x' })
+      cmd = cmd.with_metadata(channel: 'ch')
+      cmdr_class.handle(cmd, pubsub: pubsub)
+
+      msg = pubsub.published.first[:message]
+      expect(msg.causation_id).to eq(cmd.id)
+      expect(msg.correlation_id).to eq(cmd.correlation_id)
+    end
+
+    it 'does not include broadcast messages in the Result' do
+      cmdr_class = Class.new(Sidereal::Commander) do
+        command TestAddItem do |cmd|
+          broadcast TestNotification, text: 'transient'
+          dispatch TestItemAdded, cmd.payload
+        end
+      end
+
+      cmd = TestAddItem.new(payload: { title: 'x' })
+      cmd = cmd.with_metadata(channel: 'ch')
+      result = cmdr_class.handle(cmd, pubsub: pubsub)
+
+      expect(result.events.size).to eq(1)
+      expect(result.events.first).to be_a(TestItemAdded)
+      expect(pubsub.published.size).to eq(1)
+      expect(pubsub.published.first[:message]).to be_a(TestNotification)
     end
   end
 

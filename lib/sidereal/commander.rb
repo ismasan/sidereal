@@ -34,12 +34,13 @@ module Sidereal
         cmd_class.new(data)
       end
 
-      def handle(msg)
-        new.handle(msg)
+      def handle(msg, pubsub:)
+        new(pubsub:).handle(msg)
       end
     end
 
-    def initialize
+    def initialize(pubsub:)
+      @pubsub = pubsub
       @__current_msg = nil
     end
 
@@ -71,6 +72,13 @@ module Sidereal
 
     def on_error(ex)
       Console.warn ex
+    end
+
+    def broadcast(msg_class, payload = {})
+      msg = msg_class.new(payload: payload.to_h)
+      msg = @__current_msg.correlate(msg)
+      @pubsub.publish msg.metadata.fetch(:channel), msg
+      self
     end
 
     def dispatch(msg_class, payload = {})
