@@ -28,37 +28,39 @@ module Sidereal
   # @example Basic subclass with routes
   #   class MyApp < Sidereal::Router
   #     get '/' do
-  #       [200, { 'Content-Type' => 'text/plain' }, ['hello']]
+  #       body 'hello'
   #     end
   #
   #     get '/items/:id' do |id:|
-  #       [200, { 'Content-Type' => 'text/plain' }, ["item #{id}"]]
+  #       body "item #{id}"
   #     end
   #
   #     post '/items' do
-  #       [201, { 'Content-Type' => 'text/plain' }, ['created']]
+  #       status 201
+  #       body 'created'
   #     end
   #
   #     redirect '/legacy', '/items'
   #   end
   #
   # @example Callable handler objects
-  #   # Any object (or lambda) that responds to #call(request, params)
+  #   # Any object (or lambda) that responds to #call(request, response, params)
   #   # can be passed as a handler instead of a block. Useful for
   #   # extracting route logic into standalone, testable objects.
+  #   # Callable handlers can either modify the +response+ object or
+  #   # return a raw Rack triplet (+[status, headers, body]+).
   #
   #   class ShowItem
-  #     def call(request, params)
-  #       id = params[:id]
-  #       [200, { 'Content-Type' => 'text/plain' }, ["item #{id}"]]
+  #     def call(request, response, params)
+  #       response.body = ["item #{params[:id]}"]
   #     end
   #   end
   #
   #   class MyApp < Sidereal::Router
   #     get '/items/:id', ShowItem.new
   #
-  #     # Lambdas work too
-  #     get '/health', ->(req, params) { [200, {}, ['ok']] }
+  #     # Lambdas work too — return a raw Rack triplet
+  #     get '/health', ->(req, resp, params) { [200, {}, ['ok']] }
   #   end
   #
   # @example Mounting as a Rack app
@@ -139,6 +141,18 @@ module Sidereal
         end
       end
 
+      # Register a before-route hook.
+      #
+      # The block is evaluated in the router instance context before
+      # every matched route handler. Use {#halt} inside the block to
+      # short-circuit the request (e.g. for authentication).
+      #
+      # @yield Block evaluated before each route handler
+      #
+      # @example Require authentication
+      #   before do
+      #     halt 401, 'unauthorized' unless session[:user_id]
+      #   end
       def before(&block)
         define_method(:before_route, &block)
         private :before_route
@@ -154,12 +168,12 @@ module Sidereal
       #
       # @example Static path
       #   get '/health' do
-      #     [200, {}, ['ok']]
+      #     body 'ok'
       #   end
       #
       # @example With named parameters
       #   get '/users/:user_id/posts/:id' do |user_id:, id:|
-      #     [200, {}, ["user=#{user_id} post=#{id}"]]
+      #     body "user=#{user_id} post=#{id}"
       #   end
       def get(path, handler = nil, &h)
         add GET, path, handler, &h
@@ -246,11 +260,11 @@ module Sidereal
       #
       #     get '/login' do
       #       session[:user_id] = 42
-      #       [200, {}, ['logged in']]
+      #       body 'logged in'
       #     end
       #
       #     get '/profile' do
-      #       [200, {}, ["user: #{session[:user_id]}"]]
+      #       body "user: #{session[:user_id]}"
       #     end
       #   end
       def session(secret:, **opts)
@@ -368,6 +382,7 @@ module Sidereal
     }.freeze
 
     # @return [Rack::Request] the current request
+    # @return [Rack::Response] the response being built
     attr_reader :request, :response
 
     # @param request [Rack::Request]
@@ -390,11 +405,11 @@ module Sidereal
     # @example Reading and writing session data
     #   post '/login' do
     #     session[:user_id] = request.params['user_id']
-    #     [200, {}, ['ok']]
+    #     body 'ok'
     #   end
     #
     #   get '/whoami' do
-    #     [200, {}, ["user: #{session[:user_id]}"]]
+    #     body "user: #{session[:user_id]}"
     #   end
     def session
       request.env['rack.session'] || raise('Sessions not configured. Use `session secret: "..."` in your Router subclass.')
@@ -409,10 +424,18 @@ module Sidereal
     # Matched path parameters are stored in
     # +request.env['router.params']+ as a symbol-keyed hash.
     #
+    # Runs {#before_route} (set via {.before}) before dispatching
+    # to the handler. The before hook can call {#halt} to short-circuit.
+    #
     # When the handler is a block, it is evaluated via +instance_exec+
     # in the router instance context with named params as keyword arguments.
-    # When the handler is a lambda or any other callable, it receives the
-    # +Rack::Request+ and extracted params hash via +#call+.
+    # Block handlers use {#body}, {#status}, and {#headers} to build
+    # the response.
+    #
+    # When the handler is a lambda or any other callable, it receives
+    # the +Rack::Request+, +Rack::Response+, and extracted params hash
+    # via +#call+. Callable handlers can either mutate the +response+
+    # object or return a raw Rack triplet (+[status, headers, body]+).
     #
     # @return [Array(Integer, Hash, Array)] Rack response triplet
     def call
@@ -470,8 +493,28 @@ module Sidereal
       NOT_FOUND
     end
 
-    # halt 422
-    # halt 200, 'hello'
+    # Immediately stop request processing and return a response.
+    #
+    # Sets status, headers, and/or body on the current {#response},
+    # then throws +:halt+ to unwind the handler stack.
+    #
+    # @overload halt(status)
+    #   @param status [Integer] HTTP status code
+    # @overload halt(status, body)
+    #   @param status [Integer] HTTP status code
+    #   @param body [String, #each, #call] response body
+    # @overload halt(status, headers)
+    #   @param status [Integer] HTTP status code
+    #   @param headers [Hash] response headers
+    # @overload halt(status, headers, body)
+    #   @param status [Integer] HTTP status code
+    #   @param headers [Hash] response headers
+    #   @param body [String, #each, #call] response body
+    #
+    # @example
+    #   halt 422
+    #   halt 200, 'hello'
+    #   halt 301, 'Location' => '/new-path'
     def halt(*args)
       case args
       in [Integer => st]
@@ -491,15 +534,34 @@ module Sidereal
       throw :halt, response.finish
     end
 
+    # Render a component that responds to +#call(context:)+.
+    #
+    # Calls the component with the router instance as context,
+    # and sets the response body to the return value.
+    #
+    # @param cmp [#call] component responding to +#call(context:)+
+    # @param status [Integer] HTTP status code (default: 200)
+    #
+    # @example
+    #   get '/dashboard' do
+    #     component DashboardPage.new(current_user)
+    #   end
     def component(cmp, status: 200)
       self.status status
       body cmp.call(context: self)
     end
 
+    # Set the HTTP status code on the response.
+    #
+    # @param st [Integer, Symbol] status code or Rack symbol (e.g. +:ok+, +:not_found+)
     def status(st)
       response.status = Rack::Utils.status_code(st)
     end
 
+    # Set the response body.
+    #
+    # @param b [String, #each, #call] response body
+    # @raise [ArgumentError] if +b+ is not a supported type
     def body(b)
       bd = case b
            when String
@@ -513,12 +575,21 @@ module Sidereal
       response.body = bd
     end
 
+    # Add headers to the response.
+    #
+    # @param h [Hash{String => String}] headers to add
     def headers(h)
       h.each do |k, v|
         response.add_header k, v
       end
     end
 
+    # Redirect to the given location.
+    #
+    # Halts processing and returns a redirect response.
+    #
+    # @param location [String] target URL
+    # @param status [Integer] HTTP status code (default: 301)
     def redirect(location, status: 301)
       halt status, 'Location' => location
     end
