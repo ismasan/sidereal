@@ -2,7 +2,6 @@
 
 require 'datastar'
 require 'datastar/async_executor'
-require_relative 'request_helpers'
 require_relative 'commander'
 require_relative 'components/basic_layout'
 
@@ -13,12 +12,6 @@ end
 
 module Sidereal
   class App < Router
-    include RequestHelpers
-
-    def phlex(component)
-      [200, { 'content-type' => 'text/html' }, [component.call(context: self)]]
-    end
-
     class << self
       def inherited(subclass)
         super
@@ -46,7 +39,7 @@ module Sidereal
 
         Sidereal::Page.register(page_class)
         get(page_class.path) do
-          phlex layout.new(page_class.load(params, self))
+          component layout.new(page_class.load(params, self))
         end
 
         self
@@ -65,8 +58,6 @@ module Sidereal
         commander.command(...)
       end
     end
-
-    NO_CONTENT = [200, { 'Content-Type' => 'text/plain' }.freeze, [].freeze].freeze
 
     get '/updates' do
       channel = pubsub.subscribe(channel_name)
@@ -94,8 +85,7 @@ module Sidereal
       streaming_command_errors(cmd, datastar) do
         cmd = before_command(cmd.with_metadata(channel: channel_name))
         store.append(cmd)
-        # commander.handle(cmd)
-        NO_CONTENT
+        status 204
       end
     end
 
