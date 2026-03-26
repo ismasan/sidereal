@@ -49,6 +49,16 @@ module Sidereal
         @commander ||= Class.new(Commander)
       end
 
+      def commands(cmder = nil, &block)
+        @commander = cmder if cmder
+        @commander.class_eval(&block) if block_given?
+        self
+      end
+
+      def command_helpers(...)
+        commands(...)
+      end
+
       def before_command(&block)
         define_method(:before_command, &block)
         private :before_command
