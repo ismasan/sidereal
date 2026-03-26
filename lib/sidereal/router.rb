@@ -437,7 +437,7 @@ module Sidereal
       handler = node['']
       return not_found unless handler
 
-      resp = catch :halt do
+      catch :halt do
         params ||= EMPTY_PARAMS
         request.env['router.params'] = params
         before_route
@@ -447,9 +447,16 @@ module Sidereal
         else
           handler.call(request, response, params)
         end
-        response
+
+        case ret
+        in [Integer, Hash, Object]
+          ret
+        in Rack::Response
+          ret.finish
+        else
+          response.finish
+        end
       end
-      resp.finish
     end
 
     NOT_FOUND = [404, {'Content-Type' => 'text/html'}.freeze, ['Resource not found'].freeze].freeze
@@ -481,7 +488,7 @@ module Sidereal
         body b
       end
 
-      throw :halt, response
+      throw :halt, response.finish
     end
 
     def component(cmp, status: 200)

@@ -49,6 +49,11 @@ class TestRouter < Sidereal::Router
     resp.body = ["callable:#{params[:id]}:#{req.request_method}"]
   }
   get '/callable/:id', callable_handler
+
+  raw_triplet_handler = ->(req, _resp, params) {
+    [202, { 'Content-Type' => 'text/plain' }, ["raw:#{params[:id]}"]]
+  }
+  get '/raw/:id', raw_triplet_handler
 end
 
 class SessionRouter < Sidereal::Router
@@ -199,6 +204,15 @@ RSpec.describe Sidereal::Router do
       get '/callable/99'
       expect(last_response.status).to eq(200)
       expect(last_response.body).to eq('callable:99:GET')
+    end
+  end
+
+  describe 'raw Rack triplet handler' do
+    it 'returns the triplet as-is' do
+      get '/raw/55'
+      expect(last_response.status).to eq(202)
+      expect(last_response.headers['Content-Type']).to eq('text/plain')
+      expect(last_response.body).to eq('raw:55')
     end
   end
 
