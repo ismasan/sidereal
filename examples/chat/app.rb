@@ -81,13 +81,21 @@ class ChatApp < Sidereal::App
   command AskLLM do |cmd|
     broadcast Working
 
-    chat = RubyLLM.chat
-    # Load recent chat history
-    MessageLog.messages.last(50).each do |m|
-      chat.add_message role: m.payload.role, content: %(#{m.payload.author} said on #{m.created_at}: #{m.payload.content})
-    end
     response = chat.ask(cmd.payload.content)
     dispatch SendMessage, author: 'Bot', role: 'assistant', content: response.content
+  end
+
+  command_helpers do
+    private def chat
+      @chat ||= (
+        chat = RubyLLM.chat
+        # Load recent chat history
+        MessageLog.messages.last(50).each do |m|
+          chat.add_message role: m.payload.role, content: %(#{m.payload.author} said on #{m.created_at}: #{m.payload.content})
+        end
+        chat
+      )
+    end
   end
 
   page ChatPage
