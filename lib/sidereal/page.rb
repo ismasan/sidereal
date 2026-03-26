@@ -74,7 +74,6 @@ module Sidereal
         page_context = PageContext.new(sse, ctx, page_class)
 
         channel.start do |evt, _channel|
-          Console.info "Event: #{evt.inspect}"
           page_context.react(evt)
         end
       end
