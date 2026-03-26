@@ -6,11 +6,42 @@ module Sidereal
   class Page < Components::BaseComponent
     METHOD_PREFIX = '__on_'
 
+    DEFAULT_HANDLER = proc do |_evt, _state|
+      browser.patch_element build(params)
+    end
+
+    class PageContext
+      def initialize(sse, ctx, page)
+        @context = ctx
+        @browser = sse
+        @params = sse.signals['params']
+        @page_id = sse.signals['page_id']
+        @page_key = sse.signals['page_key']
+        @page = page
+      end
+
+      def react(evt)
+        if (handler = @page.reactions[evt.class])
+          self.instance_exec(evt, &handler)
+        end
+      end
+
+      private
+
+      def load(params)
+        @page.load(params, context)
+      end
+
+      attr_reader :browser, :context, :params, :page_key, :page_id
+    end
+
     private def page_key = self.class.page_key
 
     def page_signals
       { page_key: }
     end
+
+    private def session = context.session
 
     class << self
       def path(p = nil)
@@ -50,35 +81,6 @@ module Sidereal
 
       def reactions
         @reactions ||= {}
-      end
-
-      DEFAULT_HANDLER = proc do |_evt, _state|
-        browser.patch_element build(params)
-      end
-
-      class PageContext
-        def initialize(sse, ctx, page)
-          @context = ctx
-          @browser = sse
-          @params = sse.signals['params']
-          @page_id = sse.signals['page_id']
-          @page_key = sse.signals['page_key']
-          @page = page
-        end
-
-        def react(evt)
-          if (handler = @page.reactions[evt.class])
-            self.instance_exec(evt, &handler)
-          end
-        end
-
-        private
-
-        def load(params)
-          @page.load(params, context)
-        end
-
-        attr_reader :browser, :context, :params, :page_key, :page_id
       end
 
       def load(params, ctx)
