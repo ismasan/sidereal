@@ -21,5 +21,7 @@ module Sidereal
       uri << (addr || request.path_info).to_s
       uri
     end
+
+    alias to url
   end
 end

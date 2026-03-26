@@ -25,6 +25,11 @@ RSpec.describe Sidereal::RequestHelpers do
       expect(helper.url).to eq('http://example.com/items')
     end
 
+    it 'is aliased as #to' do
+      helper = build('http://example.com/items')
+      expect(helper.to).to eq('http://example.com/items')
+    end
+
     it 'returns the absolute URL for a given path' do
       helper = build('http://example.com/items')
       expect(helper.url('/other')).to eq('http://example.com/other')
