@@ -85,7 +85,7 @@ module Sidereal
       streaming_command_errors(cmd, datastar) do
         cmd = before_command(cmd.with_metadata(channel: channel_name))
         store.append(cmd)
-        status 204
+        status 200
       end
     end
 
