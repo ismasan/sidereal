@@ -2,6 +2,7 @@
 
 require 'rack'
 require 'rack/session/cookie'
+require_relative 'request_helpers'
 
 module Sidereal
   # A minimal Rack-compatible router with a Sinatra-style DSL and
@@ -70,6 +71,8 @@ module Sidereal
   #     run MyApp
   #   end
   class Router
+    include RequestHelpers
+
     GET = 'GET'
     POST = 'POST'
     DELETE = 'DELETE'
@@ -131,6 +134,11 @@ module Sidereal
         routes.each do |k, v|
           subclass.routes[k] = v.dup
         end
+      end
+
+      def before(&block)
+        define_method(:before_route, &block)
+        private :before_route
       end
 
       # Register a GET route.
@@ -208,9 +216,9 @@ module Sidereal
       #
       # @example
       #   redirect '/old-path', '/new-path'
-      def redirect(from, to)
-        get from do
-          [301, {'Location' => to }, []]
+      def redirect(from_path, to_path)
+        get from_path do
+          redirect to(to_path), status: 301
         end
       end
 
@@ -351,12 +359,21 @@ module Sidereal
       end
     end
 
+    BLANK_BODY = [].freeze
+    DEFAULT_HEADERS = {
+      'Content-Type' => 'text/html'
+    }.freeze
+
     # @return [Rack::Request] the current request
-    attr_reader :request
+    attr_reader :request, :response
 
     # @param request [Rack::Request]
     def initialize(request)
       @request = request
+      @response = Rack::Response.new(BLANK_BODY, 200, DEFAULT_HEADERS.dup)
+    end
+
+    private def before_route
     end
 
     # Returns the session hash for the current request.
@@ -417,14 +434,19 @@ module Sidereal
       handler = node['']
       return not_found unless handler
 
-      params ||= EMPTY_PARAMS
-      request.env['router.params'] = params
+      resp = catch :halt do
+        params ||= EMPTY_PARAMS
+        request.env['router.params'] = params
+        before_route
 
-      if handler.is_a?(Proc) && !handler.lambda?
-        instance_exec(**params, &handler)
-      else
-        handler.call(request, params)
+        ret = if handler.is_a?(Proc) && !handler.lambda?
+          instance_exec(**params, &handler)
+        else
+          handler.call(request, response, params)
+        end
+        response
       end
+      resp.finish
     end
 
     NOT_FOUND = [404, {'Content-Type' => 'text/html'}.freeze, ['Resource not found'].freeze].freeze
@@ -434,6 +456,57 @@ module Sidereal
 
     private def not_found
       NOT_FOUND
+    end
+
+    # halt 422
+    # halt 200, 'hello'
+    private def halt(*args)
+      case args
+      in [Integer => st]
+        status st
+      in [Integer => st, Hash => h]
+        status st
+        headers h
+      in [Integer => st, Object => b]
+        status st
+        body b
+      in [Integer => st, Hash => h, Object => b]
+        status st
+        headers h
+        body b
+      end
+
+      throw :halt, response
+    end
+
+    private def status(st)
+      response.status = Rack::Utils.status_code(st)
+    end
+
+    Iterable = Plumb::Types::Interface[:each]
+    Callable = Plumb::Types::Interface[:call]
+
+    private def body(b)
+      bd = case b
+           when String
+             [b]
+           when Iterable, Callable
+             b
+           else
+             raise ArgumentError, "response body must be a String, Array, #call() or #each interface, but got #{b.inspect}"
+           end
+
+      response.body = bd
+    end
+
+    private def headers(h)
+      h.each do |k, v|
+        response.add_header k, v
+      end
+    end
+
+    private def redirect(location, status: 301)
+      halt status, 'Location' => location
     end
   end
 end

@@ -6,45 +6,47 @@ require 'sidereal/router'
 
 class TestRouter < Sidereal::Router
   get '/' do
-    [200, { 'Content-Type' => 'text/plain' }, ['root']]
+    body 'root'
   end
 
   get '/items' do
-    [200, { 'Content-Type' => 'text/plain' }, ['items']]
+    body 'items'
   end
 
   get '/items/:id' do |id:|
-    [200, { 'Content-Type' => 'text/plain' }, ["item:#{id}"]]
+    body "item:#{id}"
   end
 
   get '/items/:id/comments/:comment_id' do |id:, comment_id:|
-    [200, { 'Content-Type' => 'text/plain' }, ["item:#{id}:comment:#{comment_id}"]]
+    body "item:#{id}:comment:#{comment_id}"
   end
 
   post '/items' do
-    [201, { 'Content-Type' => 'text/plain' }, ['created']]
+    status 201
+    body 'created'
   end
 
   put '/items/:id' do |id:|
-    [200, { 'Content-Type' => 'text/plain' }, ["updated:#{id}"]]
+    body "updated:#{id}"
   end
 
   patch '/items/:id' do |id:|
-    [200, { 'Content-Type' => 'text/plain' }, ["patched:#{id}"]]
+    body "patched:#{id}"
   end
 
   delete '/items/:id' do |id:|
-    [200, { 'Content-Type' => 'text/plain' }, ["deleted:#{id}"]]
+    body "deleted:#{id}"
   end
 
   redirect '/old', '/items'
 
   get '/context' do
-    [200, { 'Content-Type' => 'text/plain' }, ["method:#{request.request_method}"]]
+    body ["method:#{request.request_method}"]
   end
 
-  callable_handler = ->(req, params) {
-    [200, { 'Content-Type' => 'text/plain' }, ["callable:#{params[:id]}:#{req.request_method}"]]
+  callable_handler = ->(req, resp, params) {
+    resp.add_header 'Content-Type', 'text/plain'
+    resp.body = ["callable:#{params[:id]}:#{req.request_method}"]
   }
   get '/callable/:id', callable_handler
 end
@@ -54,21 +56,22 @@ class SessionRouter < Sidereal::Router
 
   post '/login' do
     session[:user_id] = request.params['user_id']
-    [200, { 'Content-Type' => 'text/plain' }, ['logged in']]
+    body 'logged in'
   end
 
   get '/profile' do
     user_id = session[:user_id]
     if user_id
-      [200, { 'Content-Type' => 'text/plain' }, ["user:#{user_id}"]]
+      body "user:#{user_id}"
     else
-      [401, { 'Content-Type' => 'text/plain' }, ['unauthorized']]
+      status 401
+      body 'unauthorized'
     end
   end
 
   post '/logout' do
     session.clear
-    [200, { 'Content-Type' => 'text/plain' }, ['logged out']]
+    body 'logged out'
   end
 end
 
@@ -163,7 +166,7 @@ RSpec.describe Sidereal::Router do
     it 'returns 301 with Location header' do
       get '/old'
       expect(last_response.status).to eq(301)
-      expect(last_response.headers['Location']).to eq('/items')
+      expect(last_response.headers['Location']).to eq('http://example.org/items')
     end
   end
 
@@ -235,6 +238,36 @@ RSpec.describe Sidereal::Router do
       post '/login', user_id: '1'
       cookie = last_response.headers['set-cookie']
       expect(cookie).to include('rack.session')
+    end
+  end
+
+  describe 'before block' do
+    let(:before_router) do
+      Class.new(Sidereal::Router) do
+        before do
+          halt 403, 'forbidden' if request.env['HTTP_X_BLOCK']
+        end
+
+        get '/open' do
+          body 'welcome'
+        end
+      end
+    end
+
+    def app
+      before_router
+    end
+
+    it 'runs before route handler' do
+      get '/open'
+      expect(last_response.status).to eq(200)
+      expect(last_response.body).to eq('welcome')
+    end
+
+    it 'can halt the request before the handler runs' do
+      get '/open', {}, { 'HTTP_X_BLOCK' => '1' }
+      expect(last_response.status).to eq(403)
+      expect(last_response.body).to eq('forbidden')
     end
   end
 
