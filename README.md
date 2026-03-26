@@ -77,15 +77,37 @@ end
 
 ## How it works
 
-```
-Browser form submit
-  -> POST /commands (App validates & appends to Store)
-  -> Worker fiber claims from Store
-  -> Commander handles command, returns Result(msg, events, commands)
-  -> Events published to PubSub
-  -> PubSub pushes to SSE subscribers (GET /updates)
-  -> Page reactions re-render components via SSE patches
-  -> Browser morphs DOM (Datastar)
+```mermaid
+sequenceDiagram
+    participant Browser
+    participant App
+    participant PubSub
+    participant Store
+    participant Worker
+    participant CommandHandler
+
+    Browser->>App: POST /commands
+    App->>App: Validate command
+    App->>Store: Append command
+    App->>Browser: 200 OK
+
+
+    loop Worker fibers
+        Worker->>Store: Claim next command
+        Store->>Worker: Command
+        Worker->>CommandHandler: Handle command
+        CommandHandler->>Worker: Result(events, commands)
+        Worker->>PubSub: Publish events
+        Worker->>Store: Append new commands (if any)
+    end
+
+
+    Browser->>App: GET /updates (SSE)
+    App->>PubSub: Subscribe
+    PubSub->>App: Event
+    App->>App: Page reactions render HTML
+    App->>Browser: SSE patch (HTML fragments)
+    Browser->>Browser: Datastar morphs DOM
 ```
 
 Commands are processed asynchronously by worker fibers. The browser never waits for command handling to complete -- it submits the command and receives UI updates via the SSE stream as events are produced.
