@@ -73,6 +73,9 @@ module Sidereal
   class Router
     include RequestHelpers
 
+    Iterable = Plumb::Types::Interface[:each]
+    Callable = Plumb::Types::Interface[:call]
+
     GET = 'GET'
     POST = 'POST'
     DELETE = 'DELETE'
@@ -454,13 +457,15 @@ module Sidereal
 
     private_constant :NOT_FOUND, :EMPTY_PARAMS
 
-    private def not_found
+    private
+
+    def not_found
       NOT_FOUND
     end
 
     # halt 422
     # halt 200, 'hello'
-    private def halt(*args)
+    def halt(*args)
       case args
       in [Integer => st]
         status st
@@ -479,14 +484,16 @@ module Sidereal
       throw :halt, response
     end
 
-    private def status(st)
+    def component(cmp, status: 200)
+      self.status status
+      body cmp.call(context: self)
+    end
+
+    def status(st)
       response.status = Rack::Utils.status_code(st)
     end
 
-    Iterable = Plumb::Types::Interface[:each]
-    Callable = Plumb::Types::Interface[:call]
-
-    private def body(b)
+    def body(b)
       bd = case b
            when String
              [b]
@@ -499,13 +506,13 @@ module Sidereal
       response.body = bd
     end
 
-    private def headers(h)
+    def headers(h)
       h.each do |k, v|
         response.add_header k, v
       end
     end
 
-    private def redirect(location, status: 301)
+    def redirect(location, status: 301)
       halt status, 'Location' => location
     end
   end

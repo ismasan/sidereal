@@ -271,6 +271,42 @@ RSpec.describe Sidereal::Router do
     end
   end
 
+  describe '#component' do
+    let(:component_router) do
+      test_component = Class.new do
+        def call(context:)
+          "hello from component, method:#{context.request.request_method}"
+        end
+      end
+
+      Class.new(Sidereal::Router) do
+        get '/with-component' do
+          component test_component.new
+        end
+
+        get '/with-status' do
+          component test_component.new, status: 201
+        end
+      end
+    end
+
+    def app
+      component_router
+    end
+
+    it 'renders the component with the router as context' do
+      get '/with-component'
+      expect(last_response.status).to eq(200)
+      expect(last_response.body).to eq('hello from component, method:GET')
+    end
+
+    it 'accepts a custom status' do
+      get '/with-status'
+      expect(last_response.status).to eq(201)
+      expect(last_response.body).to eq('hello from component, method:GET')
+    end
+  end
+
   describe '#session without configuration' do
     it 'raises when sessions are not enabled' do
       # TestRouter has no session configured
