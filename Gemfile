@@ -11,3 +11,4 @@ gem "rake", "~> 13.0"
 gem "rspec", "~> 3.0"
 
 gem "rack-test", "~> 2.2"
+gem 'debug'
