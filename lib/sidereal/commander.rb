@@ -8,6 +8,8 @@ module Sidereal
     BLANK_ARRAY = [].freeze
 
     class << self
+      def commander = self
+
       def command_registry
         @command_registry ||= {}
       end
