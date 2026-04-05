@@ -399,14 +399,19 @@ on AddTodo do |evt|
   # Append to a container
   browser.patch_elements ActivityItem.new(evt), mode: 'append', selector: '#feed'
 
+  # Patch signal values
+  browser.patch_signals progress: 99
+
   # Execute JavaScript on the client
   browser.execute_script %(scrollToBottom('messages'))
 end
 ```
 
+See more about this [here](https://github.com/starfederation/datastar-ruby#datastar-methods).
+
 ### Sub-components
 
-Define inline components as nested classes for partial re-renders:
+Define inline components as separated classes (or nested classes) for partial re-renders:
 
 ```ruby
 class TodoPage < Sidereal::Page
