@@ -16,20 +16,18 @@ RSpec.describe Sidereal::Components::Layout do
   let(:page) { page_class.new }
 
   let(:layout_class) do
-    klass = Class.new(described_class) do
+    Class.new(described_class) do
       def view_template
         html do
-          head { sidereal_head }
+          head do
+            title { 'Test' }
+          end
           body do
-            div(data: sidereal_signals.to_h) do
-              yield
-            end
-            sidereal_foot
+            render page
           end
         end
       end
     end
-    klass
   end
 
   let(:layout) { layout_class.new(page) }
@@ -39,36 +37,71 @@ RSpec.describe Sidereal::Components::Layout do
   let(:request) { Rack::Request.new(env) }
   let(:context) { Struct.new(:request).new(request) }
 
-  def render_layout
-    layout.call(context:) { page.call }
+  def render_layout(component = layout)
+    component.call(context:) { page.call }
   end
 
-  describe '#sidereal_head' do
-    it 'includes the Datastar JS script tag' do
+  describe '#head' do
+    it 'appends the Datastar JS script tag after yielded content' do
       html = render_layout
       expect(html).to include('cdn.jsdelivr.net/gh/starfederation/datastar')
       expect(html).to include('type="module"')
     end
-  end
 
-  describe '#sidereal_foot' do
-    it 'renders a div that initializes SSE via GET /updates' do
+    it 'preserves content yielded by the subclass' do
       html = render_layout
-      expect(html).to include("data-init=\"@get('/updates')\"")
+      expect(html).to include('<title>Test</title>')
     end
   end
 
-  describe '#sidereal_signals' do
-    it 'includes the page_key signal' do
+  describe '#body' do
+    it 'appends the SSE init div after yielded content' do
+      html = render_layout
+      expect(html).to include("data-init=\"@get('/updates')\"")
+    end
+
+    it 'includes page_key and params signals on the body tag' do
       html = render_layout
       expect(html).to include('data-signals')
       expect(html).to include('page_key')
       expect(html).to include('/test')
+      expect(html).to include('params')
     end
 
-    it 'includes the params signal' do
-      html = render_layout
-      expect(html).to include('params')
+    it 'merges extra signals passed via data[:signals]' do
+      layout_with_signals = Class.new(described_class) do
+        def view_template
+          html do
+            head {}
+            body(data: { signals: { custom: 'value' } }) do
+              render page
+            end
+          end
+        end
+      end
+
+      html = render_layout(layout_with_signals.new(page))
+      expect(html).to include('custom')
+      expect(html).to include('value')
+      # still has the default signals
+      expect(html).to include('page_key')
+    end
+
+    it 'preserves non-signal data attributes' do
+      layout_with_data = Class.new(described_class) do
+        def view_template
+          html do
+            head {}
+            body(data: { foo: 'bar' }) do
+              render page
+            end
+          end
+        end
+      end
+
+      html = render_layout(layout_with_data.new(page))
+      expect(html).to include('data-foo="bar"')
+      expect(html).to include('data-signals')
     end
   end
 

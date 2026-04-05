@@ -452,7 +452,10 @@ end
 
 ## Layout
 
-Define a layout by subclassing `Sidereal::Components::Layout`. Use the `sidereal_head`, `sidereal_foot`, and `sidereal_signals` helpers to wire up Datastar.
+Define a layout by subclassing `Sidereal::Components::Layout`. The base class overrides `head` and `body` to automatically inject the necessary Datastar wiring:
+
+- **`head`** — appends the Datastar JS script tag after your content.
+- **`body`** — adds page signals (`page_key`, `params`) to the `data` attribute and appends the SSE init div at the end.
 
 ```ruby
 class AppLayout < Sidereal::Components::Layout
@@ -463,17 +466,22 @@ class AppLayout < Sidereal::Components::Layout
       head do
         meta(name: 'viewport', content: 'width=device-width, initial-scale=1.0')
         title { 'My App' }
-        sidereal_head  # loads Datastar JS
       end
-      body(data: sidereal_signals) do
+      body do
         div(class: 'page') do
           render page   # renders the current page component
         end
-
-        sidereal_foot   # initializes SSE connection (must be at the bottom)
       end
     end
   end
+end
+```
+
+You can pass additional data attributes and signals to `body`. Extra signals are merged with the default page signals:
+
+```ruby
+body(data: { class: 'app', signals: { theme: 'dark' } }) do
+  render page
 end
 ```
 

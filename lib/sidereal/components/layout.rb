@@ -9,13 +9,30 @@ module Sidereal
         @page = page
       end
 
+      def head(**args, &)
+        super(**args) do
+          yield
+
+          sidereal_head
+        end
+      end
+
+      def body(**args, &)
+        data = args[:data] || {}
+        signals = page.page_signals.merge(params:)
+        signals.merge!(data[:signals]) if data[:signals]
+        signals = _d.signals(signals).to_h
+        data = data.merge(signals)
+        super(**args.merge(data:)) do
+          yield
+
+          sidereal_foot
+        end
+      end
+
       private
 
       attr_reader :page
-
-      def sidereal_signals
-        _d.signals(page.page_signals.merge(params:))
-      end
 
       def sidereal_head
         script(type: "module", src: "https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.0-RC.8/bundles/datastar.js")
