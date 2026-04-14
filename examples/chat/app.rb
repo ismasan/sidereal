@@ -67,6 +67,11 @@ class ChatApp < Sidereal::App
 
   layout ChatLayout
 
+  # handle SendMessage do |cmd|
+  #   # browser.patch_elements(%(<div id="chat-page">Hello</div>))
+  #   patch_command_errors content: 'Nope nope'
+  # end
+
   command SendMessage do |cmd|
     MessageLog.append(cmd)
     if cmd.payload.content.to_s =~ /@bot /
