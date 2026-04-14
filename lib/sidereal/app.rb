@@ -186,8 +186,9 @@ module Sidereal
 
     post '/commands' do
       payload = Types::SymbolizedHash.parse(request.params['command'])
-      halt 404, 'unknown command' unless self.class.handled_commands.key?(payload[:type])
-      cmd = Sidereal::Message.from(payload)
+      cmd_class = self.class.handled_commands[payload[:type]]
+      halt 404, 'unknown command' unless cmd_class
+      cmd = cmd_class.new(payload)
       streaming_command_errors(cmd, datastar) do
         handle_local_command(cmd)
       end
