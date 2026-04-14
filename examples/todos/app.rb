@@ -29,6 +29,9 @@ class TodoApp < Sidereal::App
 
   layout Layout
 
+  handle AddTodo
+  handle RemoveTodo
+
   command AddTodo do |cmd|
     TODOS[cmd.payload.todo_id] = cmd.payload
     dispatch Notify, message: "Added: #{cmd.payload.title}"

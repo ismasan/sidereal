@@ -14,10 +14,22 @@ module Sidereal
   class App < Router
     HANDLE_METHOD_PREFIX = '__handle_'
 
+    DEFAULT_HANDLE_BLOCK = ->(cmd) {
+      dispatch(cmd)
+      status 200
+    }
+
     class << self
       def inherited(subclass)
         super
         Sidereal.register(subclass)
+        handled_commands.each do |type, klass|
+          subclass.handled_commands[type] = klass
+        end
+      end
+
+      def handled_commands
+        @handled_commands ||= {}
       end
 
       def layout(ly = nil)
@@ -101,7 +113,9 @@ module Sidereal
       #     browser.execute_script %(document.querySelector('.flash').textContent = 'Saved!')
       #   end
       def handle(cmd_class, &block)
+        handled_commands[cmd_class.type] = cmd_class
         method_name = Sidereal.message_method_name(HANDLE_METHOD_PREFIX, cmd_class.type)
+        block ||= DEFAULT_HANDLE_BLOCK
         define_method(method_name, &block)
         private(method_name)
         self
@@ -130,7 +144,8 @@ module Sidereal
 
     post '/commands' do
       payload = Types::SymbolizedHash.parse(request.params['command'])
-      cmd = self.class.commander.from(payload)
+      halt 404, 'unknown command' unless self.class.handled_commands.key?(payload[:type])
+      cmd = Sidereal::Message.from(payload)
       streaming_command_errors(cmd, datastar) do
         handle_local_command(cmd)
       end
@@ -139,13 +154,8 @@ module Sidereal
     private def handle_local_command(cmd)
       method_name = Sidereal.message_method_name(HANDLE_METHOD_PREFIX, cmd.type)
       @__current_msg = before_command(cmd.with_metadata(channel: channel_name))
-      if respond_to?(method_name, true)
-        with_streaming_sse do
-          send(method_name, @__current_msg)
-        end
-      else
-        dispatch(@__current_msg)
-        status 200
+      with_streaming_sse do
+        send(method_name, @__current_msg)
       end
     end
 

@@ -32,6 +32,8 @@ RSpec.describe 'Sidereal::App.handle' do
         command HandleTestCmd
         command HandleTestOtherCmd
 
+        handle HandleTestOtherCmd
+
         handle HandleTestCmd do |cmd|
           captured << cmd
           dispatch(HandleTestOtherCmd, name: 'from handle')
@@ -69,7 +71,7 @@ RSpec.describe 'Sidereal::App.handle' do
       expect(claimed.correlation_id).to eq(handled.first.correlation_id)
     end
 
-    it 'falls back to the store for commands without a local handler' do
+    it 'uses the default handler (dispatch to store + 200) when handle is called without a block' do
       post '/commands', command: { type: 'app_test.do_other', payload: { name: 'bob' } }
 
       expect(last_response.status).to eq(200)
@@ -131,17 +133,16 @@ RSpec.describe 'Sidereal::App.handle' do
       test_app
     end
 
-    it 'appends to the store as usual' do
+    it 'returns 404 for commands that were only registered with .command (not .handle)' do
       post '/commands', command: { type: 'app_test.do_thing', payload: { title: 'hello' } }
 
-      expect(last_response.status).to eq(200)
+      expect(last_response.status).to eq(404)
+    end
 
-      claimed = nil
-      Sync do
-        store.claim_next { |m| claimed = m }
-      end
-      expect(claimed).to be_a(HandleTestCmd)
-      expect(claimed.payload.title).to eq('hello')
+    it 'returns 404 for unknown command types' do
+      post '/commands', command: { type: 'app_test.unknown', payload: {} }
+
+      expect(last_response.status).to eq(404)
     end
   end
 end
