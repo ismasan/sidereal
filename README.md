@@ -337,6 +337,74 @@ class ChatApp < Sidereal::App
 end
 ```
 
+### Custom command handlers
+
+By default, commands submitted via `POST /commands` are appended to the async store and processed by worker fibers. Use `handle` to process a command synchronously during the HTTP request instead — useful for lightweight mutations, or when you want to stream DOM updates back to the browser immediately.
+
+```ruby
+class TodoApp < Sidereal::App
+  command AddTodo
+
+  handle AddTodo do |cmd|
+    TODOS[cmd.id] = cmd.payload.to_h
+    browser.patch_elements TodoList.new(TODOS.values)
+  end
+end
+```
+
+Commands without a `handle` block fall through to the default async path (`store.append`).
+
+Inside a `handle` block you have access to:
+
+- `browser` — the SSE stream for pushing DOM updates (see [SSE reactions](#sse-reactions) for the full API)
+- `dispatch(MessageClass, payload)` — correlate and append a follow-up command to the async store
+- `patch_command_errors(errors)` — stream field-level validation errors back to the form
+- `store`, `pubsub`, `params`, `session` — the usual App instance helpers
+
+#### Streaming DOM updates
+
+When the browser submits a command via Datastar (the default), the request accepts SSE responses. The `handle` block can use `browser` to push HTML patches, signal updates, or JavaScript execution — just like page `on` reactions:
+
+```ruby
+handle AddTodo do |cmd|
+  TODOS[cmd.id] = cmd.payload.to_h
+
+  browser.patch_elements TodoList.new(TODOS.values)
+  browser.patch_signals todo_count: TODOS.size
+  browser.execute_script %(document.querySelector('.flash').textContent = 'Saved!')
+end
+```
+
+If the request is not an SSE connection (e.g. a plain form POST), calling `browser` methods raises `NonStreamingConnection`.
+
+#### Dispatching follow-up commands
+
+Use `dispatch` to enqueue a command for async processing. The dispatched command is automatically correlated to the source command:
+
+```ruby
+handle AddTodo do |cmd|
+  TODOS[cmd.id] = cmd.payload.to_h
+  dispatch NotifyUser, text: "Todo added: #{cmd.payload.title}"
+  browser.patch_elements TodoList.new(TODOS.values)
+end
+```
+
+#### Custom validation with error streaming
+
+Use `patch_command_errors` to stream field-level errors back to the form. This works with the `command` form component, which generates the matching element IDs:
+
+```ruby
+handle PlaceOrder do |cmd|
+  errors = validate_stock(cmd.payload)
+  if errors.any?
+    patch_command_errors(errors)
+  else
+    ORDERS[cmd.id] = cmd.payload.to_h
+    browser.patch_elements OrderConfirmation.new(cmd.payload)
+  end
+end
+```
+
 ## Pages
 
 Pages are reactive [Phlex](https://www.phlex.fun/) components that re-render parts of the UI in response to events via SSE.

@@ -70,6 +70,36 @@ module Sidereal
         commander.command(...)
       end
 
+      # Register a handler block that processes a command synchronously
+      # during the HTTP request, instead of appending it to the async
+      # store/worker pipeline.
+      #
+      # Inside the block you have access to:
+      # - +browser+ — the SSE stream for pushing DOM updates (requires an SSE request)
+      # - +dispatch(MessageClass, payload)+ — correlate and append a new command to the store
+      # - +store+, +pubsub+, +params+, +session+ — the usual App instance helpers
+      #
+      # Commands without a registered +handle+ block fall through to the
+      # default async path (+store.append+).
+      #
+      # @param cmd_class [Class<Sidereal::Message>] the command class to handle
+      # @yield [cmd] the handler block, executed in the App instance context
+      # @yieldparam cmd [Sidereal::Message] the validated, metadata-enriched command
+      # @return [self]
+      #
+      # @example Basic handler that dispatches a follow-up command
+      #   handle AddTodo do |cmd|
+      #     TODOS[cmd.id] = cmd.payload.to_h
+      #     dispatch NotifyUser, text: "Todo added: #{cmd.payload.title}"
+      #     status 200
+      #   end
+      #
+      # @example Streaming DOM updates back to the browser via SSE
+      #   handle AddTodo do |cmd|
+      #     TODOS[cmd.id] = cmd.payload.to_h
+      #     browser.patch_elements TodoList.new(TODOS.values)
+      #     browser.execute_script %(document.querySelector('.flash').textContent = 'Saved!')
+      #   end
       def handle(cmd_class, &block)
         method_name = Sidereal.message_method_name(HANDLE_METHOD_PREFIX, cmd_class.type)
         define_method(method_name, &block)
@@ -198,17 +228,45 @@ module Sidereal
       if cmd.valid? # <== schedule valid command for processing
         yield cmd if block_given?
       else
-        cid = datastar.request.params['command']['_cid']
+        patch_command_errors(cmd.payload.errors)
+      end
+    end
 
-        #[cid]-[name]-errors
-        with_streaming_sse do
-          cmd.payload.errors.each do |field, error|
-            # 'text', "can't be blank"
-            field_id = [cid, field].join('-')
-            browser.patch_elements Components::Command::ErrorMessages.new(field_id, error)
-            wrapper_id = [field_id, 'wrapper'].join('-')
-            browser.execute_script %(document.getElementById("#{wrapper_id}").classList.add('errors'))
-          end
+    # Stream field-level validation errors back to the browser via SSE.
+    #
+    # For each error, patches the matching error-message element and adds
+    # an +errors+ CSS class to the field wrapper. Expects the form to use
+    # the {Components::Command} component, which generates the matching
+    # element IDs from the command's +_cid+ value.
+    #
+    # This is called automatically by +streaming_command_errors+ for
+    # invalid commands, but can also be used directly inside a +handle+
+    # block for custom validation logic.
+    #
+    # @param errors [Hash{Symbol => String}] field name to error message pairs
+    # @return [void]
+    #
+    # @example Custom validation in a handle block
+    #   handle PlaceOrder do |cmd|
+    #     errors = validate_stock(cmd.payload)
+    #     if errors.any?
+    #       patch_command_errors(errors)
+    #     else
+    #       dispatch ConfirmOrder, order_id: cmd.payload.order_id
+    #       browser.patch_elements OrderConfirmation.new(cmd.payload)
+    #     end
+    #   end
+    private def patch_command_errors(errors)
+      cid = datastar.request.params['command']['_cid']
+
+      #[cid]-[name]-errors
+      with_streaming_sse do
+        errors.each do |field, error|
+          # 'text', "can't be blank"
+          field_id = [cid, field].join('-')
+          browser.patch_elements Components::Command::ErrorMessages.new(field_id, error)
+          wrapper_id = [field_id, 'wrapper'].join('-')
+          browser.execute_script %(document.getElementById("#{wrapper_id}").classList.add('errors'))
         end
       end
     end
