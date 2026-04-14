@@ -365,11 +365,12 @@ end
 
 `handle` declares which commands the browser is allowed to submit to `POST /commands`. Types not registered with `handle` return `404`.
 
-Called without a block, `handle` installs the default handler: validate the command, append it to the async store, and return `200`. Worker fibers then pick it up and run the matching `command` block.
+`handle` accepts one or more command classes. Called without a block, it installs the default handler: validate the command, append it to the async store, and return `200`. Worker fibers then pick it up and run the matching `command` block.
 
 ```ruby
 class TodoApp < Sidereal::App
-  handle AddTodo            # exposes POST /commands for AddTodo
+  # Expose multiple commands at once with the default handler
+  handle AddTodo, RemoveTodo
 
   command AddTodo do |cmd|  # async worker handler
     TODOS[cmd.payload.todo_id] = cmd.payload
