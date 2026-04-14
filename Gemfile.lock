@@ -4,7 +4,7 @@ PATH
     sidereal (0.1.0)
       async
       brotli
-      datastar
+      datastar (~> 1.0.3)
       phlex
       plumb (~> 0.0.17)
       rack (~> 3)
@@ -27,7 +27,7 @@ GEM
       fiber-annotation
       fiber-local (~> 1.1)
       json
-    datastar (1.0.2)
+    datastar (1.0.3)
       json
       logger
       rack (>= 3.2)
@@ -117,7 +117,7 @@ CHECKSUMS
   brotli (0.8.0) sha256=0c5a42046b3b603fb109656881147fd76064c034b7d19c1b4fcc32a093a4d55d
   concurrent-ruby (1.3.6) sha256=6b56837e1e7e5292f9864f34b69c5a2cbc75c0cf5338f1ce9903d10fa762d5ab
   console (1.34.3) sha256=869fbd74697efc4c606f102d2812b0b008e4e7fd738a91c591e8577140ec0dcc
-  datastar (1.0.2) sha256=3fd1430a279f0668142e9d5ec5f7f81087b1ea3defc75f55ea8aa2ac036f651c
+  datastar (1.0.3) sha256=da630d4c8d1929069d2d3c1e0ed4ad0896a48f704e972ffab1b4b5daac73e00f
   date (3.5.1) sha256=750d06384d7b9c15d562c76291407d89e368dda4d4fff957eb94962d325a0dc0
   debug (1.11.1) sha256=2e0b0ac6119f2207a6f8ac7d4a73ca8eb4e440f64da0a3136c30343146e952b6
   diff-lcs (1.6.2) sha256=9ae0d2cba7d4df3075fe8cd8602a8604993efc0dfa934cff568969efb1909962
