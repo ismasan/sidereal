@@ -4,6 +4,14 @@ module Sidereal
   UnknownMessageError = Class.new(ArgumentError)
   PastMessageDateError = Class.new(ArgumentError)
 
+  MessageInterface = Types::Interface[
+    :id,
+    :type,
+    :correlate,
+    :metadata,
+    :payload
+  ]
+
   class Message < Types::Data
     EMPTY_ARRAY = [].freeze
 

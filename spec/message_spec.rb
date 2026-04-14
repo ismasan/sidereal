@@ -176,4 +176,16 @@ RSpec.describe Sidereal::Message do
       expect(Sidereal::Message.registry.keys).to include('spec.user_created')
     end
   end
+
+  describe 'MessageInterface' do
+    it 'matches a message with payload' do
+      msg = msg_class.new(payload: { name: 'Alice', email: 'a@b.com' })
+      expect(Sidereal::MessageInterface === msg).to be true
+    end
+
+    it 'matches a bare message without payload attributes' do
+      msg = bare_class.new
+      expect(Sidereal::MessageInterface === msg).to be true
+    end
+  end
 end
