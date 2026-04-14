@@ -388,6 +388,14 @@ end
 
 A custom `handle` block replaces the default async-dispatch behaviour. If you still want the async worker to run, call `dispatch(cmd)` inside the block.
 
+```ruby
+handle AddTodo do |cmd|
+  browser.patch_elements %(<p id="notification">Processing...</p>)
+  dispatch(cmd) # <= schedule command for background processing
+end
+```
+
+
 `handle` does **not** register the command with the async `Commander`. To have a web-submitted command also processed by workers, pair `handle` with a `command` block as shown above.
 
 Inside a `handle` block you have access to:
