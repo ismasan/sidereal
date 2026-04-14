@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require 'sidereal/dispatcher'
+
 module Sidereal
   module Falcon
     # Environment mixin for configuring a combined Falcon web server + workers service.
@@ -33,30 +35,11 @@ module Sidereal
 
           server = evaluator.make_server(@bound_endpoint)
 
+          @dispatcher = nil
+
           Async do |task|
             server.run
-
-            Sidereal.config.workers.times do |i|
-              task.async do |t|
-                while true
-                  Sidereal.store.claim_next do |msg|
-                    Sidereal.registry.each do |commander|
-                      t.async do
-                        result = commander.handle(msg, pubsub: Sidereal.pubsub)
-                        Sidereal.pubsub.publish result.msg.metadata.fetch(:channel), result.msg
-                        result.events.each do |e|
-                          Sidereal.pubsub.publish e.metadata.fetch(:channel), result.msg
-                        end
-                        result.commands.each do |e|
-                          Sidereal.store.append e
-                        end
-                      end
-                    end
-                  end
-                  sleep 0
-                end
-              end
-            end
+            @dispatcher = Sidereal::Dispatcher.spawn_into(task)
 
             task.children.each(&:wait)
           end
@@ -65,7 +48,7 @@ module Sidereal
         end
 
         def stop(...)
-          # @dispatcher&.stop
+          @dispatcher&.stop
           super
         end
       end
