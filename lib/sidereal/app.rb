@@ -125,12 +125,15 @@ module Sidereal
       # - +dispatch(MessageClass, payload)+ — correlate and append a new command to the store
       # - +store+, +pubsub+, +params+, +session+ — the usual App instance helpers
       #
-      # @param cmd_class [Class<Sidereal::Message>] the command class to expose
+      # @param cmd_classes [Array<Class<Sidereal::Message>>] one or more command classes to expose
       # @yield [cmd] the handler block, executed in the App instance context
       # @yieldparam cmd [Sidereal::Message] the validated, metadata-enriched command
       # @return [self]
       #
-      # @example Expose a command with the default async-dispatch handler
+      # @example Expose multiple commands with the default async-dispatch handler
+      #   handle AddTodo, RemoveTodo
+      #
+      # @example Expose a single command with a paired async worker
       #   handle AddTodo
       #   command AddTodo do |cmd|
       #     TODOS[cmd.payload.todo_id] = cmd.payload
@@ -149,12 +152,14 @@ module Sidereal
       #     browser.patch_elements TodoList.new(TODOS.values)
       #     browser.execute_script %(document.querySelector('.flash').textContent = 'Saved!')
       #   end
-      def handle(cmd_class, &block)
-        handled_commands[cmd_class.type] = cmd_class
-        method_name = Sidereal.message_method_name(HANDLE_METHOD_PREFIX, cmd_class.type)
-        block ||= DEFAULT_HANDLE_BLOCK
-        define_method(method_name, &block)
-        private(method_name)
+      def handle(*cmd_classes, &block)
+        cmd_classes.each do |cmd_class|
+          handled_commands[cmd_class.type] = cmd_class
+          method_name = Sidereal.message_method_name(HANDLE_METHOD_PREFIX, cmd_class.type)
+          block ||= DEFAULT_HANDLE_BLOCK
+          define_method(method_name, &block)
+          private(method_name)
+        end
         self
       end
     end

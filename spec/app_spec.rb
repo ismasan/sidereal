@@ -121,6 +121,37 @@ RSpec.describe 'Sidereal::App.handle' do
     end
   end
 
+  describe 'handle with multiple command classes' do
+    let(:test_app) do
+      Class.new(Sidereal::App) do
+        session secret: 'a' * 64
+
+        command HandleTestCmd
+        command HandleTestOtherCmd
+
+        handle HandleTestCmd, HandleTestOtherCmd
+      end
+    end
+
+    def app
+      test_app
+    end
+
+    it 'registers all listed commands with the default handler' do
+      post '/commands', command: { type: 'app_test.do_thing', payload: { title: 'hello' } }
+      expect(last_response.status).to eq(200)
+
+      post '/commands', command: { type: 'app_test.do_other', payload: { name: 'bob' } }
+      expect(last_response.status).to eq(200)
+
+      claimed = []
+      Sync do
+        2.times { store.claim_next { |m| claimed << m } }
+      end
+      expect(claimed.map(&:class)).to eq([HandleTestCmd, HandleTestOtherCmd])
+    end
+  end
+
   describe 'without any local handlers' do
     let(:test_app) do
       Class.new(Sidereal::App) do
