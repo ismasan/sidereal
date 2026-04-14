@@ -4,7 +4,7 @@ PATH
     sidereal (0.1.0)
       async
       brotli
-      datastar
+      datastar (~> 1.0.3)
       phlex
       plumb (~> 0.0.17)
       rack (~> 3)
@@ -50,7 +50,7 @@ GEM
       fiber-annotation
       fiber-local (~> 1.1)
       json
-    datastar (1.0.2)
+    datastar (1.0.3)
       json
       logger
       rack (>= 3.2)
@@ -134,7 +134,7 @@ CHECKSUMS
   brotli (0.8.0)
   concurrent-ruby (1.3.6) sha256=6b56837e1e7e5292f9864f34b69c5a2cbc75c0cf5338f1ce9903d10fa762d5ab
   console (1.34.3) sha256=869fbd74697efc4c606f102d2812b0b008e4e7fd738a91c591e8577140ec0dcc
-  datastar (1.0.2) sha256=3fd1430a279f0668142e9d5ec5f7f81087b1ea3defc75f55ea8aa2ac036f651c
+  datastar (1.0.3)
   falcon (0.55.2) sha256=dfcdd8e4c3a18827a5ca7e346df67ebdaf873ac61a5f7d20ad4923c4d6b180cb
   fiber-annotation (0.2.0) sha256=7abfadf1d119f508867d4103bf231c0354d019cc39a5738945dec2edadaf6c03
   fiber-local (1.1.0) sha256=c885f94f210fb9b05737de65d511136ea602e00c5105953748aa0f8793489f06
