@@ -180,5 +180,22 @@ RSpec.describe Sidereal::Page do
 
       expect(sse.patches.size).to eq(1)
     end
+
+    it 'symbolizes param keys from signals' do
+      captured_params = nil
+      page_with_params = Class.new(Sidereal::Page) do
+        path '/with-params'
+        on PageTestItemAdded do |evt|
+          captured_params = params
+        end
+      end
+
+      sse = FakeSSE.new('page_key' => '/with-params', 'params' => { 'id' => '42', 'filter' => 'active' })
+      page_context = page_context_class.new(sse, nil, page_with_params)
+
+      page_context.react(PageTestItemAdded.new(payload: { title: 'test' }))
+
+      expect(captured_params).to eq({ id: '42', filter: 'active' })
+    end
   end
 end

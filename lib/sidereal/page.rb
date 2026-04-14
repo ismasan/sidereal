@@ -14,7 +14,7 @@ module Sidereal
       def initialize(sse, ctx, page)
         @context = ctx
         @browser = sse
-        @params = sse.signals['params']
+        @params = (sse.signals['params'] || {}).transform_keys(&:to_sym)
         @page_id = sse.signals['page_id']
         @page_key = sse.signals['page_key']
         @page = page
