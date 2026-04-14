@@ -12,6 +12,8 @@ end
 
 module Sidereal
   class App < Router
+    HANDLE_METHOD_PREFIX = '__handle_'
+
     class << self
       def inherited(subclass)
         super
@@ -67,6 +69,13 @@ module Sidereal
       def command(...)
         commander.command(...)
       end
+
+      def handle(cmd_class, &block)
+        method_name = Sidereal.message_method_name(HANDLE_METHOD_PREFIX, cmd_class.type)
+        define_method(method_name, &block)
+        private(method_name)
+        self
+      end
     end
 
     get '/updates' do
@@ -94,6 +103,15 @@ module Sidereal
       cmd = self.class.commander.from(payload)
       streaming_command_errors(cmd, datastar) do
         cmd = before_command(cmd.with_metadata(channel: channel_name))
+        handle_local_command(cmd)
+      end
+    end
+
+    private def handle_local_command(cmd)
+      method_name = Sidereal.message_method_name(HANDLE_METHOD_PREFIX, cmd.type)
+      if respond_to?(method_name, true)
+        send(method_name, cmd)
+      else
         store.append(cmd)
         status 200
       end
