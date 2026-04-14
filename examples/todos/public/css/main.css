@@ -132,6 +132,16 @@
   font-size: 0.95rem;
 }
 
+.todo-item--done {
+  opacity: 0.5;
+  background: #f5f5f5;
+}
+
+.todo-item--done .todo-item__title {
+  text-decoration: line-through;
+  color: #888;
+}
+
 .todo-item__remove {
   display: inline;
   margin: 0;

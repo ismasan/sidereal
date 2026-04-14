@@ -8,7 +8,7 @@ class Layout < Sidereal::Components::Layout
       head do
         meta(name: 'viewport', content: 'width=device-width, initial-scale=1.0')
         title { 'Todos' }
-        link(rel: 'stylesheet', href: '/css/main.css')
+        link(rel: 'stylesheet', href: '/css/main.css?1')
       end
       body do
         div(class: 'page') do

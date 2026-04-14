@@ -55,11 +55,13 @@ class TodoPage < Sidereal::Page
           end
           ul(class: 'todo-list') do
             @todos.each do |todo|
-              li(class: 'todo-item') do
+              li(class: todo.done ? 'todo-item todo-item--done' : 'todo-item') do
                 span(class: 'todo-item__title') { todo.title }
-                command RemoveTodo, class: 'todo-item__remove' do |f|
-                  f.payload_fields(todo_id: todo.todo_id)
-                  button(type: :submit, class: 'btn-remove') { "\u00d7" }
+                unless todo.done
+                  command RemoveTodo, class: 'todo-item__remove' do |f|
+                    f.payload_fields(todo_id: todo.todo_id)
+                    button(type: :submit, class: 'btn-remove', title: 'Mark as done') { "\u2713" }
+                  end
                 end
               end
             end

@@ -22,6 +22,7 @@ require_relative 'ui/todo_page'
 
 # -- App --
 # In-memory store (good enough for a demo)
+Todo = Struct.new(:todo_id, :title, :done, keyword_init: true)
 TODOS = {}
 
 class TodoApp < Sidereal::App
@@ -33,7 +34,7 @@ class TodoApp < Sidereal::App
   handle RemoveTodo
 
   command AddTodo do |cmd|
-    TODOS[cmd.payload.todo_id] = cmd.payload
+    TODOS[cmd.payload.todo_id] = Todo.new(todo_id: cmd.payload.todo_id, title: cmd.payload.title, done: false)
     dispatch Notify, message: "Added: #{cmd.payload.title}"
   end
 
@@ -43,8 +44,9 @@ class TodoApp < Sidereal::App
   end
 
   command RemoveTodo do |cmd|
-    item = TODOS.delete(cmd.payload.todo_id)
-    dispatch Notify, message: "Removed: #{item.title}"
+    item = TODOS[cmd.payload.todo_id]
+    item.done = true
+    dispatch Notify, message: "Done: #{item.title}"
   end
 
   page TodoPage
