@@ -39,7 +39,7 @@ module Sidereal
 
           Async do |task|
             server.run
-            @dispatcher = Sidereal::Dispatcher.spawn_into(task)
+            @dispatcher = Sidereal.dispatcher.spawn_into(task)
 
             task.children.each(&:wait)
           end

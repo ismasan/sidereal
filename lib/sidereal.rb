@@ -14,16 +14,33 @@ module Sidereal
   def self.setup!
   end
 
-  class Configuration < Struct.new(:workers)
+  class Configuration
+    attr_accessor :workers
+    attr_writer :store, :pubsub, :dispatcher
+
+    def initialize(workers: 1)
+      @workers = workers
+    end
+
+    def store
+      @store || Store::Memory.instance
+    end
+
+    def pubsub
+      @pubsub || PubSub::Memory.instance
+    end
+
+    def dispatcher
+      @dispatcher || Dispatcher
+    end
   end
 
   def self.config
-    @config ||= Configuration.new(1)
+    @config ||= Configuration.new
   end
 
   def self.configure(&)
     yield config
-    config.freeze
   end
 
   def self.registry
@@ -34,13 +51,9 @@ module Sidereal
     registry << app.commander
   end
 
-  def self.pubsub
-    PubSub::Memory.instance
-  end
-
-  def self.store
-    Store::Memory.instance
-  end
+  def self.pubsub = config.pubsub
+  def self.store = config.store
+  def self.dispatcher = config.dispatcher
 end
 
 require_relative 'sidereal/types'
@@ -50,5 +63,6 @@ require_relative 'sidereal/components/layout'
 require_relative 'sidereal/page'
 require_relative 'sidereal/pubsub/memory'
 require_relative 'sidereal/store/memory'
+require_relative 'sidereal/dispatcher'
 require_relative 'sidereal/app'
 require_relative 'sidereal/components/command'
