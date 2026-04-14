@@ -102,19 +102,32 @@ module Sidereal
       payload = Types::SymbolizedHash.parse(request.params['command'])
       cmd = self.class.commander.from(payload)
       streaming_command_errors(cmd, datastar) do
-        cmd = before_command(cmd.with_metadata(channel: channel_name))
         handle_local_command(cmd)
       end
     end
 
     private def handle_local_command(cmd)
       method_name = Sidereal.message_method_name(HANDLE_METHOD_PREFIX, cmd.type)
+      @__current_msg = before_command(cmd.with_metadata(channel: channel_name))
       if respond_to?(method_name, true)
-        send(method_name, cmd)
+        send(method_name, @__current_msg)
       else
-        store.append(cmd)
+        dispatch(@__current_msg)
         status 200
       end
+    end
+
+    private def dispatch(*args)
+      cmd = case args
+        in [Class => c, Hash => payload]
+          @__current_msg.correlate(c.new(payload:))
+        in [Class => c]
+          @__current_msg.correlate(c.new)
+        in [MessageInterface => m]
+          m
+      end
+
+      store.append(cmd)
     end
 
     def params

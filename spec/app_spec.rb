@@ -34,6 +34,7 @@ RSpec.describe 'Sidereal::App.handle' do
 
         handle HandleTestCmd do |cmd|
           captured << cmd
+          dispatch(HandleTestOtherCmd, name: 'from handle')
           status 200
         end
       end
@@ -50,6 +51,22 @@ RSpec.describe 'Sidereal::App.handle' do
       expect(handled.size).to eq(1)
       expect(handled.first).to be_a(HandleTestCmd)
       expect(handled.first.payload.title).to eq('hello')
+    end
+
+    it 'can manually append a different command to the store' do
+      post '/commands', command: { type: 'app_test.do_thing', payload: { title: 'hello' } }
+
+      expect(last_response.status).to eq(200)
+      expect(handled.size).to eq(1)
+
+      claimed = nil
+      Sync do
+        store.claim_next { |m| claimed = m }
+      end
+      expect(claimed).to be_a(HandleTestOtherCmd)
+      expect(claimed.payload.name).to eq('from handle')
+      expect(claimed.causation_id).to eq(handled.first.id)
+      expect(claimed.correlation_id).to eq(handled.first.correlation_id)
     end
 
     it 'falls back to the store for commands without a local handler' do
