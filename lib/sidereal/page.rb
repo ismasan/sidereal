@@ -98,6 +98,13 @@ module Sidereal
         reactions[message_class] = block || DEFAULT_HANDLER
         self
       end
+
+      def inherited(subclass)
+        super
+        reactions.each do |message_class, block|
+          subclass.reactions[message_class] = block
+        end
+      end
     end
   end
 end

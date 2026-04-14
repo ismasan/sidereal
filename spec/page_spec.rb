@@ -67,6 +67,21 @@ RSpec.describe Sidereal::Page do
       expect(page_class.reactions).to have_key(PageTestItemAdded)
     end
 
+    it 'inherits reactions from the parent page' do
+      parent = Class.new(Sidereal::Page) do
+        on PageTestItemAdded do |evt|
+        end
+      end
+
+      child = Class.new(parent) do
+        on PageTestNotification do |evt|
+        end
+      end
+
+      expect(child.reactions.keys).to contain_exactly(PageTestItemAdded, PageTestNotification)
+      expect(parent.reactions.keys).to eq([PageTestItemAdded])
+    end
+
     it 'does not share reactions between page subclasses' do
       page_a = Class.new(Sidereal::Page) do
         on PageTestItemAdded do |evt|
