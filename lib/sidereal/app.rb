@@ -14,6 +14,8 @@ module Sidereal
   class App < Router
     HANDLE_METHOD_PREFIX = '__handle_'
 
+    # Installed by {.handle} when called without a block: dispatches the
+    # validated command to the async store and returns +200+.
     DEFAULT_HANDLE_BLOCK = ->(cmd) {
       dispatch(cmd)
       status 200
@@ -28,6 +30,13 @@ module Sidereal
         end
       end
 
+      # Registry of command classes this app exposes to the web via
+      # +POST /commands+. Populated by {.handle}. Each subclass gets
+      # its own copy (seeded from the superclass in {.inherited}), so
+      # later +handle+ calls on a parent don't leak into children that
+      # have already been defined.
+      #
+      # @return [Hash{String => Class<Sidereal::Message>}] type string → command class
       def handled_commands
         @handled_commands ||= {}
       end
@@ -78,28 +87,56 @@ module Sidereal
         private :before_command
       end
 
+      # Register a command with the app's {Commander}, so the async
+      # worker pipeline can process it. Commands registered only via
+      # +command+ are *not* addressable from the browser — they are
+      # internal workflow steps, dispatched from other handlers,
+      # automations, or sagas.
+      #
+      # To expose a command to the web (+POST /commands+), register it
+      # additionally with {.handle}.
+      #
+      # @see .handle for web exposure
+      # @see Sidereal::Commander#command
       def command(...)
         commander.command(...)
       end
 
-      # Register a handler block that processes a command synchronously
-      # during the HTTP request, instead of appending it to the async
-      # store/worker pipeline.
+      # Expose a command to the web (+POST /commands+) and register a
+      # handler that runs synchronously during the HTTP request.
       #
-      # Inside the block you have access to:
+      # Every call to +handle+ does two things:
+      # 1. Adds the command class to the app's +handled_commands+
+      #    registry. Types not in this registry return +404+ from
+      #    +POST /commands+.
+      # 2. Defines a handler method. If a block is given, it is the
+      #    handler; otherwise {DEFAULT_HANDLE_BLOCK} is installed,
+      #    which simply dispatches the command to the async store and
+      #    returns +200+.
+      #
+      # +handle+ does **not** register the command with the async
+      # {Commander}. If you want a web-submitted command to also be
+      # processed by workers, register it separately with {.command}.
+      # (The default handler's +dispatch+ will push it onto the store,
+      # where a +command+ block can pick it up.)
+      #
+      # Inside a custom block you have access to:
       # - +browser+ — the SSE stream for pushing DOM updates (requires an SSE request)
       # - +dispatch(MessageClass, payload)+ — correlate and append a new command to the store
       # - +store+, +pubsub+, +params+, +session+ — the usual App instance helpers
       #
-      # Commands without a registered +handle+ block fall through to the
-      # default async path (+store.append+).
-      #
-      # @param cmd_class [Class<Sidereal::Message>] the command class to handle
+      # @param cmd_class [Class<Sidereal::Message>] the command class to expose
       # @yield [cmd] the handler block, executed in the App instance context
       # @yieldparam cmd [Sidereal::Message] the validated, metadata-enriched command
       # @return [self]
       #
-      # @example Basic handler that dispatches a follow-up command
+      # @example Expose a command with the default async-dispatch handler
+      #   handle AddTodo
+      #   command AddTodo do |cmd|
+      #     TODOS[cmd.payload.todo_id] = cmd.payload
+      #   end
+      #
+      # @example Custom handler that dispatches a follow-up command
       #   handle AddTodo do |cmd|
       #     TODOS[cmd.id] = cmd.payload.to_h
       #     dispatch NotifyUser, text: "Todo added: #{cmd.payload.title}"
