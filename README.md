@@ -67,6 +67,10 @@ TODOS = {}
 class TodoApp < Sidereal::App
   session secret: ENV.fetch('SESSION_SECRET')
 
+  # Expose AddTodo to the browser's POST /commands
+  handle AddTodo
+
+  # Register the async worker handler
   command AddTodo do |cmd|
     TODOS[cmd.id] = cmd.payload
   end
@@ -87,8 +91,9 @@ sequenceDiagram
     participant CommandHandler
 
     Browser->>App: POST /commands
+    App->>App: Check handled_commands registry (404 if not exposed)
     App->>App: Validate command
-    App->>Store: Append command
+    App->>Store: Append command (default handler)
     App->>Browser: 200 OK
 
 
@@ -276,11 +281,15 @@ class ChatApp < Sidereal::App
   session secret: ENV.fetch('SESSION_SECRET')
   layout ChatLayout
 
+  # SendMessage is submitted from the browser
+  handle SendMessage
+
   command SendMessage do |cmd|
     MessageLog.append(cmd)
     dispatch Notify, message: "#{cmd.payload.author}: #{cmd.payload.content}"
   end
 
+  # Notify is dispatched internally and never exposed to the web
   command Notify do |cmd|
     # no-op, but events from this command will still be published
   end
@@ -291,9 +300,24 @@ end
 
 ### Commands
 
-Register command handlers with `command`. Inside a handler, use `dispatch` to produce events or enqueue follow-up commands.
+Commands are split into two registrations:
+
+- `command` registers an async handler with the app's `Commander`. Worker fibers pick the command off the store and run this block. Commands registered *only* via `command` are **internal** — they can be produced by other handlers, automations, or sagas, but cannot be submitted from the browser.
+- `handle` exposes a command to `POST /commands` (see [Custom command handlers](#custom-command-handlers)). Any type that isn't `handle`-registered returns `404` on POST.
+
+Inside a `command` block, use `dispatch` to produce events or enqueue follow-up commands.
 
 ```ruby
+# Internal command — dispatched from other handlers, never from the browser
+SendEmail = Sidereal::Message.define('mail.send') { attribute :to, String }
+
+command SendEmail do |cmd|
+  Mailer.deliver(cmd.payload.to)
+end
+
+# Web-facing command — exposed via `handle`, processed async via `command`
+handle AddTodo
+
 command AddTodo do |cmd|
   TODOS[cmd.payload.todo_id] = cmd.payload
 
@@ -339,20 +363,32 @@ end
 
 ### Custom command handlers
 
-By default, commands submitted via `POST /commands` are appended to the async store and processed by worker fibers. Use `handle` to process a command synchronously during the HTTP request instead — useful for lightweight mutations, or when you want to stream DOM updates back to the browser immediately.
+`handle` declares which commands the browser is allowed to submit to `POST /commands`. Types not registered with `handle` return `404`.
+
+Called without a block, `handle` installs the default handler: validate the command, append it to the async store, and return `200`. Worker fibers then pick it up and run the matching `command` block.
 
 ```ruby
 class TodoApp < Sidereal::App
-  command AddTodo
+  handle AddTodo            # exposes POST /commands for AddTodo
 
-  handle AddTodo do |cmd|
-    TODOS[cmd.id] = cmd.payload.to_h
-    browser.patch_elements TodoList.new(TODOS.values)
+  command AddTodo do |cmd|  # async worker handler
+    TODOS[cmd.payload.todo_id] = cmd.payload
   end
 end
 ```
 
-Commands without a `handle` block fall through to the default async path (`store.append`).
+Pass a block to `handle` to process the command **synchronously** during the HTTP request instead — useful for lightweight mutations, or when you want to stream DOM updates back to the browser immediately:
+
+```ruby
+handle AddTodo do |cmd|
+  TODOS[cmd.id] = cmd.payload.to_h
+  browser.patch_elements TodoList.new(TODOS.values)
+end
+```
+
+A custom `handle` block replaces the default async-dispatch behaviour. If you still want the async worker to run, call `dispatch(cmd)` inside the block.
+
+`handle` does **not** register the command with the async `Commander`. To have a web-submitted command also processed by workers, pair `handle` with a `command` block as shown above.
 
 Inside a `handle` block you have access to:
 
