@@ -84,6 +84,41 @@ RSpec.describe 'Sidereal::App.handle' do
     end
   end
 
+  describe 'handler streaming SSE updates' do
+    let(:test_app) do
+      Class.new(Sidereal::App) do
+        session secret: 'a' * 64
+
+        command HandleTestCmd
+
+        handle HandleTestCmd do |cmd|
+          browser.patch_elements '<div id="result">updated</div>'
+        end
+      end
+    end
+
+    def app
+      test_app
+    end
+
+    it 'streams DOM patches via browser.patch_elements' do
+      post '/commands',
+        { command: { type: 'app_test.do_thing', payload: { title: 'hello' } } },
+        { 'HTTP_ACCEPT' => 'text/event-stream' }
+
+      expect(last_response.status).to eq(200)
+      expect(last_response.headers['content-type']).to include('text/event-stream')
+      expect(last_response.body).to include('event: datastar-patch-elements')
+      expect(last_response.body).to include('<div id="result">updated</div>')
+    end
+
+    it 'raises NonStreamingConnection when handler uses browser on a non-SSE request' do
+      expect {
+        post '/commands', command: { type: 'app_test.do_thing', payload: { title: 'hello' } }
+      }.to raise_error(Sidereal::App::NonStreamingConnection, /patch_elements/)
+    end
+  end
+
   describe 'without any local handlers' do
     let(:test_app) do
       Class.new(Sidereal::App) do

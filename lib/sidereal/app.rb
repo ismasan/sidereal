@@ -110,7 +110,9 @@ module Sidereal
       method_name = Sidereal.message_method_name(HANDLE_METHOD_PREFIX, cmd.type)
       @__current_msg = before_command(cmd.with_metadata(channel: channel_name))
       if respond_to?(method_name, true)
-        send(method_name, @__current_msg)
+        with_streaming_sse do
+          send(method_name, @__current_msg)
+        end
       else
         dispatch(@__current_msg)
         status 200
@@ -155,6 +157,32 @@ module Sidereal
 
     private def channel_name = 'system'
 
+    attr_reader :browser
+
+    NonStreamingConnection = Class.new(StandardError)
+
+    class NonStreamingBrowser < BasicObject
+      def respond_to?(...) = true
+
+      def method_missing(m, *_args)
+        ::Kernel.raise NonStreamingConnection, "Can't use ##{m}. Using `browser` object in a non-streaming, non-SSE connection"
+      end
+    end
+
+    private def with_streaming_sse(&block)
+      return yield if @browser
+
+      if !datastar.sse?
+        @browser = NonStreamingBrowser.new
+        return yield
+      end
+
+      datastar.stream(heartbeat: false) do |sse|
+        @browser = sse
+        yield
+      end
+    end
+
     # A helper to handle commands in web controllers
     # and stream errors back to the UI.
     # UI forms are assumed to use the Sourced::UI::Components::Command component
@@ -173,13 +201,13 @@ module Sidereal
         cid = datastar.request.params['command']['_cid']
 
         #[cid]-[name]-errors
-        datastar.send(:stream_no_heartbeat) do |sse|
+        with_streaming_sse do
           cmd.payload.errors.each do |field, error|
             # 'text', "can't be blank"
             field_id = [cid, field].join('-')
-            sse.patch_elements Components::Command::ErrorMessages.new(field_id, error)
+            browser.patch_elements Components::Command::ErrorMessages.new(field_id, error)
             wrapper_id = [field_id, 'wrapper'].join('-')
-            sse.execute_script %(document.getElementById("#{wrapper_id}").classList.add('errors'))
+            browser.execute_script %(document.getElementById("#{wrapper_id}").classList.add('errors'))
           end
         end
       end
