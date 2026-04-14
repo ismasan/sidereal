@@ -645,6 +645,139 @@ Sidereal.configure do |c|
 end
 ```
 
+### Custom backends
+
+The store, pubsub, and dispatcher are configurable. By default Sidereal uses in-memory implementations, but you can swap them out:
+
+```ruby
+Sidereal.configure do |c|
+  c.store = MyCustomStore.new       # default: Sidereal::Store::Memory
+  c.pubsub = MyCustomPubSub.new     # default: Sidereal::PubSub::Memory
+  c.dispatcher = MyDispatcherClass   # default: Sidereal::Dispatcher (a class, not an instance)
+end
+```
+
+A custom store must respond to `#append(message)`. A custom dispatcher must respond to `.spawn_into(task)` (class-level) and `#stop`.
+
+## Using Sourced::CCC as a backend
+
+[Sourced CCC](https://github.com/ismasan/sourced) is an event sourcing library with a persistent SQLite store, partition-aware consumer groups, and a signal-driven dispatcher. Sidereal can use it as a drop-in backend, replacing the in-memory store and dispatcher.
+
+### Setup
+
+```ruby
+require 'sidereal'
+require 'sourced/ccc'
+
+# Configure CCC with a SQLite database
+Sourced::CCC.configure do |c|
+  c.store = Sequel.sqlite('db/app.db')
+end
+
+# Point Sidereal at CCC's store and dispatcher
+Sidereal.configure do |c|
+  c.store = Sourced::CCC.store
+  c.dispatcher = Sourced::CCC::Dispatcher
+end
+```
+
+### Defining messages and Deciders
+
+With CCC as the backend, use CCC messages and Deciders instead of `App.command`:
+
+```ruby
+# Define messages using CCC's message class
+AddTodo = Sourced::CCC::Message.define('todos.add') do
+  attribute :title, String
+end
+
+TodoAdded = Sourced::CCC::Message.define('todos.added') do
+  attribute :title, String
+  attribute :todo_id, String
+end
+
+# Define a Decider (replaces App.command for async processing)
+class TodoDecider < Sourced::CCC::Decider
+  partition_by :todo_id
+
+  command AddTodo do |state, cmd|
+    event TodoAdded, title: cmd.payload.title, todo_id: SecureRandom.uuid
+  end
+
+  # Publish events to Sidereal's PubSub for SSE streaming
+  after_sync do |state:, events:|
+    events.each do |evt|
+      channel = evt.metadata[:channel] || 'system'
+      Sidereal.pubsub.publish(channel, evt)
+    end
+  end
+end
+
+Sourced::CCC.register(TodoDecider)
+```
+
+The `after_sync` block runs after the store transaction commits and pushes events into Sidereal's PubSub, where Page reactions pick them up and stream DOM updates via SSE.
+
+### Pages and App
+
+Pages and the App work the same way. `handle` exposes commands to the browser, and Page `on` reactions respond to events from the Decider's `after_sync`:
+
+```ruby
+class TodoPage < Sidereal::Page
+  path '/'
+
+  on TodoAdded do |evt|
+    browser.patch_elements load(params)
+  end
+
+  def self.load(_params, _ctx)
+    new(todos: TODOS.values)
+  end
+
+  # ...
+end
+
+class TodoApp < Sidereal::App
+  session secret: ENV.fetch('SESSION_SECRET')
+
+  # Expose AddTodo to the browser — the default handler
+  # appends it to the CCC store for async processing
+  handle AddTodo
+
+  page TodoPage
+end
+```
+
+### Synchronous CCC handling
+
+You can also process a command synchronously during the HTTP request using `Sourced::CCC.handle!`, which loads history, runs the Decider, appends events, and returns immediately:
+
+```ruby
+handle AddTodo do |cmd|
+  _cmd, _decider, events = Sourced::CCC.handle!(TodoDecider, cmd)
+  events.each { |evt| pubsub.publish(channel_name, evt) }
+  browser.patch_elements TodoList.new(TODOS.values)
+end
+```
+
+### Falcon service
+
+The standard Sidereal Falcon environment works with CCC -- it uses the configured dispatcher automatically:
+
+```ruby
+#!/usr/bin/env falcon-host
+require_relative 'app'
+require 'sidereal/falcon/environment'
+
+service "my-app" do
+  include Sidereal::Falcon::Environment
+  include Falcon::Environment::Rackup
+
+  url "http://localhost:9292"
+  count 1
+end
+```
+
 ## Development
 
 After checking out the repo, run `bin/setup` to install dependencies. Then, run `bundle exec rspec` to run the tests. You can also run `bin/console` for an interactive prompt.
