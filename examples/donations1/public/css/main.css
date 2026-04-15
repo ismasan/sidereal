@@ -99,6 +99,7 @@ h2 {
 .step__dot {
   width: 30px;
   height: 30px;
+  position: relative;
   border: 1px solid var(--line);
   border-radius: 999px;
   display: grid;
@@ -127,6 +128,28 @@ h2 {
 .step--complete .step__dot {
   border-color: var(--accent);
   background: var(--soft);
+}
+
+.step--background .step__dot {
+  border-style: dashed;
+  background:
+    radial-gradient(circle at center, rgba(20, 125, 100, 0.14) 0 4px, transparent 5px),
+    #fff;
+}
+
+.step--background.step--complete .step__dot {
+  background:
+    radial-gradient(circle at center, rgba(20, 125, 100, 0.2) 0 4px, transparent 5px),
+    var(--soft);
+}
+
+.step--background.step--current .step__dot {
+  color: var(--accent-strong);
+  border-color: var(--accent);
+  background:
+    radial-gradient(circle at center, rgba(20, 125, 100, 0.22) 0 4px, transparent 5px),
+    #fff;
+  box-shadow: inset 0 0 0 2px rgba(20, 125, 100, 0.12);
 }
 
 .panel {

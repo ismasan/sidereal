@@ -3,19 +3,15 @@
 class DonationPage < Sidereal::Page
   path '/'
 
-  [
-    SelectAmount,
-    EnterDonorDetails,
-    ShowPaymentButton,
-    PresentCard,
-    ConfirmPayment
-  ].each do |message|
-    on message do |evt|
-      browser.patch_elements DonationPage.new(donation: DonationStore.find(evt.payload.donation_id))
-    end
+  on SelectAmount, EnterDonorDetails, ShowPaymentButton, PresentCard, ConfirmPayment do |evt|
+    browser.patch_elements DonationPage.new(donation: DonationStore.find(evt.payload.donation_id))
   end
 
   on SendVerificationEmail do |evt|
+    browser.patch_elements DonationPage.new(donation: DonationStore.find(evt.payload.donation_id))
+  end
+
+  on DeliverVerificationEmail do |evt|
     browser.patch_elements DonationPage.new(donation: DonationStore.find(evt.payload.donation_id))
   end
 
@@ -48,22 +44,24 @@ class DonationPage < Sidereal::Page
 
   class Stepper < Sidereal::Components::BaseComponent
     STEPS = [
-      ['amount_selected', 'Amount'],
-      ['details_entered', 'Details'],
-      ['verification_email_sent', 'Verify'],
-      ['email_verified', 'Verified'],
-      ['payment_ready', 'Payment'],
-      ['payment_confirmed', 'Done']
+      ['amount_selected', 'Select amount', :user],
+      ['details_entered', 'Your details', :user],
+      ['email_sent', 'Sending email', :background],
+      ['verification_email_sent', 'Verify email', :user],
+      ['email_verified', 'Verified', :background],
+      ['payment_ready', 'Payment', :user],
+      ['payment_confirmed', 'Thank you!', :user]
     ].freeze
 
     STATUS_INDEX = {
       'amount_selected' => 0,
       'details_entered' => 1,
-      'verification_email_sent' => 2,
-      'email_verified' => 3,
-      'payment_ready' => 4,
-      'card_presented' => 4,
-      'payment_confirmed' => 5
+      'email_sent' => 2,
+      'verification_email_sent' => 3,
+      'email_verified' => 4,
+      'payment_ready' => 5,
+      'card_presented' => 5,
+      'payment_confirmed' => 6
     }.freeze
 
     def initialize(donation)
@@ -73,16 +71,20 @@ class DonationPage < Sidereal::Page
     def view_template
       nav(class: 'stepper', aria_label: 'Donation progress') do
         current = @donation ? STATUS_INDEX.fetch(@donation.status, 0) : -1
-        STEPS.each_with_index do |(_, label), index|
-          classes = ['step']
+        STEPS.each_with_index do |(_, label, source), index|
+          classes = ['step', "step--#{source}"]
           classes << 'step--complete' if index < current
           classes << 'step--current' if index == current
-          div(class: classes.join(' ')) do
+          div(class: classes.join(' '), title: step_title(source)) do
             span(class: 'step__dot') { (index + 1).to_s }
             span(class: 'step__label') { label }
           end
         end
       end
+    end
+
+    private def step_title(source)
+      source == :background ? 'Background automation' : 'User request'
     end
   end
 
@@ -99,7 +101,9 @@ class DonationPage < Sidereal::Page
         when 'amount_selected'
           render DonorDetailsForm.new(@donation)
         when 'details_entered'
-          render WaitingForEmail.new(@donation, sending: true)
+          render PreparingEmail.new(@donation)
+        when 'email_sent'
+          render SendingEmail.new(@donation)
         when 'verification_email_sent'
           render WaitingForEmail.new(@donation)
         when 'email_verified'
@@ -172,26 +176,54 @@ class DonationPage < Sidereal::Page
   end
 
   class WaitingForEmail < Sidereal::Components::BaseComponent
-    def initialize(donation, sending: false)
+    def initialize(donation)
       @donation = donation
-      @sending = sending
     end
 
     def view_template
       div(class: 'step-screen') do
-        h2 { @sending ? 'Preparing email' : 'Check your email' }
+        h2 { 'Check your email' }
         p(class: 'lede') { "We sent a verification link to #{@donation.email}." }
 
-        if @donation.verification_link
-          div(class: 'email-preview') do
-            p(class: 'email-preview__label') { 'Email preview' }
-            p { "Hello #{@donation.name}, confirm your €#{@donation.amount} donation with this link:" }
-            a(href: @donation.verification_link) { @donation.verification_link }
-          end
-        else
-          div(class: 'loading-bar') do
-            span
-          end
+        div(class: 'email-preview') do
+          p(class: 'email-preview__label') { 'Email preview' }
+          p { "Hello #{@donation.name}, confirm your €#{@donation.amount} donation with this link:" }
+          a(href: @donation.verification_link) { @donation.verification_link }
+        end
+      end
+    end
+  end
+
+  class PreparingEmail < Sidereal::Components::BaseComponent
+    def initialize(donation)
+      @donation = donation
+    end
+
+    def view_template
+      div(class: 'step-screen') do
+        h2 { 'Preparing email' }
+        p(class: 'lede') { "We are preparing a verification email for #{@donation.email}." }
+        div(class: 'loading-bar') do
+          span
+        end
+      end
+    end
+  end
+
+  class SendingEmail < Sidereal::Components::BaseComponent
+    def initialize(donation)
+      @donation = donation
+    end
+
+    def view_template
+      div(class: 'step-screen') do
+        h2 { 'Sending email' }
+        p(class: 'lede') { "The email service is sending your verification link to #{@donation.email}." }
+        div(class: 'notice') do
+          p { 'This can take a few seconds in the demo.' }
+        end
+        div(class: 'loading-bar') do
+          span
         end
       end
     end

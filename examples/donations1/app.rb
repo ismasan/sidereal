@@ -20,6 +20,10 @@ SendVerificationEmail = Sidereal::Message.define('donations.send_verification_em
   attribute :donation_id, Sidereal::Types::UUID::V4
 end
 
+DeliverVerificationEmail = Sidereal::Message.define('donations.deliver_verification_email') do
+  attribute :donation_id, Sidereal::Types::UUID::V4
+end
+
 VerifyEmailAddress = Sidereal::Message.define('donations.verify_email_address') do
   attribute :token, Sidereal::Types::String.present
 end
@@ -152,6 +156,17 @@ class DonationsApp < Sidereal::App
   command SendVerificationEmail do |cmd|
     donation = DonationStore.find(cmd.payload.donation_id)
     next unless donation
+
+    donation.status = 'email_sent'
+
+    dispatch DeliverVerificationEmail, donation_id: donation.donation_id
+  end
+
+  command DeliverVerificationEmail do |cmd|
+    donation = DonationStore.find(cmd.payload.donation_id)
+    next unless donation
+
+    sleep 3
 
     donation.verification_token = SecureRandom.urlsafe_base64(18)
     donation.verification_link = "/verify/#{donation.verification_token}"
