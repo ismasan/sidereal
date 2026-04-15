@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'sidereal'
+require 'pstore'
 require 'securerandom'
 
 # -- Messages --
@@ -63,26 +64,50 @@ Donation = Struct.new(
 module DonationStore
   module_function
 
-  def all = donations.values
+  FILE = File.expand_path('donations.pstore', __dir__)
+  KEY = :donations
+
+  def all = load_all.values
 
   def find(donation_id)
-    donations[donation_id]
+    load_all[donation_id]
   end
 
   def find_by_token(token)
-    donations.values.find { |donation| donation.verification_token == token }
+    load_all.values.find { |donation| donation.verification_token == token }
   end
 
   def upsert(donation)
-    donations[donation.donation_id] = donation
+    store.transaction do
+      donations = store[KEY] || {}
+      donations[donation.donation_id] = donation_to_h(donation)
+      store[KEY] = donations
+    end
+    donation
   end
 
   def clear
-    donations.clear
+    store.transaction do
+      store[KEY] = {}
+    end
   end
 
-  def donations
-    @donations ||= {}
+  def load_all
+    store.transaction(true) do
+      (store[KEY] || {}).transform_values { |attrs| donation_from_h(attrs) }
+    end
+  end
+
+  def store
+    @store ||= PStore.new(FILE)
+  end
+
+  def donation_to_h(donation)
+    donation.to_h
+  end
+
+  def donation_from_h(attrs)
+    Donation.new(**attrs)
   end
 end
 
@@ -106,15 +131,12 @@ module StripeGateway
 end
 
 class DonationsApp < Sidereal::App
-  session secret: 'd' * 64
-
   layout DonationsLayout
 
   get '/verify/:token' do |token:|
     if (donation = DonationStore.find_by_token(token))
-      session[:donation_id] = donation.donation_id
       store.append VerifyEmailAddress.new(payload: {token:}).with_metadata(channel: channel_name)
-      redirect to('/')
+      redirect to("/#{donation.donation_id}")
     else
       status 404
       body 'Verification link not found.'
@@ -122,14 +144,15 @@ class DonationsApp < Sidereal::App
   end
 
   before_command do |cmd|
-    if cmd.payload.respond_to?(:donation_id)
-      session[:donation_id] = cmd.payload.donation_id
-    end
-
     cmd.with_metadata(channel: channel_name)
   end
 
-  handle SelectAmount, EnterDonorDetails, PresentCard
+  handle SelectAmount do |cmd|
+    dispatch(cmd)
+    browser.redirect "/#{cmd.payload.donation_id}"
+  end
+
+  handle EnterDonorDetails, PresentCard
 
   command SelectAmount do |cmd|
     amount = cmd.payload.amount.to_i
@@ -149,6 +172,7 @@ class DonationsApp < Sidereal::App
     donation.name = cmd.payload.name
     donation.email = cmd.payload.email
     donation.status = 'details_entered'
+    DonationStore.upsert(donation)
 
     dispatch SendVerificationEmail, donation_id: donation.donation_id
   end
@@ -158,6 +182,7 @@ class DonationsApp < Sidereal::App
     next unless donation
 
     donation.status = 'email_sent'
+    DonationStore.upsert(donation)
 
     dispatch DeliverVerificationEmail, donation_id: donation.donation_id
   end
@@ -171,6 +196,7 @@ class DonationsApp < Sidereal::App
     donation.verification_token = SecureRandom.urlsafe_base64(18)
     donation.verification_link = "/verify/#{donation.verification_token}"
     donation.status = 'verification_email_sent'
+    DonationStore.upsert(donation)
   end
 
   command VerifyEmailAddress do |cmd|
@@ -179,6 +205,7 @@ class DonationsApp < Sidereal::App
 
     donation.status = 'email_verified'
     donation.verified_at = Time.now
+    DonationStore.upsert(donation)
 
     dispatch ShowPaymentButton, donation_id: donation.donation_id
   end
@@ -188,6 +215,7 @@ class DonationsApp < Sidereal::App
     next unless donation
 
     donation.status = 'payment_ready'
+    DonationStore.upsert(donation)
   end
 
   command PresentCard do |cmd|
@@ -195,6 +223,7 @@ class DonationsApp < Sidereal::App
     next unless donation
 
     donation.status = 'card_presented'
+    DonationStore.upsert(donation)
     payment_reference = MockPaymentService.charge(donation)
 
     dispatch ConfirmPayment,
@@ -209,6 +238,11 @@ class DonationsApp < Sidereal::App
     donation.payment_reference = cmd.payload.payment_reference
     donation.paid_at = Time.now
     donation.status = 'payment_confirmed'
+    DonationStore.upsert(donation)
+  end
+
+  get '/' do
+    component self.class.layout.new(DonationPage.new)
   end
 
   page DonationPage

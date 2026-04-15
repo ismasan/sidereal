@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 class DonationPage < Sidereal::Page
-  path '/'
+  path '/:donation_id'
 
   on SelectAmount, EnterDonorDetails, ShowPaymentButton, PresentCard, ConfirmPayment do |evt|
     browser.patch_elements DonationPage.new(donation: DonationStore.find(evt.payload.donation_id))
@@ -19,8 +19,8 @@ class DonationPage < Sidereal::Page
     browser.patch_elements DonationPage.new(donation: DonationStore.find_by_token(evt.payload.token))
   end
 
-  def self.load(_params, ctx)
-    donation = DonationStore.find(ctx.session[:donation_id])
+  def self.load(params, _ctx)
+    donation = DonationStore.find(params[:donation_id])
     new(donation:)
   end
 
