@@ -1,0 +1,10 @@
+# frozen_string_literal: true
+
+source "https://rubygems.org"
+
+gem "sidereal", path: "../.."
+gem "falcon"
+gem 'sourced', path: '/Users/ismasan/code/personal/gems/sourced'
+gem 'sourced-ui', path: '/Users/ismasan/code/personal/gems/sourced-ui'
+gem 'sequel'
+gem 'sqlite3'
