@@ -21,11 +21,16 @@ class DonationPage < Sidereal::Page
 
   def self.load(params, _ctx)
     donation = DonationStore.find(params[:donation_id])
-    new(donation:)
+    new(donation:, donation_id: params[:donation_id])
   end
 
-  def initialize(donation: nil)
+  def initialize(donation: nil, donation_id: nil)
     @donation = donation
+    @donation_id = donation_id || donation&.donation_id
+  end
+
+  def channel_name
+    @donation_id ? "donations.#{@donation_id}" : 'donations'
   end
 
   def view_template
