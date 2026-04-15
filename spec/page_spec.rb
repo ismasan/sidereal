@@ -218,5 +218,72 @@ RSpec.describe Sidereal::Page do
 
       expect(captured_params).to eq({ id: '42', filter: 'active' })
     end
+
+    it 'provides an empty params hash when signal params are missing' do
+      captured_params = :unset
+      page_with_missing_params = Class.new(Sidereal::Page) do
+        path '/missing-params'
+        on PageTestItemAdded do |_evt|
+          captured_params = params
+        end
+      end
+
+      sse = FakeSSE.new('page_key' => '/missing-params')
+      page_context = page_context_class.new(sse, nil, page_with_missing_params)
+
+      page_context.react(PageTestItemAdded.new(payload: { title: 'test' }))
+
+      expect(captured_params).to eq({})
+    end
+  end
+
+  describe '.subscribe' do
+    it 'passes an empty params hash to load when signal params are missing' do
+      captured_params = :unset
+      page_class = Class.new(Sidereal::Page) do
+        path '/subscribe-missing-params'
+
+        define_singleton_method(:load) do |params, _ctx|
+          captured_params = params
+          new
+        end
+
+        def view_template
+          div { 'loaded' }
+        end
+      end
+
+      Sidereal::Page.register(page_class)
+      sse = FakeSSE.new('page_key' => '/subscribe-missing-params')
+      channel = double(:channel, start: nil)
+
+      Sidereal::Page.subscribe(channel, sse, nil)
+
+      expect(captured_params).to eq({})
+    end
+
+    it 'symbolizes signal params before passing them to load' do
+      captured_params = nil
+      page_class = Class.new(Sidereal::Page) do
+        path '/subscribe-params'
+
+        define_singleton_method(:load) do |params, _ctx|
+          captured_params = params
+          new
+        end
+
+        def view_template
+          div { 'loaded' }
+        end
+      end
+
+      Sidereal::Page.register(page_class)
+      sse = FakeSSE.new('page_key' => '/subscribe-params', 'params' => { 'id' => '42' })
+      channel = double(:channel, start: nil)
+
+      Sidereal::Page.subscribe(channel, sse, nil)
+
+      expect(captured_params).to eq({ id: '42' })
+    end
   end
 end

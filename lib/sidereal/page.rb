@@ -14,7 +14,7 @@ module Sidereal
       def initialize(sse, ctx, page)
         @context = ctx
         @browser = sse
-        @params = (sse.signals['params'] || {}).transform_keys(&:to_sym)
+        @params = Page.normalize_params(sse.signals['params'])
         @page_id = sse.signals['page_id']
         @page_key = sse.signals['page_key']
         @page = page
@@ -69,7 +69,7 @@ module Sidereal
         return unless page_class
 
         # Build on connect
-        sse.patch_elements page_class.load(sse.signals['params'], ctx)
+        sse.patch_elements page_class.load(normalize_params(sse.signals['params']), ctx)
 
         page_context = PageContext.new(sse, ctx, page_class)
 
@@ -84,6 +84,10 @@ module Sidereal
 
       def load(params, ctx)
         raise NotImplementedError
+      end
+
+      def normalize_params(params)
+        (params || {}).transform_keys(&:to_sym)
       end
 
       def interested?(sse)
