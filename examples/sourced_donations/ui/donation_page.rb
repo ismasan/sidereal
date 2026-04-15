@@ -9,7 +9,7 @@ class DonationPage < Sidereal::Page
      Donation::VerificationEmailSent,
      Donation::EmailVerified,
      Donation::PaymentReady,
-     Donation::CardPresented,
+     Donation::PaymentStarted,
      Donation::PaymentConfirmed do |evt|
     browser.patch_elements DonationPage.new(donation: DonationPage.load_donation(evt.payload.donation_id))
   end
@@ -55,6 +55,7 @@ class DonationPage < Sidereal::Page
       ['verification_email_sent', 'Verify email', :user],
       ['email_verified', 'Verify', :background],
       ['payment_ready', 'Pay', :user],
+      ['payment_started', 'Process', :background],
       ['payment_confirmed', 'Thank you!', :user]
     ].freeze
 
@@ -65,8 +66,8 @@ class DonationPage < Sidereal::Page
       'verification_email_sent' => 3,
       'email_verified' => 4,
       'payment_ready' => 5,
-      'card_presented' => 5,
-      'payment_confirmed' => 6
+      'payment_started' => 6,
+      'payment_confirmed' => 7
     }.freeze
 
     def initialize(donation)
@@ -115,7 +116,7 @@ class DonationPage < Sidereal::Page
           render PaymentPreparing.new(@donation)
         when 'payment_ready'
           render PaymentPad.new(@donation)
-        when 'card_presented'
+        when 'payment_started'
           render PaymentProcessing.new(@donation)
         when 'payment_confirmed'
           render ThankYou.new(@donation)
@@ -282,7 +283,7 @@ class DonationPage < Sidereal::Page
     def view_template
       div(class: 'step-screen') do
         h2 { 'Processing payment' }
-        p(class: 'lede') { 'The mock payment service is calling Stripe synchronously.' }
+        p(class: 'lede') { 'The mock payment service is calling Stripe.' }
         div(class: 'loading-bar') do
           span
         end

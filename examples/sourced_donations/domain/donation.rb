@@ -46,7 +46,6 @@ class Donation < Sourced::Decider
 
   ConfirmPayment = Sourced::Command.define('donations.confirm_payment') do
     attribute :donation_id, Sourced::Types::UUID::V4
-    attribute :payment_reference, Sourced::Types::String.present
   end
 
   # ---- Events ----
@@ -80,7 +79,7 @@ class Donation < Sourced::Decider
     attribute :donation_id, Sourced::Types::UUID::V4
   end
 
-  CardPresented = Sourced::Event.define('donations.card_presented') do
+  PaymentStarted = Sourced::Event.define('donations.payment_started') do
     attribute :donation_id, Sourced::Types::UUID::V4
   end
 
@@ -119,7 +118,9 @@ class Donation < Sourced::Decider
     s.status = 'details_entered'
   end
 
-  evolve(EmailSent) { |s, _| s.status = 'email_sent' }
+  evolve(EmailSent) do |s, _|
+    s.status = 'email_sent'
+  end
 
   evolve(VerificationEmailSent) do |s, e|
     s.verification_token = e.payload.token
@@ -132,8 +133,13 @@ class Donation < Sourced::Decider
     s.status = 'email_verified'
   end
 
-  evolve(PaymentReady)  { |s, _| s.status = 'payment_ready' }
-  evolve(CardPresented) { |s, _| s.status = 'card_presented' }
+  evolve(PaymentReady) do |s, _|
+    s.status = 'payment_ready'
+  end
+
+  evolve(PaymentStarted) do |s, _|
+    s.status = 'payment_started'
+  end
 
   evolve(PaymentConfirmed) do |s, e|
     s.payment_reference = e.payload.payment_reference
@@ -159,7 +165,9 @@ class Donation < Sourced::Decider
       email: cmd.payload.email
   end
 
-  command(SendVerificationEmail) { |_, cmd| event EmailSent, donation_id: cmd.payload.donation_id }
+  command(SendVerificationEmail) do |_, cmd|
+    event EmailSent, donation_id: cmd.payload.donation_id
+  end
 
   command(DeliverVerificationEmail) do |_, cmd|
     sleep 3 # demo: simulate slow email service
@@ -172,29 +180,45 @@ class Donation < Sourced::Decider
     event EmailVerified, donation_id: cmd.payload.donation_id, verified_at: Time.now
   end
 
-  command(ShowPaymentButton) { |_, cmd| event PaymentReady, donation_id: cmd.payload.donation_id }
-  command(PresentCard)       { |_, cmd| event CardPresented, donation_id: cmd.payload.donation_id }
+  command(ShowPaymentButton) do |_, cmd|
+    event PaymentReady, donation_id: cmd.payload.donation_id
+  end
 
-  command(ConfirmPayment) do |_, cmd|
+  command(PresentCard) do |_, cmd|
+    event PaymentStarted, donation_id: cmd.payload.donation_id
+  end
+
+  command(ConfirmPayment) do |state, cmd|
+    payment_reference = MockPaymentService.charge(state)
     event PaymentConfirmed,
       donation_id: cmd.payload.donation_id,
-      payment_reference: cmd.payload.payment_reference,
+      payment_reference:,
       paid_at: Time.now
   end
 
   # ---- Reactions: model "automations" ----
 
   # email_sender automation (Event Lanes model node `aut:email_sender`)
-  reaction(DonorDetailsEntered) { |_, evt| dispatch SendVerificationEmail, donation_id: evt.payload.donation_id }
-  reaction(EmailSent)           { |_, evt| dispatch DeliverVerificationEmail, donation_id: evt.payload.donation_id }
+  reaction(DonorDetailsEntered) do |_, evt|
+    dispatch SendVerificationEmail, donation_id: evt.payload.donation_id
+  end
+
+  reaction(EmailSent) do |_, evt|
+    dispatch DeliverVerificationEmail, donation_id: evt.payload.donation_id
+  end
 
   # `aut:email_sender` chain implicitly continues into `ui:payment_screen` via `cmd:show_payment_button`
-  reaction(EmailVerified) { |_, evt| dispatch ShowPaymentButton, donation_id: evt.payload.donation_id }
+  reaction(EmailVerified) do |_, evt|
+    dispatch ShowPaymentButton, donation_id: evt.payload.donation_id
+  end
 
-  # mock_payment_service automation: synchronously calls Stripe, then issues ConfirmPayment
-  reaction(CardPresented) do |state, evt|
-    payment_reference = MockPaymentService.charge(state)
-    dispatch ConfirmPayment, donation_id: evt.payload.donation_id, payment_reference:
+  # TODO: review this. Slow API call should happen in reaction, not command handler.
+  # PaymentService automation: enqueue ConfirmPayment. The slow Stripe call runs
+  # inside ConfirmPayment's handler so that PaymentStarted can publish to the UI
+  # first (reactions run synchronously inside handle_batch — sleeping here would
+  # block after_sync and the Process step would never render).
+  reaction(PaymentStarted) do |_, evt|
+    dispatch ConfirmPayment, donation_id: evt.payload.donation_id
   end
 
   # ---- Bridge to Sidereal SSE ----
