@@ -383,6 +383,35 @@ end
 
 See more about this [here](https://github.com/starfederation/datastar-ruby#datastar-methods).
 
+### Per-page channels
+
+Each page subscribes to a single PubSub channel via `GET /updates/:channel_name`. The default is `'system'`, which means every page receives every published event. Override `Page#channel_name` to scope a page's SSE stream to a narrower topic — for example, "only events for this donation" or "only events for this chat room".
+
+```ruby
+class DonationPage < Sidereal::Page
+  path '/:donation_id'
+
+  def initialize(donation_id:, **)
+    @donation_id = donation_id
+  end
+
+  # Each donation page only receives events on its own channel
+  def channel_name = "donations.#{@donation_id}"
+end
+```
+
+For events to actually reach that channel, the publisher needs to stamp them with matching channel metadata. The Falcon worker publishes each event to `event.metadata[:channel]` (falling back to `'system'`), so set it via `with_metadata` — typically inside a `handle` block when the command first enters the system:
+
+```ruby
+class DonationsApp < Sidereal::App
+  handle SelectAmount do |cmd|
+    dispatch cmd.with_metadata(channel: "donations.#{cmd.payload.donation_id}")
+  end
+end
+```
+
+The channel propagates through the correlation chain, so downstream commands and events dispatched in response stay on the same channel without further wiring.
+
 ### Sub-components
 
 Define inline components as separated classes (or nested classes) for partial re-renders:
