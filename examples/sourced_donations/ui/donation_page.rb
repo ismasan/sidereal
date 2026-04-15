@@ -266,7 +266,7 @@ class DonationPage < Sidereal::Page
             span { 'READY' }
             strong { "€#{@donation.amount}" }
           end
-          command Donation::PresentCard, class: 'tap-form' do |f|
+          command Donation::StartPayment, class: 'tap-form' do |f|
             f.payload_fields(donation_id: @donation.donation_id)
             button(type: :submit, class: 'tap-button') { 'Tap card' }
           end

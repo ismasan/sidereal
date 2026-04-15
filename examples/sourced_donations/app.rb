@@ -27,7 +27,7 @@ class DonationsApp < Sidereal::App
     browser.redirect "/#{cmd.payload.donation_id}"
   end
 
-  handle Donation::EnterDonorDetails, Donation::PresentCard do |cmd|
+  handle Donation::EnterDonorDetails, Donation::StartPayment do |cmd|
     dispatch cmd.with_metadata(channel: donation_channel(cmd.payload.donation_id))
   end
 

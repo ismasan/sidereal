@@ -22,7 +22,7 @@ class Donation < Sourced::Decider
     attribute :email, Sourced::Types::Email.present
   end
 
-  PresentCard = Sourced::Command.define('donations.present_card') do
+  StartPayment = Sourced::Command.define('donations.start_payment') do
     attribute :donation_id, Sourced::Types::UUID::V4
   end
 
@@ -184,7 +184,7 @@ class Donation < Sourced::Decider
     event PaymentReady, donation_id: cmd.payload.donation_id
   end
 
-  command(PresentCard) do |_, cmd|
+  command(StartPayment) do |_, cmd|
     event PaymentStarted, donation_id: cmd.payload.donation_id
   end
 
