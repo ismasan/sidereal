@@ -114,10 +114,12 @@ RSpec.describe 'Sidereal::App.handle' do
       expect(last_response.body).to include('<div id="result">updated</div>')
     end
 
-    it 'raises NonStreamingConnection when handler uses browser on a non-SSE request' do
-      expect {
-        post '/commands', command: { type: 'app_test.do_thing', payload: { title: 'hello' } }
-      }.to raise_error(Sidereal::App::NonStreamingConnection, /patch_elements/)
+    it 'emits SSE even for a non-SSE request (browser works unconditionally)' do
+      post '/commands', command: { type: 'app_test.do_thing', payload: { title: 'hello' } }
+
+      expect(last_response.status).to eq(200)
+      expect(last_response.headers['content-type']).to include('text/event-stream')
+      expect(last_response.body).to include('<div id="result">updated</div>')
     end
   end
 

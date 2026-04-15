@@ -267,7 +267,21 @@ handle AddTodo do |cmd|
 end
 ```
 
-If the request is not an SSE connection (e.g. a plain form POST), calling `browser` methods raises `NonStreamingConnection`.
+`browser` is an alias for the Datastar dispatcher — each call above produces a one-off SSE event. For multi-step, real-time updates over a single request, use `browser.stream { |sse| ... }`:
+
+```ruby
+handle GenerateReport do |cmd|
+  browser.stream do |sse|
+    sse.patch_elements %(<div id="status">Working...</div>)
+    expensive_work do |progress|
+      sse.patch_signals progress: progress
+    end
+    sse.patch_elements %(<div id="status">Done</div>)
+  end
+end
+```
+
+The `handle` block runs synchronously before any SSE streaming starts, so `session[:x] = …` writes inside it commit to the session cookie as expected.
 
 #### Dispatching follow-up commands
 

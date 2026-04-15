@@ -189,17 +189,17 @@ module Sidereal
       cmd_class = self.class.handled_commands[payload[:type]]
       halt 404, 'unknown command' unless cmd_class
       cmd = cmd_class.new(payload)
-      streaming_command_errors(cmd, datastar) do
+      if cmd.valid?
         handle_local_command(cmd)
+      else
+        patch_command_errors(cmd.payload.errors)
       end
     end
 
     private def handle_local_command(cmd)
       method_name = Sidereal.message_method_name(HANDLE_METHOD_PREFIX, cmd.type)
       @__current_msg = before_command(cmd.with_metadata(channel: channel_name))
-      with_streaming_sse do
-        send(method_name, @__current_msg)
-      end
+      send(method_name, @__current_msg)
     end
 
     private def dispatch(*args)
@@ -227,63 +227,25 @@ module Sidereal
       Sidereal.store
     end
 
-    private def datastar
+    # The Datastar dispatcher for the current request. Supports both one-off
+    # updates (+#patch_elements+, +#patch_signals+, +#execute_script+, etc.)
+    # and multi-event streaming via +#stream { |sse| ... }+.
+    #
+    # Also aliased as {#browser} for readability inside handler blocks.
+    def datastar
       @datastar ||= Datastar.new(request:, view_context: self, heartbeat: 0.4).on_error do |err|
         puts "Datastar error: #{err}"
         puts err.backtrace.join("\n")
       end
     end
 
+    alias_method :browser, :datastar
+
     private def before_command(cmd)
       cmd
     end
 
     private def channel_name = 'system'
-
-    attr_reader :browser
-
-    NonStreamingConnection = Class.new(StandardError)
-
-    class NonStreamingBrowser < BasicObject
-      def respond_to?(...) = true
-
-      def method_missing(m, *_args)
-        ::Kernel.raise NonStreamingConnection, "Can't use ##{m}. Using `browser` object in a non-streaming, non-SSE connection"
-      end
-    end
-
-    private def with_streaming_sse(&block)
-      return yield if @browser
-
-      if !datastar.sse?
-        @browser = NonStreamingBrowser.new
-        return yield
-      end
-
-      datastar.stream(heartbeat: false) do |sse|
-        @browser = sse
-        yield
-      end
-    end
-
-    # A helper to handle commands in web controllers
-    # and stream errors back to the UI.
-    # UI forms are assumed to use the Sourced::UI::Components::Command component
-    # which includes the expected input names and _cid value.
-    # @example
-    #   streaming_command_errors(cmd, datastar) do |cmd|
-    #     dispatch(cmd)
-    #   end
-    #
-    # @param cmd [Sidereal::Message] the command to process
-    # @param datastar [Datastar::Dispatcher] the datastar instance to stream errors to
-    private def streaming_command_errors(cmd, datastar, &)
-      if cmd.valid? # <== schedule valid command for processing
-        yield cmd if block_given?
-      else
-        patch_command_errors(cmd.payload.errors)
-      end
-    end
 
     # Stream field-level validation errors back to the browser via SSE.
     #
@@ -292,12 +254,10 @@ module Sidereal
     # the {Components::Command} component, which generates the matching
     # element IDs from the command's +_cid+ value.
     #
-    # This is called automatically by +streaming_command_errors+ for
-    # invalid commands, but can also be used directly inside a +handle+
-    # block for custom validation logic.
+    # Called automatically for invalid commands, but can also be used
+    # directly inside a +handle+ block for custom validation logic.
     #
     # @param errors [Hash{Symbol => String}] field name to error message pairs
-    # @return [void]
     #
     # @example Custom validation in a handle block
     #   handle PlaceOrder do |cmd|
@@ -311,15 +271,12 @@ module Sidereal
     #   end
     private def patch_command_errors(errors)
       cid = datastar.request.params['command']['_cid']
-
-      #[cid]-[name]-errors
-      with_streaming_sse do
+      datastar.stream(heartbeat: false) do |sse|
         errors.each do |field, error|
-          # 'text', "can't be blank"
           field_id = [cid, field].join('-')
-          browser.patch_elements Components::Command::ErrorMessages.new(field_id, error)
+          sse.patch_elements Components::Command::ErrorMessages.new(field_id, error)
           wrapper_id = [field_id, 'wrapper'].join('-')
-          browser.execute_script %(document.getElementById("#{wrapper_id}").classList.add('errors'))
+          sse.execute_script %(document.getElementById("#{wrapper_id}").classList.add('errors'))
         end
       end
     end
