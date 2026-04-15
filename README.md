@@ -49,6 +49,7 @@ class TodoPage < Sidereal::Page
 
   def view_template
     div do
+      # An Ajax form to dispatch a command to the backend 
       command AddTodo do |f|
         f.text_field :title, placeholder: 'What needs to be done?'
         button(type: :submit) { 'Add' }
@@ -78,44 +79,6 @@ class TodoApp < Sidereal::App
   page TodoPage
 end
 ```
-
-## How it works
-
-```mermaid
-sequenceDiagram
-    participant Browser
-    participant App
-    participant PubSub
-    participant Store
-    participant Worker
-    participant CommandHandler
-
-    Browser->>App: POST /commands
-    App->>App: Check handled_commands registry (404 if not exposed)
-    App->>App: Validate command
-    App->>Store: Append command (default handler)
-    App->>Browser: 200 OK
-
-
-    loop Worker fibers
-        Worker->>Store: Claim next command
-        Store->>Worker: Command
-        Worker->>CommandHandler: Handle command
-        CommandHandler->>Worker: Result(events, commands)
-        Worker->>PubSub: Publish events
-        Worker->>Store: Append new commands (if any)
-    end
-
-
-    Browser->>App: GET /updates (SSE)
-    App->>PubSub: Subscribe
-    PubSub->>App: Event
-    App->>App: Page reactions render HTML
-    App->>Browser: SSE patch (HTML fragments)
-    Browser->>Browser: Datastar morphs DOM
-```
-
-Commands are processed asynchronously by worker fibers. The browser never waits for command handling to complete -- it submits the command and receives UI updates via the SSE stream as events are produced.
 
 ## Messages
 
@@ -156,125 +119,9 @@ event.causation_id    # => source_cmd.id
 event.correlation_id  # => source_cmd.correlation_id
 ```
 
-## Router
-
-`Sidereal::Router` is a standalone Rack-compatible router with a Sinatra-style DSL and trie-based dispatch. It can be used independently of the full Sidereal app framework.
-
-### Basic routes
-
-Route blocks are evaluated in the context of a router instance, with access to `request`, `response`, and helper methods like `body`, `status`, `headers`, `halt`, and `redirect`.
-
-```ruby
-class MyRouter < Sidereal::Router
-  get '/' do
-    body 'hello'
-  end
-
-  get '/items/:id' do |id:|
-    body "item #{id}"
-  end
-
-  post '/items' do
-    status 201
-    body 'created'
-  end
-
-  redirect '/old-path', '/new-path'
-end
-
-# config.ru
-run MyRouter
-```
-
-### Callable handlers
-
-Any object responding to `#call(request, response, params)` can be used as a handler. Callable handlers can either modify the `response` object or return a raw Rack triplet (`[status, headers, body]`).
-
-```ruby
-class ShowItem
-  def call(request, response, params)
-    response.body = ["item #{params[:id]}"]
-  end
-end
-
-class MyRouter < Sidereal::Router
-  get '/items/:id', ShowItem.new
-
-  # Lambdas work too
-  get '/health', ->(req, resp, params) { [200, {}, ['ok']] }
-end
-```
-
-### Before hook
-
-Run logic before every matched route. Use `halt` to short-circuit.
-
-```ruby
-class MyRouter < Sidereal::Router
-  before do
-    halt 401, 'unauthorized' unless session[:user_id]
-  end
-
-  get '/dashboard' do
-    body 'welcome'
-  end
-end
-```
-
-### Rendering components
-
-The `component` helper renders any object responding to `#call(context:)`, passing the router instance as context. This is how Sidereal pages and layouts are rendered under the hood.
-
-```ruby
-class MyRouter < Sidereal::Router
-  get '/dashboard' do
-    component DashboardPage.new(current_user)
-  end
-
-  get '/error' do
-    component ErrorPage.new, status: 422
-  end
-end
-```
-
-### Sessions
-
-```ruby
-class MyRouter < Sidereal::Router
-  session secret: ENV.fetch('SESSION_SECRET')
-
-  post '/login' do
-    session[:user_id] = request.params['user_id']
-    body 'logged in'
-  end
-
-  get '/profile' do
-    body "user: #{session[:user_id]}"
-  end
-end
-```
-
-### Halt and redirect
-
-`halt` immediately stops request processing and returns a response.
-
-```ruby
-halt 422                              # status only
-halt 200, 'hello'                     # status + body
-halt 301, 'Location' => '/new-path'   # status + headers
-halt 200, { 'X-Custom' => '1' }, 'ok' # status + headers + body
-```
-
-`redirect` is a shorthand for halting with a Location header:
-
-```ruby
-redirect '/new-path'              # 301 by default
-redirect '/new-path', status: 302 # temporary redirect
-```
-
 ## App
 
-`Sidereal::App` extends `Router` with the full reactive framework: commands, pages, layouts, and SSE streaming. It automatically sets up `POST /commands` and `GET /updates` endpoints.
+`Sidereal::App` is a web router with that implements a full reactive framework: commands, pages, layouts, and SSE streaming. It automatically sets up `POST /commands` and `GET /updates` endpoints.
 
 ```ruby
 class ChatApp < Sidereal::App
@@ -609,6 +456,122 @@ end
 
 A `BasicLayout` with reset CSS and form styling is provided by default if no layout is specified.
 
+## Router
+
+`Sidereal::App` is a subclass of`Sidereal::Router` , which is a standalone Rack-compatible router with a Sinatra-style DSL and trie-based dispatch. It can be used independently of the full Sidereal app framework.
+
+### Basic routes
+
+Route blocks are evaluated in the context of a router instance, with access to `request`, `response`, and helper methods like `body`, `status`, `headers`, `halt`, and `redirect`.
+
+```ruby
+class MyRouter < Sidereal::Router
+  get '/' do
+    body 'hello'
+  end
+
+  get '/items/:id' do |id:|
+    body "item #{id}"
+  end
+
+  post '/items' do
+    status 201
+    body 'created'
+  end
+
+  redirect '/old-path', '/new-path'
+end
+
+# config.ru
+run MyRouter
+```
+
+### Callable handlers
+
+Any object responding to `#call(request, response, params)` can be used as a handler. Callable handlers can either modify the `response` object or return a raw Rack triplet (`[status, headers, body]`).
+
+```ruby
+class ShowItem
+  def call(request, response, params)
+    response.body = ["item #{params[:id]}"]
+  end
+end
+
+class MyRouter < Sidereal::Router
+  get '/items/:id', ShowItem.new
+
+  # Lambdas work too
+  get '/health', ->(req, resp, params) { [200, {}, ['ok']] }
+end
+```
+
+### Before hook
+
+Run logic before every matched route. Use `halt` to short-circuit.
+
+```ruby
+class MyRouter < Sidereal::Router
+  before do
+    halt 401, 'unauthorized' unless session[:user_id]
+  end
+
+  get '/dashboard' do
+    body 'welcome'
+  end
+end
+```
+
+### Rendering components
+
+The `component` helper renders any object responding to `#call(context:)`, passing the router instance as context. This is how Sidereal pages and layouts are rendered under the hood.
+
+```ruby
+class MyRouter < Sidereal::Router
+  get '/dashboard' do
+    component DashboardPage.new(current_user)
+  end
+
+  get '/error' do
+    component ErrorPage.new, status: 422
+  end
+end
+```
+
+### Sessions
+
+```ruby
+class MyRouter < Sidereal::Router
+  session secret: ENV.fetch('SESSION_SECRET')
+
+  post '/login' do
+    session[:user_id] = request.params['user_id']
+    body 'logged in'
+  end
+
+  get '/profile' do
+    body "user: #{session[:user_id]}"
+  end
+end
+```
+
+### Halt and redirect
+
+`halt` immediately stops request processing and returns a response.
+
+```ruby
+halt 422                              # status only
+halt 200, 'hello'                     # status + body
+halt 301, 'Location' => '/new-path'   # status + headers
+halt 200, { 'X-Custom' => '1' }, 'ok' # status + headers + body
+```
+
+`redirect` is a shorthand for halting with a Location header:
+
+```ruby
+redirect '/new-path'              # 301 by default
+redirect '/new-path', status: 302 # temporary redirect
+```
+
 ## Running with Falcon
 
 Sidereal is designed to run on [Falcon](https://github.com/socketry/falcon), which provides the async fiber runtime needed for SSE streaming and concurrent command processing.
@@ -658,6 +621,44 @@ end
 ```
 
 A custom store must respond to `#append(message)`. A custom dispatcher must respond to `.spawn_into(task)` (class-level) and `#stop`.
+
+## How it works
+
+```mermaid
+sequenceDiagram
+    participant Browser
+    participant App
+    participant PubSub
+    participant Store
+    participant Worker
+    participant CommandHandler
+
+    Browser->>App: POST /commands
+    App->>App: Check handled_commands registry (404 if not exposed)
+    App->>App: Validate command
+    App->>Store: Append command (default handler)
+    App->>Browser: 200 OK
+
+
+    loop Worker fibers
+        Worker->>Store: Claim next command
+        Store->>Worker: Command
+        Worker->>CommandHandler: Handle command
+        CommandHandler->>Worker: Result(events, commands)
+        Worker->>PubSub: Publish events
+        Worker->>Store: Append new commands (if any)
+    end
+
+
+    Browser->>App: GET /updates (SSE)
+    App->>PubSub: Subscribe
+    PubSub->>App: Event
+    App->>App: Page reactions render HTML
+    App->>Browser: SSE patch (HTML fragments)
+    Browser->>Browser: Datastar morphs DOM
+```
+
+Commands are processed asynchronously by worker fibers. The browser never waits for command handling to complete -- it submits the command and receives UI updates via the SSE stream as events are produced.
 
 ## Using Sourced::CCC as a backend
 
