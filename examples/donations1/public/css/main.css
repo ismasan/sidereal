@@ -137,6 +137,19 @@ h2 {
     #fff;
 }
 
+.step--background .step__label {
+  position: relative;
+  padding-left: 24px;
+}
+
+.step--background .step__label::before {
+  content: "\2192";
+  position: absolute;
+  left: 0;
+  color: var(--accent);
+  font-weight: 900;
+}
+
 .step--background.step--complete .step__dot {
   background:
     radial-gradient(circle at center, rgba(20, 125, 100, 0.2) 0 4px, transparent 5px),
@@ -409,6 +422,14 @@ h2 {
 
   .step {
     grid-template-columns: 30px minmax(0, 1fr);
+  }
+
+  .step--background .step__label {
+    padding-left: 0;
+  }
+
+  .step--background .step__label::before {
+    content: none;
   }
 
   .panel {
