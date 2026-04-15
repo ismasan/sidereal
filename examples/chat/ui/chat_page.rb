@@ -22,8 +22,8 @@ class ChatPage < Sidereal::Page
     browser.execute_script %(scrollToBottom('messages'))
   end
 
-  def self.load(_params, _ctx)
-    new(messages: MessageLog.messages)
+  def self.load(_params, ctx)
+    new(messages: MessageLog.messages, username: ctx.session[:username])
   end
 
   class MessageBubble < Sidereal::Components::BaseComponent
@@ -71,8 +71,21 @@ class ChatPage < Sidereal::Page
     end
   end
 
-  def initialize(messages: [])
+  def initialize(messages: [], username: nil)
     @messages = messages
+    @username = username
+  end
+
+  class LoginView < Sidereal::Components::BaseComponent
+    def view_template
+      div(class: 'login') do
+        h2 { 'Enter your name' }
+        command Login, class: 'login-form' do |f|
+          f.text_field :username, placeholder: 'Your name'
+          button(type: :submit) { 'Join' }
+        end
+      end
+    end
   end
 
   JS = <<~CODE
@@ -84,31 +97,33 @@ class ChatPage < Sidereal::Page
 
   def view_template
     div(id: 'chat-page') do
-      header(class: 'header') do
-        h1 { 'Chat' }
-      end
-
-      script do
-        safe JS  
-      end
-
-      div(class: 'columns') do
-        main(class: 'col-main') do
-          render MessageList.new(@messages)
-
-          command SendMessage, class: 'compose-form' do |f|
-            div(class: 'compose-form__row') do
-              f.text_field :author, placeholder: 'Name'
-              f.payload_fields(role: 'user')
-              f.text_field :content, data: {target: 'message-body'}, placeholder: 'Type a message...'
-              button(type: :submit) { 'Send' }
-            end
-          end
+      if @username.to_s.empty?
+        render LoginView.new
+      else
+        header(class: 'header') do
+          h1 { "Chat — #{@username}" }
         end
 
-        aside(class: 'col-sidebar') do
-          h2 { 'Activity' }
-          div(id: 'activity', class: 'feed') do
+        script do
+          safe JS
+        end
+
+        div(class: 'columns') do
+          main(class: 'col-main') do
+            render MessageList.new(@messages)
+
+            command SendMessage, class: 'compose-form' do |f|
+              div(class: 'compose-form__row') do
+                f.text_field :content, data: {target: 'message-body'}, placeholder: 'Type a message...'
+                button(type: :submit) { 'Send' }
+              end
+            end
+          end
+
+          aside(class: 'col-sidebar') do
+            h2 { 'Activity' }
+            div(id: 'activity', class: 'feed') do
+            end
           end
         end
       end

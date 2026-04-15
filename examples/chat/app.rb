@@ -18,9 +18,13 @@ RubyLLM.configure do |config|
 end
 # -- Messages --
 
+Login = Sidereal::Message.define('chat.login') do
+  attribute :username, Sidereal::Types::String.present
+end
+
 SendMessage = Sidereal::Message.define('chat.send_message') do
-  attribute :author, Sidereal::Types::String.present
-  attribute :role, Sidereal::Types::String.present
+  attribute :author, Sidereal::Types::String.default('')
+  attribute :role, Sidereal::Types::String.default('user')
   attribute :content, Sidereal::Types::String.present
 end
 
@@ -67,12 +71,16 @@ class ChatApp < Sidereal::App
 
   layout ChatLayout
 
-  handle SendMessage
+  before_command do |cmd|
+    cmd.with_payload(author: session[:username].to_s, role: 'user')
+  end
 
-  # handle SendMessage do |cmd|
-  #   # browser.patch_elements(%(<div id="chat-page">Hello</div>))
-  #   patch_command_errors content: 'Nope nope'
-  # end
+  handle Login do |cmd|
+    session[:username] = cmd.payload.username
+    browser.patch_elements ChatPage.load(params, self)
+  end
+
+  handle SendMessage
 
   command SendMessage do |cmd|
     MessageLog.append(cmd)
