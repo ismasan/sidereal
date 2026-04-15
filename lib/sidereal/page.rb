@@ -37,6 +37,8 @@ module Sidereal
 
     private def page_key = self.class.page_key
 
+    def channel_name = 'system'
+
     def page_signals
       { page_key: }
     end

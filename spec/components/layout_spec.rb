@@ -57,7 +57,21 @@ RSpec.describe Sidereal::Components::Layout do
   describe '#body' do
     it 'appends the SSE init div after yielded content' do
       html = render_layout
-      expect(html).to include("data-init=\"@get('/updates')\"")
+      expect(html).to include("data-init=\"@get('/updates/system')\"")
+    end
+
+    it 'uses the page channel name for the SSE updates path' do
+      page_with_channel_class = Class.new(Sidereal::Page) do
+        path '/custom'
+
+        def channel_name = 'items.42'
+
+        def view_template
+          div { 'page content' }
+        end
+      end
+      html = render_layout(layout_class.new(page_with_channel_class.new))
+      expect(html).to include("data-init=\"@get('/updates/items.42')\"")
     end
 
     it 'includes page_key and params signals on the body tag' do

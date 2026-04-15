@@ -39,7 +39,7 @@ module Sidereal
       end
 
       def sidereal_foot
-        onload = _d.init.get('/updates')
+        onload = _d.init.get("/updates/#{page.channel_name}")
         # onload needs to be at the end
         # to make sure to collect all signals on the page
         div(data: onload.to_h)

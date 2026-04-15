@@ -84,6 +84,38 @@ RSpec.describe 'Sidereal::App.handle' do
       expect(claimed).to be_a(HandleTestOtherCmd)
       expect(claimed.payload.name).to eq('bob')
     end
+
+    it 'uses the default channel name for command metadata' do
+      post '/commands', command: { type: 'app_test.do_other', payload: { name: 'bob' } }
+
+      claimed = nil
+      Sync do
+        store.claim_next { |m| claimed = m }
+      end
+      expect(claimed.metadata[:channel]).to eq('system')
+    end
+
+    it 'allows a handle block to dispatch a command with a custom channel' do
+      custom_app = Class.new(Sidereal::App) do
+        session secret: 'a' * 64
+
+        command HandleTestOtherCmd
+
+        handle HandleTestOtherCmd do |cmd|
+          dispatch(cmd.with_metadata(channel: 'custom'))
+          status 200
+        end
+      end
+
+      allow(self).to receive(:app).and_return(custom_app)
+      post '/commands', command: { type: 'app_test.do_other', payload: { name: 'bob' } }
+
+      claimed = nil
+      Sync do
+        store.claim_next { |m| claimed = m }
+      end
+      expect(claimed.metadata[:channel]).to eq('custom')
+    end
   end
 
   describe 'handler streaming SSE updates' do
@@ -120,6 +152,40 @@ RSpec.describe 'Sidereal::App.handle' do
       expect(last_response.status).to eq(200)
       expect(last_response.headers['content-type']).to include('text/event-stream')
       expect(last_response.body).to include('<div id="result">updated</div>')
+    end
+  end
+
+  describe 'updates channel selection' do
+    let(:subscribed_channels) { [] }
+    let(:fake_pubsub) do
+      channels = subscribed_channels
+      Class.new do
+        define_method(:subscribe) do |channel_name|
+          channels << channel_name
+          Class.new do
+            def stop
+            end
+          end.new
+        end
+      end.new
+    end
+
+    let(:test_app) do
+      Class.new(Sidereal::App)
+    end
+
+    def app
+      test_app
+    end
+
+    before do
+      allow(Sidereal).to receive(:pubsub).and_return(fake_pubsub)
+    end
+
+    it 'uses the path parameter to choose the updates channel' do
+      get '/updates/items.42'
+
+      expect(subscribed_channels).to eq(['items.42'])
     end
   end
 

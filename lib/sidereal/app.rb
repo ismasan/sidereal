@@ -164,7 +164,7 @@ module Sidereal
       end
     end
 
-    get '/updates' do
+    get '/updates/:channel_name' do |channel_name:|
       channel = pubsub.subscribe(channel_name)
 
       datastar.on_client_disconnect do |*args|
@@ -198,7 +198,7 @@ module Sidereal
 
     private def handle_local_command(cmd)
       method_name = Sidereal.message_method_name(HANDLE_METHOD_PREFIX, cmd.type)
-      @__current_msg = before_command(cmd.with_metadata(channel: channel_name))
+      @__current_msg = before_command(cmd.with_metadata(channel: 'system'))
       send(method_name, @__current_msg)
     end
 
@@ -244,8 +244,6 @@ module Sidereal
     private def before_command(cmd)
       cmd
     end
-
-    private def channel_name = 'system'
 
     # Stream field-level validation errors back to the browser via SSE.
     #
