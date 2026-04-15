@@ -14,7 +14,7 @@ end
 EnterDonorDetails = Sidereal::Message.define('donations.enter_donor_details') do
   attribute :donation_id, Sidereal::Types::UUID::V4
   attribute :name, Sidereal::Types::String.present
-  attribute :email, Sidereal::Types::String.present
+  attribute :email, Sidereal::Types::Email.present
 end
 
 SendVerificationEmail = Sidereal::Message.define('donations.send_verification_email') do
