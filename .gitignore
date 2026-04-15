@@ -7,7 +7,7 @@
 /spec/reports/
 /tmp/
 /examples/**/.env
-/examples/donations1/donations.json
+/examples/sourced_donations/storage
 /examples/donations1/donations.pstore
 
 # rspec failure tracking

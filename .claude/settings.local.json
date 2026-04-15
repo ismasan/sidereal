@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(*)",
+      "Search(*)",
+      "mcp__eventlanes__*"
+    ]
+  }
+}
