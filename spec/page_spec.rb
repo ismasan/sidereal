@@ -67,6 +67,27 @@ RSpec.describe Sidereal::Page do
       expect(page_class.reactions).to have_key(PageTestItemAdded)
     end
 
+    it 'registers the same reaction handler for multiple message classes' do
+      page_class = Class.new(Sidereal::Page) do
+        on PageTestItemAdded, PageTestNotification do |evt|
+          # handle
+        end
+      end
+
+      expect(page_class.reactions.keys).to contain_exactly(PageTestItemAdded, PageTestNotification)
+      expect(page_class.reactions[PageTestItemAdded]).to eq(page_class.reactions[PageTestNotification])
+    end
+
+    it 'requires at least one message class' do
+      expect do
+        Class.new(Sidereal::Page) do
+          on do |evt|
+            # handle
+          end
+        end
+      end.to raise_error(ArgumentError, 'at least one message class is required')
+    end
+
     it 'inherits reactions from the parent page' do
       parent = Class.new(Sidereal::Page) do
         on PageTestItemAdded do |evt|

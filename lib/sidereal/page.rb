@@ -94,8 +94,12 @@ module Sidereal
         define_method :view_template, &block
       end
 
-      def on(message_class, &block)
-        reactions[message_class] = block || DEFAULT_HANDLER
+      def on(*message_classes, &block)
+        raise ArgumentError, 'at least one message class is required' if message_classes.empty?
+
+        message_classes.each do |message_class|
+          reactions[message_class] = block || DEFAULT_HANDLER
+        end
         self
       end
 

@@ -257,6 +257,21 @@ h2 {
   overflow-wrap: anywhere;
 }
 
+.notice {
+  width: min(520px, 100%);
+  margin-bottom: 22px;
+  padding: 14px 16px;
+  border: 1px solid #b7d7cc;
+  border-radius: 8px;
+  background: var(--soft);
+  color: var(--accent-strong);
+  font-weight: 800;
+}
+
+.notice p {
+  margin: 0;
+}
+
 .loading-bar {
   width: min(420px, 100%);
   height: 10px;
