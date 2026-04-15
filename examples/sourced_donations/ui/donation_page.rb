@@ -50,11 +50,11 @@ class DonationPage < Sidereal::Page
   class Stepper < Sidereal::Components::BaseComponent
     STEPS = [
       ['amount_selected', 'Select amount', :user],
-      ['details_entered', 'Your details', :user],
-      ['email_sent', 'Sending email', :background],
+      ['details_entered', 'Enter details', :user],
+      ['email_sent', 'Send email', :background],
       ['verification_email_sent', 'Verify email', :user],
-      ['email_verified', 'Verified', :background],
-      ['payment_ready', 'Payment', :user],
+      ['email_verified', 'Verify', :background],
+      ['payment_ready', 'Pay', :user],
       ['payment_confirmed', 'Thank you!', :user]
     ].freeze
 
