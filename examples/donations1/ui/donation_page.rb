@@ -314,6 +314,7 @@ class DonationPage < Sidereal::Page
             dd { @donation.payment_reference }
           end
         end
+        a(href: '/', class: 'primary-button') { 'Make another donation' }
       end
     end
   end

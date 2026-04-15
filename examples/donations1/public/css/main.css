@@ -202,14 +202,19 @@ h2 {
 .amount-button,
 .primary-button,
 .tap-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 100%;
   min-height: 56px;
+  padding: 0 16px;
   border: 0;
   border-radius: 8px;
   color: #fff;
   background: var(--accent);
   cursor: pointer;
   font-weight: 800;
+  text-decoration: none;
 }
 
 .amount-button:hover,
