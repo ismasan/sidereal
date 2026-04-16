@@ -22,6 +22,11 @@ Sourced.configure do |config|
   config.store = Sequel.sqlite(DB_PATH) unless ENV['TEST']
   config.error_strategy do |s|
     s.retry(times: 1, after: 1)
+
+    s.on_fail do |exception, _message|
+      Sourced.config.logger.error("#{exception.class}: #{exception.message}")
+      Sourced.config.logger.error(exception.backtrace.join("\n"))
+    end
   end
 
   Sidereal.configure do |c|
