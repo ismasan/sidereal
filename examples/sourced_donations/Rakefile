@@ -1,0 +1,35 @@
+# frozen_string_literal: true
+
+require_relative 'boot'
+require 'sequel/core'
+Sequel.extension :migration
+
+namespace :db do
+  desc 'Run database migrations'
+  task :migrate do
+    Sequel::Migrator.run(Sourced.store.db, 'db/migrations')
+    puts 'Migrations complete.'
+  end
+
+  desc 'Generate the Sourced migration file into db/migrations'
+  task :sourced_migration do
+    Sourced.store.copy_migration_to do
+      "db/migrations/#{Time.now.strftime('%Y%m%d%H%M%S')}_create_sourced_tables.rb"
+    end
+    puts 'Sourced migration file created in db/migrations/'
+  end
+
+  desc 'Generate a new migration file: rake db:new_migration[name]'
+  task :new_migration, [:name] do |_t, args|
+    name = args[:name] || 'unnamed'
+    timestamp = Time.now.strftime('%Y%m%d%H%M%S')
+    filename = "db/migrations/#{timestamp}_#{name}.rb"
+    File.write(filename, <<~RUBY)
+      Sequel.migration do
+        change do
+        end
+      end
+    RUBY
+    puts "Created #{filename}"
+  end
+end

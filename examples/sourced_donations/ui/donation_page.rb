@@ -3,7 +3,8 @@
 class DonationPage < Sidereal::Page
   path '/:donation_id'
 
-  on Donation::AmountSelected,
+  on Donation::DonationStarted,
+     Donation::AmountSelected,
      Donation::DonorDetailsEntered,
      Donation::EmailSent,
      Donation::VerificationEmailSent,
@@ -60,6 +61,7 @@ class DonationPage < Sidereal::Page
     ].freeze
 
     STATUS_INDEX = {
+      'started' => -1,
       'amount_selected' => 0,
       'details_entered' => 1,
       'email_sent' => 2,
@@ -103,7 +105,9 @@ class DonationPage < Sidereal::Page
       section(id: 'current-step', class: 'panel') do
         case @donation&.status
         when nil
-          render AmountPicker.new
+          render NotFound.new
+        when 'started'
+          render AmountPicker.new(@donation)
         when 'amount_selected'
           render DonorDetailsForm.new(@donation)
         when 'details_entered'
@@ -120,15 +124,27 @@ class DonationPage < Sidereal::Page
           render PaymentProcessing.new(@donation)
         when 'payment_confirmed'
           render ThankYou.new(@donation)
-        else
-          render AmountPicker.new
         end
+      end
+    end
+  end
+
+  class NotFound < Sidereal::Components::BaseComponent
+    def view_template
+      div(class: 'step-screen') do
+        h2 { 'Donation not found' }
+        p(class: 'lede') { 'Donations begin from a campaign page.' }
+        a(href: '/', class: 'primary-button') { 'Browse campaigns' }
       end
     end
   end
 
   class AmountPicker < Sidereal::Components::BaseComponent
     AMOUNTS = [5, 10, 30, 50].freeze
+
+    def initialize(donation)
+      @donation = donation
+    end
 
     def view_template
       div(class: 'step-screen') do
@@ -138,7 +154,7 @@ class DonationPage < Sidereal::Page
         div(class: 'amount-grid') do
           AMOUNTS.each do |amount|
             command Donation::SelectAmount, class: 'amount-form' do |f|
-              f.payload_fields(amount:)
+              f.payload_fields(donation_id: @donation.donation_id, campaign_id: @donation.campaign_id, amount:)
               button(type: :submit, class: 'amount-button') do
                 span(class: 'amount-button__currency') { '€' }
                 span(class: 'amount-button__value') { amount.to_s }
@@ -161,7 +177,7 @@ class DonationPage < Sidereal::Page
         p(class: 'lede') { "We will send a verification link before taking €#{@donation.amount}." }
 
         command Donation::EnterDonorDetails, class: 'details-form', autocomplete: 'off' do |f|
-          f.payload_fields(donation_id: @donation.donation_id)
+          f.payload_fields(donation_id: @donation.donation_id, campaign_id: @donation.campaign_id)
           label do
             span { 'Name' }
             f.text_field :name, autocomplete: 'name', placeholder: 'Ada Lovelace'
@@ -267,7 +283,7 @@ class DonationPage < Sidereal::Page
             strong { "€#{@donation.amount}" }
           end
           command Donation::StartPayment, class: 'tap-form' do |f|
-            f.payload_fields(donation_id: @donation.donation_id)
+            f.payload_fields(donation_id: @donation.donation_id, campaign_id: @donation.campaign_id)
             button(type: :submit, class: 'tap-button') { 'Tap card' }
           end
         end
@@ -315,7 +331,7 @@ class DonationPage < Sidereal::Page
             dd { @donation.payment_reference }
           end
         end
-        a(href: '/', class: 'primary-button') { 'Make another donation' }
+        a(href: '/', class: 'primary-button') { 'Browse campaigns' }
       end
     end
   end

@@ -10,6 +10,8 @@ DB_PATH = File.expand_path('storage/donations.db', __dir__)
 FileUtils.mkdir_p(File.dirname(DB_PATH))
 
 require_relative 'domain/donation'
+require_relative 'domain/campaign'
+require_relative 'domain/campaigns_projector'
 
 # Wire everything inside Sourced.configure so it is re-run after Falcon forks
 # (SQLite connections are not fork-safe — Sourced calls setup! in the worker
@@ -27,4 +29,6 @@ Sourced.configure do |config|
   end
 
   Sourced.register(Donation)
+  Sourced.register(Campaign)
+  Sourced.register(CampaignsProjector)
 end

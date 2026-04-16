@@ -1,19 +1,17 @@
 # frozen_string_literal: true
 
 require_relative 'ui/layout'
+require_relative 'ui/campaigns_list_page'
+require_relative 'ui/campaign_page'
 require_relative 'ui/donation_page'
 
 class DonationsApp < Sidereal::App
   layout DonationsLayout
 
-  get '/' do
-    component self.class.layout.new(DonationPage.new)
-  end
-
   get '/verify/:donation_id/:token' do |donation_id:, token:|
     decider, _ = Sourced.load(Donation, donation_id:)
     if decider.state.verification_token == token
-      cmd = Donation::VerifyEmailAddress.new(payload: { donation_id: })
+      cmd = Donation::VerifyEmailAddress.new(payload: { donation_id:, campaign_id: decider.state.campaign_id })
         .with_metadata(channel: donation_channel(donation_id))
       Sourced.store.append(cmd)
       redirect to("/#{donation_id}")
@@ -22,15 +20,25 @@ class DonationsApp < Sidereal::App
     end
   end
 
-  handle Donation::SelectAmount do |cmd|
+  handle Campaign::CreateCampaign, Campaign::CloseCampaign do |cmd|
+    dispatch cmd.with_metadata(channel: 'campaigns')
+  end
+
+  handle Donation::StartDonation do |cmd|
     dispatch cmd.with_metadata(channel: donation_channel(cmd.payload.donation_id))
     browser.redirect "/#{cmd.payload.donation_id}"
+  end
+
+  handle Donation::SelectAmount do |cmd|
+    dispatch cmd.with_metadata(channel: donation_channel(cmd.payload.donation_id))
   end
 
   handle Donation::EnterDonorDetails, Donation::StartPayment do |cmd|
     dispatch cmd.with_metadata(channel: donation_channel(cmd.payload.donation_id))
   end
 
+  page CampaignsListPage
+  page CampaignPage
   page DonationPage
 
   private def donation_channel(donation_id) = "donations.#{donation_id}"
