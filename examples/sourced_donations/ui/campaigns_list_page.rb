@@ -20,7 +20,7 @@ class CampaignsListPage < Sidereal::Page
   def view_template
     div(id: 'campaigns-page') do
       header(class: 'header') do
-        p(class: 'eyebrow') { 'Community Fund' }
+        p(class: 'eyebrow') { a(href: '/') { 'Community Fund' } }
         h1 { 'Campaigns' }
       end
 

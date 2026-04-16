@@ -178,11 +178,20 @@ input {
 
 .eyebrow {
   margin: 0 0 6px;
-  color: var(--accent);
   font-size: 0.78rem;
   font-weight: 800;
   letter-spacing: 0;
   text-transform: uppercase;
+}
+
+.eyebrow a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.eyebrow a:hover {
+  color: var(--accent-strong);
+  text-decoration: underline;
 }
 
 h1,

@@ -37,7 +37,7 @@ class DonationPage < Sidereal::Page
   def view_template
     div(id: 'donation-page') do
       header(class: 'header') do
-        p(class: 'eyebrow') { 'Community Fund' }
+        p(class: 'eyebrow') { a(href: '/') { 'Community Fund' } }
         h1 { @donation.campaign_name }
         if @donation.campaign_target_amount
           p(class: 'campaign-tag') { "Target €#{@donation.campaign_target_amount}" }
