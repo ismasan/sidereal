@@ -23,7 +23,9 @@ class CampaignsProjector < Sourced::Projector::StateStored
   end
 
   evolve(Donation::PaymentConfirmed) do |state, evt|
-    state[:total_amount] = (state[:total_amount] || 0) + evt.payload.amount
+    # Legacy PaymentConfirmed events (before amount was added) deserialize
+    # with amount: nil — to_i coerces them to 0.
+    state[:total_amount] = state[:total_amount].to_i + evt.payload.amount.to_i
   end
 
   sync do |state:, **|
