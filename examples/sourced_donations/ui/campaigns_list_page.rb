@@ -3,9 +3,7 @@
 class CampaignsListPage < Sidereal::Page
   path '/'
 
-  on Campaign::CampaignCreated,
-     Campaign::CampaignClosed,
-     Donation::PaymentConfirmed do |_evt|
+  on CampaignsProjector::CampaignProjected do |_evt|
     browser.patch_elements load(params)
   end
 
