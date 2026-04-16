@@ -113,6 +113,12 @@ RSpec.describe Sidereal::Router do
       expect(last_response.status).to eq(200)
       expect(last_response.body).to eq('item:42:comment:7')
     end
+
+    it 'URL-decodes captured param values' do
+      get '/items/a%20b.%3E'
+      expect(last_response.status).to eq(200)
+      expect(last_response.body).to eq('item:a b.>')
+    end
   end
 
   describe 'HTTP methods' do

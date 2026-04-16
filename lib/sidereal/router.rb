@@ -451,7 +451,7 @@ module Sidereal
           return not_found unless node.param_child
 
           child = node.param_child
-          (params ||= {})[node.param_name] = segment
+          (params ||= {})[node.param_name] = Rack::Utils.unescape_path(segment)
         end
         node = child
         return not_found unless node.is_a?(Node)
