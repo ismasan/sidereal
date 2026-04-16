@@ -9,3 +9,7 @@ gem 'sourced-ui', path: '/Users/ismasan/code/personal/gems/sourced-ui'
 gem 'sequel'
 gem 'sqlite3'
 gem 'rake'
+
+group :test do
+  gem 'rspec'
+end

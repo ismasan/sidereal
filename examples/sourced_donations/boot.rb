@@ -19,7 +19,7 @@ require_relative 'domain/donation_view'
 # process to rebuild the store, and we need Sidereal + reactor registration
 # to follow along).
 Sourced.configure do |config|
-  config.store = Sequel.sqlite(DB_PATH)
+  config.store = Sequel.sqlite(DB_PATH) unless ENV['TEST']
   config.error_strategy do |s|
     s.retry(times: 1, after: 1)
   end
