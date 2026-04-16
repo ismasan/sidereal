@@ -105,46 +105,48 @@ class Donation < Sourced::Decider
     keyword_init: true
   )
 
-  state { |values| State.new(donation_id: values[:donation_id]) }
-
-  evolve(AmountSelected) do |s, e|
-    s.amount = e.payload.amount
-    s.status = 'amount_selected'
+  state do |donation_id:, **_| 
+    State.new(donation_id:)
   end
 
-  evolve(DonorDetailsEntered) do |s, e|
-    s.name = e.payload.name
-    s.email = e.payload.email
-    s.status = 'details_entered'
+  evolve(AmountSelected) do |state, evt|
+    state.amount = evt.payload.amount
+    state.status = 'amount_selected'
   end
 
-  evolve(EmailSent) do |s, _|
-    s.status = 'email_sent'
+  evolve(DonorDetailsEntered) do |state, evt|
+    state.name = evt.payload.name
+    state.email = evt.payload.email
+    state.status = 'details_entered'
   end
 
-  evolve(VerificationEmailSent) do |s, e|
-    s.verification_token = e.payload.token
-    s.verification_link = "/verify/#{s.donation_id}/#{e.payload.token}"
-    s.status = 'verification_email_sent'
+  evolve(EmailSent) do |state, _|
+    state.status = 'email_sent'
   end
 
-  evolve(EmailVerified) do |s, e|
-    s.verified_at = e.payload.verified_at
-    s.status = 'email_verified'
+  evolve(VerificationEmailSent) do |state, evt|
+    state.verification_token = evt.payload.token
+    state.verification_link = "/verify/#{state.donation_id}/#{evt.payload.token}"
+    state.status = 'verification_email_sent'
   end
 
-  evolve(PaymentReady) do |s, _|
-    s.status = 'payment_ready'
+  evolve(EmailVerified) do |state, evt|
+    state.verified_at = evt.payload.verified_at
+    state.status = 'email_verified'
   end
 
-  evolve(PaymentStarted) do |s, _|
-    s.status = 'payment_started'
+  evolve(PaymentReady) do |state, _|
+    state.status = 'payment_ready'
   end
 
-  evolve(PaymentConfirmed) do |s, e|
-    s.payment_reference = e.payload.payment_reference
-    s.paid_at = e.payload.paid_at
-    s.status = 'payment_confirmed'
+  evolve(PaymentStarted) do |state, _|
+    state.status = 'payment_started'
+  end
+
+  evolve(PaymentConfirmed) do |state, evt|
+    state.payment_reference = evt.payload.payment_reference
+    state.paid_at = evt.payload.paid_at
+    state.status = 'payment_confirmed'
   end
 
   # ---- Pure command handlers ----
@@ -177,7 +179,7 @@ class Donation < Sourced::Decider
   end
 
   command(VerifyEmailAddress) do |_, cmd|
-    event EmailVerified, donation_id: cmd.payload.donation_id, verified_at: Time.now
+    event EmailVerified, donation_id: cmd.payload.donation_id, verified_at: cmd.created_at
   end
 
   command(ShowPaymentButton) do |_, cmd|
@@ -193,7 +195,7 @@ class Donation < Sourced::Decider
     event PaymentConfirmed,
       donation_id: cmd.payload.donation_id,
       payment_reference:,
-      paid_at: Time.now
+      paid_at: Time.now # <= paid at time should be in the command
   end
 
   # ---- Reactions: model "automations" ----
@@ -213,6 +215,8 @@ class Donation < Sourced::Decider
   end
 
   # TODO: review this. Slow API call should happen in reaction, not command handler.
+  # Why is slow reaction block blocking previous PaymentStarted event?
+  #
   # PaymentService automation: enqueue ConfirmPayment. The slow Stripe call runs
   # inside ConfirmPayment's handler so that PaymentStarted can publish to the UI
   # first (reactions run synchronously inside handle_batch — sleeping here would
