@@ -34,14 +34,6 @@ class CampaignsProjector < Sourced::Projector::StateStored
     Sourced.store.db[:campaigns].insert_conflict(:replace).insert(state)
   end
 
-  module System
-    Updated = Sourced::Event.define('system.campaigns.updated')
-  end
-
-  after_sync do |state:, **|
-    Sidereal.pubsub.publish('system', System::Updated.new) if state[:campaign_id]
-  end
-
   def self.on_reset
     Sourced.store.db[:campaigns].delete
   end

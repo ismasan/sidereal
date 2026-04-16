@@ -31,7 +31,7 @@ class DonationPage < Sidereal::Page
   end
 
   def channel_name
-    "donations.#{@donation.donation_id}"
+    "campaigns.#{@donation.campaign_id}.donations.#{@donation.donation_id}"
   end
 
   def view_template

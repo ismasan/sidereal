@@ -285,7 +285,8 @@ class Donation < Sourced::Decider
 
   after_sync do |state:, events:, **|
     events.each do |evt|
-      channel = evt.metadata[:channel] || "donations.#{state.donation_id}"
+      channel = evt.metadata[:channel] ||
+        "campaigns.#{state.campaign_id}.donations.#{state.donation_id}"
       Sidereal.pubsub.publish(channel, evt)
     end
   end

@@ -3,7 +3,9 @@
 class CampaignsListPage < Sidereal::Page
   path '/'
 
-  on Campaign::CampaignCreated, Campaign::CampaignClosed do |_evt|
+  on Campaign::CampaignCreated,
+     Campaign::CampaignClosed,
+     Donation::PaymentConfirmed do |_evt|
     browser.patch_elements load(params)
   end
 
@@ -15,7 +17,7 @@ class CampaignsListPage < Sidereal::Page
     @campaigns = campaigns
   end
 
-  def channel_name = 'campaigns'
+  def channel_name = 'campaigns.>'
 
   def view_template
     div(id: 'campaigns-page') do

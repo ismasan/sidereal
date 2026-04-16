@@ -11,7 +11,7 @@ class DonationsApp < Sidereal::App
     decider, _ = Sourced.load(Donation, donation_id:)
     if decider.state.verification_token == token
       cmd = Donation::VerifyEmailAddress.new(payload: { donation_id:, campaign_id: })
-        .with_metadata(channel: donation_channel(donation_id))
+        .with_metadata(channel: donation_channel(campaign_id, donation_id))
       Sourced.store.append(cmd)
       redirect to("/#{campaign_id}/#{donation_id}")
     else
@@ -20,24 +20,26 @@ class DonationsApp < Sidereal::App
   end
 
   handle Campaign::CreateCampaign, Campaign::CloseCampaign do |cmd|
-    dispatch cmd.with_metadata(channel: 'campaigns')
+    dispatch cmd.with_metadata(channel: "campaigns.#{cmd.payload.campaign_id}")
   end
 
   handle Donation::StartDonation do |cmd|
-    dispatch cmd.with_metadata(channel: donation_channel(cmd.payload.donation_id))
+    dispatch cmd.with_metadata(channel: donation_channel(cmd.payload.campaign_id, cmd.payload.donation_id))
     browser.redirect "/#{cmd.payload.campaign_id}/#{cmd.payload.donation_id}"
   end
 
   handle Donation::SelectAmount do |cmd|
-    dispatch cmd.with_metadata(channel: donation_channel(cmd.payload.donation_id))
+    dispatch cmd.with_metadata(channel: donation_channel(cmd.payload.campaign_id, cmd.payload.donation_id))
   end
 
   handle Donation::EnterDonorDetails, Donation::StartPayment do |cmd|
-    dispatch cmd.with_metadata(channel: donation_channel(cmd.payload.donation_id))
+    dispatch cmd.with_metadata(channel: donation_channel(cmd.payload.campaign_id, cmd.payload.donation_id))
   end
 
   page CampaignsListPage
   page DonationPage
 
-  private def donation_channel(donation_id) = "donations.#{donation_id}"
+  private def donation_channel(campaign_id, donation_id)
+    "campaigns.#{campaign_id}.donations.#{donation_id}"
+  end
 end

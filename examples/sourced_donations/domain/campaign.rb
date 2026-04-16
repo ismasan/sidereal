@@ -77,7 +77,7 @@ class Campaign < Sourced::Decider
 
   after_sync do |state:, events:, **|
     events.each do |evt|
-      channel = evt.metadata[:channel] || 'campaigns'
+      channel = evt.metadata[:channel] || "campaigns.#{state.campaign_id}"
       Sidereal.pubsub.publish(channel, evt)
     end
   end
