@@ -59,6 +59,7 @@ class Donation < Sourced::Decider
   ConfirmPayment = Sourced::Command.define('donations.confirm_payment') do
     attribute :donation_id, Sourced::Types::UUID::V4
     attribute :campaign_id, Sourced::Types::UUID::V4
+    attribute :payment_reference, String
   end
 
   # ---- Events ----
@@ -237,13 +238,11 @@ class Donation < Sourced::Decider
   end
 
   command(ConfirmPayment) do |state, cmd|
-    # TODO: this can be moved back to reaction(PaymentStarted)
-    payment_reference = MockPaymentService.charge(state)
     event PaymentConfirmed,
       donation_id: cmd.payload.donation_id,
       campaign_id: state.campaign_id,
-      payment_reference:,
-      paid_at: Time.now # <= paid at time should be in the command
+      payment_reference: cmd.payload.payment_reference,
+      paid_at: cmd.created_at
   end
 
   # ---- Reactions: model "automations" ----
@@ -268,21 +267,16 @@ class Donation < Sourced::Decider
       campaign_id: evt.payload.campaign_id
   end
 
-  # TODO: review this. Slow API call should happen in reaction, not command handler.
-  # Update: Sourced has been updated to decouple command handlers from reactions
-  # so that reactions can now run side-effects like the slow payment
-  # without blocking the command handler.
-  # Move the payment charge back to this reaction
-  # and make it pass the payment reference as part of the ConfirmPayment payload.
-  #
-  # PaymentService automation: enqueue ConfirmPayment. The slow Stripe call runs
-  # inside ConfirmPayment's handler so that PaymentStarted can publish to the UI
-  # first (reactions run synchronously inside handle_batch — sleeping here would
-  # block after_sync and the Process step would never render).
-  reaction(PaymentStarted) do |_, evt|
+  # PaymentService automation: charge via the gateway, then dispatch
+  # ConfirmPayment with the resulting reference. Reactions run in their own
+  # batch so the slow Stripe call doesn't block the PaymentStarted event
+  # from reaching the UI.
+  reaction(PaymentStarted) do |state, evt|
+    payment_reference = MockPaymentService.charge(state)
     dispatch ConfirmPayment,
       donation_id: evt.payload.donation_id,
-      campaign_id: evt.payload.campaign_id
+      campaign_id: evt.payload.campaign_id,
+      payment_reference:
   end
 
   # ---- Bridge to Sidereal SSE ----
