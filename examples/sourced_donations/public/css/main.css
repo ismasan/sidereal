@@ -44,7 +44,16 @@ input {
 }
 
 #campaigns-page .kiosk {
-  grid-template-columns: 1fr;
+  grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
+}
+
+#campaigns-page .panel {
+  min-height: auto;
+}
+
+#campaigns-page .panel h2 {
+  font-size: 1.25rem;
+  margin-bottom: 18px;
 }
 
 .campaign-tag {
@@ -59,9 +68,6 @@ input {
   font-weight: 500;
 }
 
-#campaigns-page .panel + .panel {
-  margin-top: 18px;
-}
 
 .campaigns-list {
   display: grid;
