@@ -104,10 +104,19 @@ input {
   overflow-wrap: anywhere;
 }
 
+.campaigns-list__total {
+  color: var(--ink);
+  font-weight: 700;
+  font-size: 0.95rem;
+}
+
+.campaigns-list__total strong {
+  color: var(--accent-strong);
+}
+
 .campaigns-list__target {
   color: var(--muted);
-  font-weight: 700;
-  font-size: 0.92rem;
+  font-weight: 600;
 }
 
 .campaigns-list__status {

@@ -68,8 +68,10 @@ class CampaignsListPage < Sidereal::Page
             li(class: "campaigns-list__item campaigns-list__item--#{c[:status]}") do
               div(class: 'campaigns-list__body') do
                 strong(class: 'campaigns-list__name') { c[:name] }
-                if c[:target_amount]
-                  span(class: 'campaigns-list__target') { "Target: €#{c[:target_amount]}" }
+                span(class: 'campaigns-list__total') do
+                  strong { "€#{c[:total_amount] || 0}" }
+                  span(class: 'campaigns-list__target') { " of €#{c[:target_amount]}" } if c[:target_amount]
+                  plain ' raised'
                 end
                 span(class: "campaigns-list__status campaigns-list__status--#{c[:status]}") { c[:status] }
               end
