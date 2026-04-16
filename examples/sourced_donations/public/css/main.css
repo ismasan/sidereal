@@ -43,9 +43,20 @@ input {
   width: min(980px, 100%);
 }
 
-#campaigns-page .kiosk,
-#campaign-page .kiosk {
+#campaigns-page .kiosk {
   grid-template-columns: 1fr;
+}
+
+.campaign-tag {
+  margin: 8px 0 0;
+  color: var(--ink);
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.campaign-tag__target {
+  color: var(--muted);
+  font-weight: 500;
 }
 
 #campaigns-page .panel + .panel {

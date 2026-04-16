@@ -121,14 +121,9 @@ class Donation < Sourced::Decider
     :donation_id,
     :campaign_id,
     :amount,
-    :name,
     :email,
     :status,
     :verification_token,
-    :verification_link,
-    :verified_at,
-    :payment_reference,
-    :paid_at,
     keyword_init: true
   )
 
@@ -147,7 +142,6 @@ class Donation < Sourced::Decider
   end
 
   evolve(DonorDetailsEntered) do |state, evt|
-    state.name = evt.payload.name
     state.email = evt.payload.email
     state.status = 'details_entered'
   end
@@ -158,12 +152,10 @@ class Donation < Sourced::Decider
 
   evolve(VerificationEmailSent) do |state, evt|
     state.verification_token = evt.payload.token
-    state.verification_link = "/verify/#{state.donation_id}/#{evt.payload.token}"
     state.status = 'verification_email_sent'
   end
 
-  evolve(EmailVerified) do |state, evt|
-    state.verified_at = evt.payload.verified_at
+  evolve(EmailVerified) do |state, _|
     state.status = 'email_verified'
   end
 
@@ -175,9 +167,7 @@ class Donation < Sourced::Decider
     state.status = 'payment_started'
   end
 
-  evolve(PaymentConfirmed) do |state, evt|
-    state.payment_reference = evt.payload.payment_reference
-    state.paid_at = evt.payload.paid_at
+  evolve(PaymentConfirmed) do |state, _|
     state.status = 'payment_confirmed'
   end
 
@@ -247,6 +237,7 @@ class Donation < Sourced::Decider
   end
 
   command(ConfirmPayment) do |state, cmd|
+    # TODO: this can be moved back to reaction(PaymentStarted)
     payment_reference = MockPaymentService.charge(state)
     event PaymentConfirmed,
       donation_id: cmd.payload.donation_id,
@@ -278,7 +269,11 @@ class Donation < Sourced::Decider
   end
 
   # TODO: review this. Slow API call should happen in reaction, not command handler.
-  # Why is slow reaction block blocking previous PaymentStarted event?
+  # Update: Sourced has been updated to decouple command handlers from reactions
+  # so that reactions can now run side-effects like the slow payment
+  # without blocking the command handler.
+  # Move the payment charge back to this reaction
+  # and make it pass the payment reference as part of the ConfirmPayment payload.
   #
   # PaymentService automation: enqueue ConfirmPayment. The slow Stripe call runs
   # inside ConfirmPayment's handler so that PaymentStarted can publish to the UI

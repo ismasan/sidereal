@@ -76,7 +76,10 @@ class CampaignsListPage < Sidereal::Page
 
               div(class: 'campaigns-list__actions') do
                 if c[:status] == 'open'
-                  a(href: "/campaigns/#{c[:campaign_id]}", class: 'primary-button') { 'Donate' }
+                  command Donation::StartDonation, class: 'inline-form' do |f|
+                    f.payload_fields(campaign_id: c[:campaign_id])
+                    button(type: :submit, class: 'primary-button') { 'Donate' }
+                  end
                   command Campaign::CloseCampaign, class: 'inline-form' do |f|
                     f.payload_fields(campaign_id: c[:campaign_id])
                     button(type: :submit, class: 'secondary-button') { 'Close' }

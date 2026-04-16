@@ -12,6 +12,7 @@ FileUtils.mkdir_p(File.dirname(DB_PATH))
 require_relative 'domain/donation'
 require_relative 'domain/campaign'
 require_relative 'domain/campaigns_projector'
+require_relative 'domain/donation_view'
 
 # Wire everything inside Sourced.configure so it is re-run after Falcon forks
 # (SQLite connections are not fork-safe — Sourced calls setup! in the worker

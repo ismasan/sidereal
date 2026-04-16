@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 class DonationPage < Sidereal::Page
-  path '/:donation_id'
+  path '/:campaign_id/:donation_id'
 
   on Donation::DonationStarted,
      Donation::AmountSelected,
@@ -12,33 +12,36 @@ class DonationPage < Sidereal::Page
      Donation::PaymentReady,
      Donation::PaymentStarted,
      Donation::PaymentConfirmed do |evt|
-    browser.patch_elements DonationPage.new(donation: DonationPage.load_donation(evt.payload.donation_id))
+    browser.patch_elements DonationPage.new(
+      donation: DonationPage.load_donation(evt.payload.campaign_id, evt.payload.donation_id)
+    )
   end
 
   def self.load(params, _ctx)
-    donation_id = params[:donation_id]
-    new(donation: load_donation(donation_id), donation_id:)
+    new(donation: load_donation(params[:campaign_id], params[:donation_id]))
   end
 
-  def self.load_donation(donation_id)
-    decider, _ = Sourced.load(Donation, donation_id:)
-    decider.state
+  def self.load_donation(campaign_id, donation_id)
+    view, _ = Sourced.load(DonationView, campaign_id:, donation_id:)
+    view.state
   end
 
-  def initialize(donation: nil, donation_id: nil)
+  def initialize(donation:)
     @donation = donation
-    @donation_id = donation_id || donation&.donation_id
   end
 
   def channel_name
-    @donation_id ? "donations.#{@donation_id}" : 'donations'
+    "donations.#{@donation.donation_id}"
   end
 
   def view_template
     div(id: 'donation-page') do
       header(class: 'header') do
         p(class: 'eyebrow') { 'Community Fund' }
-        h1 { 'Donation kiosk' }
+        h1 { @donation.campaign_name }
+        if @donation.campaign_target_amount
+          p(class: 'campaign-tag') { "Target €#{@donation.campaign_target_amount}" }
+        end
       end
 
       main(class: 'kiosk') do

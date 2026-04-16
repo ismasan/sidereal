@@ -2,19 +2,18 @@
 
 require_relative 'ui/layout'
 require_relative 'ui/campaigns_list_page'
-require_relative 'ui/campaign_page'
 require_relative 'ui/donation_page'
 
 class DonationsApp < Sidereal::App
   layout DonationsLayout
 
-  get '/verify/:donation_id/:token' do |donation_id:, token:|
+  get '/:campaign_id/:donation_id/verify/:token' do |campaign_id:, donation_id:, token:|
     decider, _ = Sourced.load(Donation, donation_id:)
     if decider.state.verification_token == token
-      cmd = Donation::VerifyEmailAddress.new(payload: { donation_id:, campaign_id: decider.state.campaign_id })
+      cmd = Donation::VerifyEmailAddress.new(payload: { donation_id:, campaign_id: })
         .with_metadata(channel: donation_channel(donation_id))
       Sourced.store.append(cmd)
-      redirect to("/#{donation_id}")
+      redirect to("/#{campaign_id}/#{donation_id}")
     else
       [404, { 'content-type' => 'text/plain' }, ['Verification link not found.']]
     end
@@ -26,7 +25,7 @@ class DonationsApp < Sidereal::App
 
   handle Donation::StartDonation do |cmd|
     dispatch cmd.with_metadata(channel: donation_channel(cmd.payload.donation_id))
-    browser.redirect "/#{cmd.payload.donation_id}"
+    browser.redirect "/#{cmd.payload.campaign_id}/#{cmd.payload.donation_id}"
   end
 
   handle Donation::SelectAmount do |cmd|
@@ -38,7 +37,6 @@ class DonationsApp < Sidereal::App
   end
 
   page CampaignsListPage
-  page CampaignPage
   page DonationPage
 
   private def donation_channel(donation_id) = "donations.#{donation_id}"
