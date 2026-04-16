@@ -19,6 +19,13 @@ namespace :db do
     puts 'Sourced migration file created in db/migrations/'
   end
 
+  desc 'Wipe all events from the Sourced store and all projection rows'
+  task :reset do
+    Sourced.store.clear!
+    Sourced.store.db[:campaigns].delete
+    puts 'All events and projections deleted.'
+  end
+
   desc 'Generate a new migration file: rake db:new_migration[name]'
   task :new_migration, [:name] do |_t, args|
     name = args[:name] || 'unnamed'
