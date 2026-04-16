@@ -124,19 +124,21 @@ RSpec.describe Donation do
   end
 
   describe Donation::ConfirmPayment do
-    it 'emits PaymentConfirmed using payment_reference and the command timestamp' do
+    it 'emits PaymentConfirmed with the donation amount, payment_reference, and command timestamp' do
       cmd = Donation::ConfirmPayment.new(
         payload: { donation_id:, campaign_id:, payment_reference: 'stripe_mock_abc' }
       )
 
       with_reactor(Donation, donation_id:)
         .given(Donation::DonationStarted, donation_id:, campaign_id:)
+        .and(Donation::AmountSelected, donation_id:, campaign_id:, amount: 30)
         .when(cmd)
         .then { |result|
           evt = result.messages.first
           expect(evt).to be_a(Donation::PaymentConfirmed)
           expect(evt.payload.to_h).to eq(
             donation_id:, campaign_id:,
+            amount: 30,
             payment_reference: 'stripe_mock_abc',
             paid_at: cmd.created_at
           )

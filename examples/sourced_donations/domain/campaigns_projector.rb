@@ -7,7 +7,7 @@ class CampaignsProjector < Sourced::Projector::StateStored
   state do |values|
     db = Sourced.store.db
     db[:campaigns].where(campaign_id: values[:campaign_id]).first ||
-      { campaign_id: nil, name: nil, target_amount: nil, status: nil, created_at: nil }
+      { campaign_id: nil, name: nil, target_amount: nil, status: nil, created_at: nil, total_amount: 0 }
   end
 
   evolve(Campaign::CampaignCreated) do |state, evt|
@@ -20,6 +20,10 @@ class CampaignsProjector < Sourced::Projector::StateStored
 
   evolve(Campaign::CampaignClosed) do |state, _evt|
     state[:status] = 'closed'
+  end
+
+  evolve(Donation::PaymentConfirmed) do |state, evt|
+    state[:total_amount] = (state[:total_amount] || 0) + evt.payload.amount
   end
 
   sync do |state:, **|

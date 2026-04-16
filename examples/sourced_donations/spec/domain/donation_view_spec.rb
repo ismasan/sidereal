@@ -50,7 +50,7 @@ RSpec.describe DonationView do
       paid_at = Time.now
       with_reactor(DonationView, campaign_id:, donation_id:)
         .given(Donation::DonationStarted, donation_id:, campaign_id:)
-        .and(Donation::PaymentConfirmed, donation_id:, campaign_id:, payment_reference: 'ref-1', paid_at:)
+        .and(Donation::PaymentConfirmed, donation_id:, campaign_id:, amount: 10, payment_reference: 'ref-1', paid_at:)
         .then { |result|
           expect(result.state.status).to eq('payment_confirmed')
           expect(result.state.payment_reference).to eq('ref-1')

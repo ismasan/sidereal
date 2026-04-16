@@ -112,6 +112,7 @@ class Donation < Sourced::Decider
   PaymentConfirmed = Sourced::Event.define('donations.payment_confirmed') do
     attribute :donation_id, Sourced::Types::UUID::V4
     attribute :campaign_id, Sourced::Types::UUID::V4
+    attribute :amount, Integer
     attribute :payment_reference, String
     attribute :paid_at, Sourced::Types::Forms::Time
   end
@@ -241,6 +242,7 @@ class Donation < Sourced::Decider
     event PaymentConfirmed,
       donation_id: cmd.payload.donation_id,
       campaign_id: state.campaign_id,
+      amount: state.amount,
       payment_reference: cmd.payload.payment_reference,
       paid_at: cmd.created_at
   end

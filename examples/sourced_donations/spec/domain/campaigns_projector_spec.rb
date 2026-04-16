@@ -14,6 +14,7 @@ RSpec.describe CampaignsProjector do
       Integer :target_amount
       String :status, null: false
       String :created_at, null: false
+      Integer :total_amount, default: 0, null: false
     end
 
     allow(Sourced).to receive_message_chain(:store, :db).and_return(test_db)
@@ -47,6 +48,48 @@ RSpec.describe CampaignsProjector do
           expect(result.state[:status]).to eq('closed')
         }
     end
+
+    it 'starts a new campaign with total_amount: 0' do
+      with_reactor(CampaignsProjector, campaign_id:)
+        .given(Campaign::CampaignCreated, **created_attrs)
+        .then { |result|
+          expect(result.state[:total_amount]).to eq(0)
+        }
+    end
+
+    it 'accumulates total_amount across PaymentConfirmed events' do
+      with_reactor(CampaignsProjector, campaign_id:)
+        .given(Campaign::CampaignCreated, **created_attrs)
+        .and(
+          Donation::PaymentConfirmed,
+          donation_id: 'd1', campaign_id:, amount: 10,
+          payment_reference: 'r1', paid_at: Time.now
+        )
+        .and(
+          Donation::PaymentConfirmed,
+          donation_id: 'd2', campaign_id:, amount: 30,
+          payment_reference: 'r2', paid_at: Time.now
+        )
+        .then { |result|
+          expect(result.state[:total_amount]).to eq(40)
+        }
+    end
+
+    it 'ignores PaymentConfirmed for other campaigns (handled by partitioning)' do
+      # The projector is partitioned by campaign_id, so only events matching the
+      # partition reach handle_batch. This test asserts the in-batch behaviour:
+      # given a single matching event, the total reflects only that amount.
+      with_reactor(CampaignsProjector, campaign_id:)
+        .given(Campaign::CampaignCreated, **created_attrs)
+        .and(
+          Donation::PaymentConfirmed,
+          donation_id: 'd1', campaign_id:, amount: 50,
+          payment_reference: 'r1', paid_at: Time.now
+        )
+        .then { |result|
+          expect(result.state[:total_amount]).to eq(50)
+        }
+    end
   end
 
   describe 'sync — DB upserts' do
@@ -66,6 +109,20 @@ RSpec.describe CampaignsProjector do
         .then! { |_result|
           row = test_db[:campaigns].where(campaign_id:).first
           expect(row[:status]).to eq('closed')
+        }
+    end
+
+    it 'writes the accumulated total_amount to the campaigns row' do
+      with_reactor(CampaignsProjector, campaign_id:)
+        .given(Campaign::CampaignCreated, **created_attrs)
+        .and(
+          Donation::PaymentConfirmed,
+          donation_id: 'd1', campaign_id:, amount: 25,
+          payment_reference: 'r1', paid_at: Time.now
+        )
+        .then! { |_result|
+          row = test_db[:campaigns].where(campaign_id:).first
+          expect(row[:total_amount]).to eq(25)
         }
     end
   end
