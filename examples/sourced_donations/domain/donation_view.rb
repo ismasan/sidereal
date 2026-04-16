@@ -4,8 +4,10 @@
 #
 # Reads events for one (campaign_id, donation_id) pair using AND-filtered
 # partition reads, then evolves them into a single State value that has both
-# campaign and donation fields. No commands or reactions — just evolves.
-class DonationView < Sourced::Decider
+# campaign and donation fields. Not registered with Sourced and has no `sync`
+# block, so no worker runs and no state is persisted — used purely on demand
+# via `Sourced.load(DonationView, ...)`.
+class DonationView < Sourced::Projector::EventSourced
   partition_by :campaign_id, :donation_id
 
   State = Struct.new(
