@@ -3,7 +3,8 @@
     "allow": [
       "Bash(*)",
       "Search(*)",
-      "mcp__eventlanes__*"
+      "mcp__eventlanes__*",
+      "WebFetch(*)"
     ]
   }
 }
