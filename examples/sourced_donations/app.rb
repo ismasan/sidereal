@@ -19,6 +19,10 @@ class DonationsApp < Sidereal::App
     end
   end
 
+  before_command do |cmd|
+    cmd.with_metadata(producer: 'UI')
+  end
+
   handle Campaign::CreateCampaign, Campaign::CloseCampaign do |cmd|
     dispatch cmd.with_metadata(channel: "campaigns.#{cmd.payload.campaign_id}")
   end
