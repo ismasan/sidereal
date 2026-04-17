@@ -8,6 +8,33 @@ class ProgressPage < Sidereal::Page
     super.merge(progress: 0)
   end
 
+  # Reactions — run for every tab subscribed to the 'system' channel.
+
+  on ProgressStarted do |_evt|
+    browser.patch_elements WorkView.new
+    browser.patch_elements %(<div id="activity" class="col"></div>)
+    browser.patch_signals(progress: 0)
+  end
+
+  on ProgressTicked do |evt|
+    browser.patch_signals(progress: evt.payload.percent)
+  end
+
+  on ActivityLogged do |evt|
+    browser.patch_elements(
+      ActivityItem.new(evt.payload.message, evt.created_at),
+      mode: 'append', selector: '#activity'
+    )
+  end
+
+  on ProgressCompleted do |evt|
+    browser.patch_elements %(<h1 id="title">Done!</h1>)
+    browser.patch_elements(
+      ActivityItem.new('Done!', evt.created_at, done: true),
+      mode: 'append', selector: '#activity'
+    )
+  end
+
   def self.load(_params, _ctx)
     new
   end
