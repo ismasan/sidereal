@@ -128,6 +128,7 @@ class Donation < Sourced::Decider
     :amount,
     :email,
     :status,
+    :campaign_status,
     :verification_token,
     keyword_init: true
   )
@@ -136,11 +137,16 @@ class Donation < Sourced::Decider
     State.new(donation_id: values[:donation_id], campaign_id: values[:campaign_id])
   end
 
-  # Parent Campaign closure, loaded via the :campaign_id partition key.
-  # Stamps 'closed' onto the donation's own status so command handlers
-  # and the UI can short-circuit uniformly.
+  # Parent Campaign events, loaded via the :campaign_id partition key.
+  # Tracked on a dedicated campaign_status field so donation commands can
+  # distinguish "campaign never created" (raise) from "campaign closed"
+  # (silent no-op) without overloading state.status.
+  evolve(Campaign::CampaignCreated) do |state, _evt|
+    state.campaign_status = 'open'
+  end
+
   evolve(Campaign::CampaignClosed) do |state, _evt|
-    state.status = 'closed'
+    state.campaign_status = 'closed'
   end
 
   evolve(DonationStarted) do |state, _evt|
@@ -184,13 +190,16 @@ class Donation < Sourced::Decider
 
   # ---- Pure command handlers ----
 
-  # Guard predicate invoked at the top of every command handler: once the
-  # parent campaign has been closed, donation-level commands become no-ops.
-  # The closure stamps 'closed' onto the donation's own status via evolve
-  # above.
-  private def campaign_closed?(state) = state.status == 'closed'
+  # Guard predicates invoked at the top of every command handler.
+  # - campaign_missing? raises: a donation can't exist without its parent
+  #   campaign, so this should never happen in practice.
+  # - campaign_closed? silently no-ops: the campaign may legitimately close
+  #   mid-flow, and donation-level commands become no-ops from that point.
+  private def campaign_missing?(state) = state.campaign_status.nil?
+  private def campaign_closed?(state) = state.campaign_status == 'closed'
 
   command(StartDonation) do |state, cmd|
+    raise 'campaign not found' if campaign_missing?(state)
     return if campaign_closed?(state)
     raise 'donation already started' if state.status
 
@@ -200,6 +209,7 @@ class Donation < Sourced::Decider
   end
 
   command(SelectAmount) do |state, cmd|
+    raise 'campaign not found' if campaign_missing?(state)
     return if campaign_closed?(state)
     raise 'donation must be started first' unless state.status
 
@@ -213,6 +223,7 @@ class Donation < Sourced::Decider
   end
 
   command(EnterDonorDetails) do |state, cmd|
+    raise 'campaign not found' if campaign_missing?(state)
     return if campaign_closed?(state)
     raise 'amount must be selected first' unless state.amount
 
@@ -224,6 +235,7 @@ class Donation < Sourced::Decider
   end
 
   command(SendVerificationEmail) do |state, cmd|
+    raise 'campaign not found' if campaign_missing?(state)
     return if campaign_closed?(state)
     event EmailSent,
       donation_id: cmd.payload.donation_id,
@@ -231,6 +243,7 @@ class Donation < Sourced::Decider
   end
 
   command(DeliverVerificationEmail) do |state, cmd|
+    raise 'campaign not found' if campaign_missing?(state)
     return if campaign_closed?(state)
     sleep 3 # demo: simulate slow email service
     event VerificationEmailSent,
@@ -240,6 +253,7 @@ class Donation < Sourced::Decider
   end
 
   command(VerifyEmailAddress) do |state, cmd|
+    raise 'campaign not found' if campaign_missing?(state)
     return if campaign_closed?(state)
     event EmailVerified,
       donation_id: cmd.payload.donation_id,
@@ -248,6 +262,7 @@ class Donation < Sourced::Decider
   end
 
   command(ShowPaymentButton) do |state, cmd|
+    raise 'campaign not found' if campaign_missing?(state)
     return if campaign_closed?(state)
     event PaymentReady,
       donation_id: cmd.payload.donation_id,
@@ -255,6 +270,7 @@ class Donation < Sourced::Decider
   end
 
   command(StartPayment) do |state, cmd|
+    raise 'campaign not found' if campaign_missing?(state)
     return if campaign_closed?(state)
     event PaymentStarted,
       donation_id: cmd.payload.donation_id,
@@ -262,6 +278,7 @@ class Donation < Sourced::Decider
   end
 
   command(ConfirmPayment) do |state, cmd|
+    raise 'campaign not found' if campaign_missing?(state)
     return if campaign_closed?(state)
     event PaymentConfirmed,
       donation_id: cmd.payload.donation_id,
