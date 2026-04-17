@@ -56,6 +56,16 @@ input {
   margin-bottom: 18px;
 }
 
+@media (max-width: 760px) {
+  #campaigns-page .kiosk {
+    grid-template-columns: 1fr;
+  }
+
+  #campaigns-page .panel:first-child {
+    display: none;
+  }
+}
+
 .campaign-tag {
   margin: 8px 0 0;
   color: var(--ink);
