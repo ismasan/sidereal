@@ -109,6 +109,8 @@ class DonationPage < Sidereal::Page
         case @donation&.status
         when nil
           render NotFound.new
+        when 'closed'
+          render CampaignClosed.new
         when 'started'
           render AmountPicker.new(@donation)
         when 'amount_selected'
@@ -137,6 +139,16 @@ class DonationPage < Sidereal::Page
       div(class: 'step-screen') do
         h2 { 'Donation not found' }
         p(class: 'lede') { 'Donations begin from a campaign page.' }
+        a(href: '/', class: 'primary-button') { 'Browse campaigns' }
+      end
+    end
+  end
+
+  class CampaignClosed < Sidereal::Components::BaseComponent
+    def view_template
+      div(class: 'step-screen') do
+        h2 { 'Campaign closed' }
+        p(class: 'lede') { 'This campaign is no longer accepting donations.' }
         a(href: '/', class: 'primary-button') { 'Browse campaigns' }
       end
     end

@@ -36,6 +36,10 @@ class DonationView < Sourced::Projector::EventSourced
     state.campaign_target_amount = evt.payload.target_amount
   end
 
+  evolve(Campaign::CampaignClosed) do |state, _evt|
+    state.status = 'closed'
+  end
+
   evolve(Donation::DonationStarted) do |state, _evt|
     state.status = 'started'
   end

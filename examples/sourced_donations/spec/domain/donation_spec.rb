@@ -8,18 +8,37 @@ RSpec.describe Donation do
   let(:donation_id) { 'donation-1' }
   let(:campaign_id) { 'campaign-1' }
 
+  # ---- Campaign guard (applies to every command handler) ----
+
+  describe 'campaign guard' do
+    it 'silently no-ops when the parent campaign has been closed' do
+      with_reactor(Donation, campaign_id:, donation_id:)
+        .given(Campaign::CampaignClosed, campaign_id:)
+        .when(Donation::StartDonation, donation_id:, campaign_id:)
+        .then
+    end
+
+    it 'silently no-ops mid-flow commands when the campaign gets closed after a donation has started' do
+      with_reactor(Donation, campaign_id:, donation_id:)
+        .given(Donation::DonationStarted, donation_id:, campaign_id:)
+        .and(Campaign::CampaignClosed, campaign_id:)
+        .when(Donation::SelectAmount, donation_id:, campaign_id:, amount: '10')
+        .then
+    end
+  end
+
   # ---- Browser-facing commands ----
 
   describe Donation::StartDonation do
     it 'emits DonationStarted with campaign_id' do
-      with_reactor(Donation, donation_id:)
+      with_reactor(Donation, campaign_id:, donation_id:)
         .when(Donation::StartDonation, donation_id:, campaign_id:)
         .then(Donation::DonationStarted, donation_id:, campaign_id:)
     end
 
     it 'rejects starting an already-started donation' do
-      with_reactor(Donation, donation_id:)
-        .given(Donation::DonationStarted, donation_id:, campaign_id:)
+      with_reactor(Donation, campaign_id:, donation_id:)
+        .and(Donation::DonationStarted, donation_id:, campaign_id:)
         .when(Donation::StartDonation, donation_id:, campaign_id:)
         .then(RuntimeError, 'donation already started')
     end
@@ -27,21 +46,21 @@ RSpec.describe Donation do
 
   describe Donation::SelectAmount do
     it 'emits AmountSelected with the integer amount' do
-      with_reactor(Donation, donation_id:)
-        .given(Donation::DonationStarted, donation_id:, campaign_id:)
+      with_reactor(Donation, campaign_id:, donation_id:)
+        .and(Donation::DonationStarted, donation_id:, campaign_id:)
         .when(Donation::SelectAmount, donation_id:, campaign_id:, amount: '10')
         .then(Donation::AmountSelected, donation_id:, campaign_id:, amount: 10)
     end
 
     it 'rejects when the donation has not started' do
-      with_reactor(Donation, donation_id:)
+      with_reactor(Donation, campaign_id:, donation_id:)
         .when(Donation::SelectAmount, donation_id:, campaign_id:, amount: '10')
         .then(RuntimeError, 'donation must be started first')
     end
 
     it 'rejects unknown amounts' do
-      with_reactor(Donation, donation_id:)
-        .given(Donation::DonationStarted, donation_id:, campaign_id:)
+      with_reactor(Donation, campaign_id:, donation_id:)
+        .and(Donation::DonationStarted, donation_id:, campaign_id:)
         .when(Donation::SelectAmount, donation_id:, campaign_id:, amount: '7')
         .then(RuntimeError, 'invalid amount 7')
     end
@@ -49,16 +68,16 @@ RSpec.describe Donation do
 
   describe Donation::EnterDonorDetails do
     it 'emits DonorDetailsEntered when amount has been selected' do
-      with_reactor(Donation, donation_id:)
-        .given(Donation::DonationStarted, donation_id:, campaign_id:)
+      with_reactor(Donation, campaign_id:, donation_id:)
+        .and(Donation::DonationStarted, donation_id:, campaign_id:)
         .and(Donation::AmountSelected, donation_id:, campaign_id:, amount: 10)
         .when(Donation::EnterDonorDetails, donation_id:, campaign_id:, name: 'Ada', email: 'ada@example.com')
         .then(Donation::DonorDetailsEntered, donation_id:, campaign_id:, name: 'Ada', email: 'ada@example.com')
     end
 
     it 'rejects when amount has not been selected' do
-      with_reactor(Donation, donation_id:)
-        .given(Donation::DonationStarted, donation_id:, campaign_id:)
+      with_reactor(Donation, campaign_id:, donation_id:)
+        .and(Donation::DonationStarted, donation_id:, campaign_id:)
         .when(Donation::EnterDonorDetails, donation_id:, campaign_id:, name: 'Ada', email: 'ada@example.com')
         .then(RuntimeError, 'amount must be selected first')
     end
@@ -68,8 +87,8 @@ RSpec.describe Donation do
     it 'emits EmailVerified with verified_at from the command timestamp' do
       cmd = Donation::VerifyEmailAddress.new(payload: { donation_id:, campaign_id: })
 
-      with_reactor(Donation, donation_id:)
-        .given(Donation::DonationStarted, donation_id:, campaign_id:)
+      with_reactor(Donation, campaign_id:, donation_id:)
+        .and(Donation::DonationStarted, donation_id:, campaign_id:)
         .when(cmd)
         .then { |result|
           expect(result.messages.size).to eq(1)
@@ -84,8 +103,8 @@ RSpec.describe Donation do
 
   describe Donation::SendVerificationEmail do
     it 'emits EmailSent' do
-      with_reactor(Donation, donation_id:)
-        .given(Donation::DonationStarted, donation_id:, campaign_id:)
+      with_reactor(Donation, campaign_id:, donation_id:)
+        .and(Donation::DonationStarted, donation_id:, campaign_id:)
         .when(Donation::SendVerificationEmail, donation_id:, campaign_id:)
         .then(Donation::EmailSent, donation_id:, campaign_id:)
     end
@@ -98,8 +117,8 @@ RSpec.describe Donation do
     end
 
     it 'emits VerificationEmailSent with a generated token' do
-      with_reactor(Donation, donation_id:)
-        .given(Donation::DonationStarted, donation_id:, campaign_id:)
+      with_reactor(Donation, campaign_id:, donation_id:)
+        .and(Donation::DonationStarted, donation_id:, campaign_id:)
         .when(Donation::DeliverVerificationEmail, donation_id:, campaign_id:)
         .then(Donation::VerificationEmailSent, donation_id:, campaign_id:, token: 'TEST_TOKEN')
     end
@@ -107,8 +126,8 @@ RSpec.describe Donation do
 
   describe Donation::ShowPaymentButton do
     it 'emits PaymentReady' do
-      with_reactor(Donation, donation_id:)
-        .given(Donation::DonationStarted, donation_id:, campaign_id:)
+      with_reactor(Donation, campaign_id:, donation_id:)
+        .and(Donation::DonationStarted, donation_id:, campaign_id:)
         .when(Donation::ShowPaymentButton, donation_id:, campaign_id:)
         .then(Donation::PaymentReady, donation_id:, campaign_id:)
     end
@@ -116,8 +135,8 @@ RSpec.describe Donation do
 
   describe Donation::StartPayment do
     it 'emits PaymentStarted' do
-      with_reactor(Donation, donation_id:)
-        .given(Donation::DonationStarted, donation_id:, campaign_id:)
+      with_reactor(Donation, campaign_id:, donation_id:)
+        .and(Donation::DonationStarted, donation_id:, campaign_id:)
         .when(Donation::StartPayment, donation_id:, campaign_id:)
         .then(Donation::PaymentStarted, donation_id:, campaign_id:)
     end
@@ -129,8 +148,8 @@ RSpec.describe Donation do
         payload: { donation_id:, campaign_id:, payment_reference: 'stripe_mock_abc' }
       )
 
-      with_reactor(Donation, donation_id:)
-        .given(Donation::DonationStarted, donation_id:, campaign_id:)
+      with_reactor(Donation, campaign_id:, donation_id:)
+        .and(Donation::DonationStarted, donation_id:, campaign_id:)
         .and(Donation::AmountSelected, donation_id:, campaign_id:, amount: 30)
         .when(cmd)
         .then { |result|
@@ -150,23 +169,23 @@ RSpec.describe Donation do
 
   describe 'reactions' do
     it 'reacts to DonorDetailsEntered by dispatching SendVerificationEmail' do
-      with_reactor(Donation, donation_id:)
-        .given(Donation::DonationStarted, donation_id:, campaign_id:)
+      with_reactor(Donation, campaign_id:, donation_id:)
+        .and(Donation::DonationStarted, donation_id:, campaign_id:)
         .and(Donation::AmountSelected, donation_id:, campaign_id:, amount: 10)
         .when(Donation::DonorDetailsEntered, donation_id:, campaign_id:, name: 'A', email: 'a@x.com')
         .then(Donation::SendVerificationEmail, donation_id:, campaign_id:)
     end
 
     it 'reacts to EmailSent by dispatching DeliverVerificationEmail' do
-      with_reactor(Donation, donation_id:)
-        .given(Donation::DonationStarted, donation_id:, campaign_id:)
+      with_reactor(Donation, campaign_id:, donation_id:)
+        .and(Donation::DonationStarted, donation_id:, campaign_id:)
         .when(Donation::EmailSent, donation_id:, campaign_id:)
         .then(Donation::DeliverVerificationEmail, donation_id:, campaign_id:)
     end
 
     it 'reacts to EmailVerified by dispatching ShowPaymentButton' do
-      with_reactor(Donation, donation_id:)
-        .given(Donation::DonationStarted, donation_id:, campaign_id:)
+      with_reactor(Donation, campaign_id:, donation_id:)
+        .and(Donation::DonationStarted, donation_id:, campaign_id:)
         .when(Donation::EmailVerified, donation_id:, campaign_id:, verified_at: Time.now)
         .then(Donation::ShowPaymentButton, donation_id:, campaign_id:)
     end
@@ -174,8 +193,8 @@ RSpec.describe Donation do
     it 'reacts to PaymentStarted by charging via MockPaymentService and dispatching ConfirmPayment' do
       allow(MockPaymentService).to receive(:charge).and_return('stripe_mock_xyz')
 
-      with_reactor(Donation, donation_id:)
-        .given(Donation::DonationStarted, donation_id:, campaign_id:)
+      with_reactor(Donation, campaign_id:, donation_id:)
+        .and(Donation::DonationStarted, donation_id:, campaign_id:)
         .and(Donation::AmountSelected, donation_id:, campaign_id:, amount: 10)
         .and(Donation::DonorDetailsEntered, donation_id:, campaign_id:, name: 'A', email: 'a@x.com')
         .when(Donation::PaymentStarted, donation_id:, campaign_id:)

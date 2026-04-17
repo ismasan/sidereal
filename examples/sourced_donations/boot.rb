@@ -9,8 +9,8 @@ require 'sidereal'
 DB_PATH = File.expand_path('storage/donations.db', __dir__)
 FileUtils.mkdir_p(File.dirname(DB_PATH))
 
-require_relative 'domain/donation'
 require_relative 'domain/campaign'
+require_relative 'domain/donation'
 require_relative 'domain/campaigns_projector'
 require_relative 'domain/donation_view'
 

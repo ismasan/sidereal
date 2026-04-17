@@ -5,7 +5,10 @@ require_relative 'payment'
 
 class Donation < Sourced::Decider
   consumer_group 'donations'
-  partition_by :donation_id
+  # Partition by both ids so the decider's history load includes the parent
+  # Campaign events too (CampaignCreated / CampaignClosed, which only declare
+  # campaign_id). Donation's own events declare both ids and stay scoped.
+  partition_by :campaign_id, :donation_id
 
   AMOUNTS = [5, 10, 30, 50].freeze
 
@@ -130,11 +133,17 @@ class Donation < Sourced::Decider
   )
 
   state do |values|
-    State.new(donation_id: values[:donation_id])
+    State.new(donation_id: values[:donation_id], campaign_id: values[:campaign_id])
   end
 
-  evolve(DonationStarted) do |state, evt|
-    state.campaign_id = evt.payload.campaign_id
+  # Parent Campaign closure, loaded via the :campaign_id partition key.
+  # Stamps 'closed' onto the donation's own status so command handlers
+  # and the UI can short-circuit uniformly.
+  evolve(Campaign::CampaignClosed) do |state, _evt|
+    state.status = 'closed'
+  end
+
+  evolve(DonationStarted) do |state, _evt|
     state.status = 'started'
   end
 
@@ -175,7 +184,14 @@ class Donation < Sourced::Decider
 
   # ---- Pure command handlers ----
 
+  # Guard predicate invoked at the top of every command handler: once the
+  # parent campaign has been closed, donation-level commands become no-ops.
+  # The closure stamps 'closed' onto the donation's own status via evolve
+  # above.
+  private def campaign_closed?(state) = state.status == 'closed'
+
   command(StartDonation) do |state, cmd|
+    return if campaign_closed?(state)
     raise 'donation already started' if state.status
 
     event DonationStarted,
@@ -184,6 +200,7 @@ class Donation < Sourced::Decider
   end
 
   command(SelectAmount) do |state, cmd|
+    return if campaign_closed?(state)
     raise 'donation must be started first' unless state.status
 
     amount = cmd.payload.amount.to_i
@@ -196,6 +213,7 @@ class Donation < Sourced::Decider
   end
 
   command(EnterDonorDetails) do |state, cmd|
+    return if campaign_closed?(state)
     raise 'amount must be selected first' unless state.amount
 
     event DonorDetailsEntered,
@@ -206,12 +224,14 @@ class Donation < Sourced::Decider
   end
 
   command(SendVerificationEmail) do |state, cmd|
+    return if campaign_closed?(state)
     event EmailSent,
       donation_id: cmd.payload.donation_id,
       campaign_id: state.campaign_id
   end
 
   command(DeliverVerificationEmail) do |state, cmd|
+    return if campaign_closed?(state)
     sleep 3 # demo: simulate slow email service
     event VerificationEmailSent,
       donation_id: cmd.payload.donation_id,
@@ -220,6 +240,7 @@ class Donation < Sourced::Decider
   end
 
   command(VerifyEmailAddress) do |state, cmd|
+    return if campaign_closed?(state)
     event EmailVerified,
       donation_id: cmd.payload.donation_id,
       campaign_id: state.campaign_id,
@@ -227,18 +248,21 @@ class Donation < Sourced::Decider
   end
 
   command(ShowPaymentButton) do |state, cmd|
+    return if campaign_closed?(state)
     event PaymentReady,
       donation_id: cmd.payload.donation_id,
       campaign_id: state.campaign_id
   end
 
   command(StartPayment) do |state, cmd|
+    return if campaign_closed?(state)
     event PaymentStarted,
       donation_id: cmd.payload.donation_id,
       campaign_id: state.campaign_id
   end
 
   command(ConfirmPayment) do |state, cmd|
+    return if campaign_closed?(state)
     event PaymentConfirmed,
       donation_id: cmd.payload.donation_id,
       campaign_id: state.campaign_id,
