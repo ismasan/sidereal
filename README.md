@@ -412,6 +412,36 @@ end
 
 The channel propagates through the correlation chain, so downstream commands and events dispatched in response stay on the same channel without further wiring.
 
+#### Channel name syntax
+
+Channel names are dot-separated tokens (e.g. `campaigns.abc-123.donations.xyz-999`). Subscribers can use two NATS-style wildcards to receive events across multiple concrete channels:
+
+| Pattern | Matches |
+|---|---|
+| `campaigns.abc-123` | exactly that channel |
+| `campaigns.*` | `campaigns.abc-123`, `campaigns.xyz-999` — one non-empty segment, nothing deeper |
+| `campaigns.*.donations.*` | `campaigns.abc.donations.xyz` only — `*` always matches exactly one segment |
+| `campaigns.>` | any channel starting with `campaigns.` (one or more segments) |
+| `>` | everything published |
+
+`*` may appear anywhere; `>` must be the trailing token. Published channel names must be concrete — wildcards in `publish` are rejected. Empty segments (`campaigns..x`) are rejected on both sides.
+
+This lets pages scope their SSE stream to just what they need. Use an exact channel for a single-entity detail page, and a wildcard for a list or dashboard that should refresh on any change under a prefix:
+
+```ruby
+class DonationPage < Sidereal::Page
+  # Only events for this specific donation
+  def channel_name = "campaigns.#{@campaign_id}.donations.#{@donation_id}"
+end
+
+class CampaignsListPage < Sidereal::Page
+  # Every campaign event and every donation event under every campaign
+  def channel_name = 'campaigns.>'
+end
+```
+
+Pair this with a hierarchical publishing scheme (`"campaigns.#{campaign_id}.donations.#{donation_id}"` for donation events, `"campaigns.#{campaign_id}"` for campaign events) to get routing "for free" from the channel name alone.
+
 ### Sub-components
 
 Define inline components as separated classes (or nested classes) for partial re-renders:
