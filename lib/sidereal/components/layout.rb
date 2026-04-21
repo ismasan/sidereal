@@ -35,7 +35,7 @@ module Sidereal
       attr_reader :page
 
       def sidereal_head
-        script(type: "module", src: "https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.0-RC.8/bundles/datastar.js")
+        script(type: "module", src: 'https://cdn.jsdelivr.net/gh/starfederation/datastar@v1.0.1/bundles/datastar.js')
       end
 
       def sidereal_foot
