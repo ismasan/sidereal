@@ -697,6 +697,8 @@ A custom store must respond to `#append(message)`. A custom dispatcher must resp
 
 ## How it works
 
+<img width="935" height="783" alt="CleanShot 2026-04-21 at 14 37 31" src="https://github.com/user-attachments/assets/cbe698e6-3343-4873-aabd-65959ceb9051" />
+
 ```mermaid
 sequenceDiagram
     participant Browser
