@@ -1,3 +1,12 @@
+GIT
+  remote: https://github.com/ismasan/sourced.git
+  revision: 03fd28f418fd13bd1b537ce68025934530c1b997
+  branch: ccc
+  specs:
+    sourced (0.0.1)
+      async
+      plumb (>= 0.0.17)
+
 PATH
   remote: ../..
   specs:
@@ -9,24 +18,6 @@ PATH
       plumb (~> 0.0.17)
       rack (~> 3)
       rack-session
-
-PATH
-  remote: /Users/ismasan/code/personal/gems/sourced-ui
-  specs:
-    sourced-ui (0.1.0)
-      datastar (~> 1.0.3)
-      logger
-      phlex
-      rack
-      rack-session
-      sourced
-
-PATH
-  remote: /Users/ismasan/code/personal/gems/sourced
-  specs:
-    sourced (0.0.1)
-      async
-      plumb (>= 0.0.17)
 
 GEM
   remote: https://rubygems.org/
@@ -159,7 +150,6 @@ DEPENDENCIES
   sequel
   sidereal!
   sourced!
-  sourced-ui!
   sqlite3
 
 CHECKSUMS
@@ -212,7 +202,6 @@ CHECKSUMS
   sequel (5.103.0) sha256=51bf23374cc585724fc51a2ae8b95283422c97ca4585ce28f3db27a26ce55a69
   sidereal (0.1.0)
   sourced (0.0.1)
-  sourced-ui (0.1.0)
   sqlite3 (2.9.3-arm64-darwin) sha256=76b265d3d57362d3e38338f24f50a0c9cd47a4599c9cfbb578fac125d2299906
   string-format (0.2.0) sha256=bc981c14116b061f12134549f32fa2d61a17b5a35dd6fd36596c21722a789af6
   traces (0.18.2) sha256=80f1649cb4daace1d7174b81f3b3b7427af0b93047759ba349960cb8f315e214
