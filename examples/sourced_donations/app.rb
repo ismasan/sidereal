@@ -8,7 +8,7 @@ class DonationsApp < Sidereal::App
   layout DonationsLayout
 
   get '/:campaign_id/:donation_id/verify/:token' do |campaign_id:, donation_id:, token:|
-    decider, _ = Sourced.load(Donation, donation_id:)
+    decider, events = Sourced.load(Donation, campaign_id:, donation_id:)
     if decider.state.verification_token == token
       cmd = Donation::VerifyEmailAddress.new(payload: { donation_id:, campaign_id: })
         .with_metadata(channel: donation_channel(campaign_id, donation_id))
