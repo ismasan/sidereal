@@ -38,8 +38,13 @@ module Sidereal
         script(type: "module", src: 'https://cdn.jsdelivr.net/gh/starfederation/datastar@v1.0.1/bundles/datastar.js')
       end
 
+      def sidereal_signals
+        page.page_signals.merge(params:)
+      end
+
       def sidereal_foot
-        onload = _d.init.get("/updates/#{page.channel_name}")
+        return unless page.channel_name
+        onload = _d.init.get(context.url("/updates/#{page.channel_name}", false))
         # onload needs to be at the end
         # to make sure to collect all signals on the page
         div(data: onload.to_h)

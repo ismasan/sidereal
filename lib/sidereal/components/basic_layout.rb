@@ -137,8 +137,6 @@ module Sidereal
             div(class: 'page') do
               render page
             end
-
-            sidereal_foot
           end
         end
       end

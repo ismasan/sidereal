@@ -32,10 +32,15 @@ RSpec.describe Sidereal::Components::Layout do
 
   let(:layout) { layout_class.new(page) }
 
-  # Layout needs a Rack request in context for BaseComponent#params
-  let(:env) { { 'router.params' => {} } }
+  # Layout needs a Rack request in context for BaseComponent#params and url()
+  let(:env) { { 'router.params' => {}, 'rack.url_scheme' => 'http', 'HTTP_HOST' => 'example.com' } }
   let(:request) { Rack::Request.new(env) }
-  let(:context) { Struct.new(:request).new(request) }
+  let(:context) do
+    ctx_class = Struct.new(:request) do
+      include Sidereal::RequestHelpers
+    end
+    ctx_class.new(request)
+  end
 
   def render_layout(component = layout)
     component.call(context:) { page.call }
@@ -72,6 +77,24 @@ RSpec.describe Sidereal::Components::Layout do
       end
       html = render_layout(layout_class.new(page_with_channel_class.new))
       expect(html).to include("data-init=\"@get('/updates/items.42')\"")
+    end
+
+    it 'prefixes the SSE updates path with SCRIPT_NAME when app is mounted at a sub-path' do
+      mounted_env = env.merge('SCRIPT_NAME' => '/myapp')
+      mounted_request = Rack::Request.new(mounted_env)
+      mounted_context = Struct.new(:request) { include Sidereal::RequestHelpers }.new(mounted_request)
+      html = layout.call(context: mounted_context) { page.call }
+      expect(html).to include("data-init=\"@get('/myapp/updates/system')\"")
+    end
+
+    it 'omits the SSE init div when page channel_name is nil' do
+      silent_page_class = Class.new(Sidereal::Page) do
+        path '/silent'
+        def channel_name = nil
+        def view_template = div { 'no sse' }
+      end
+      html = render_layout(layout_class.new(silent_page_class.new))
+      expect(html).not_to include('data-init')
     end
 
     it 'includes page_key and params signals on the body tag' do
