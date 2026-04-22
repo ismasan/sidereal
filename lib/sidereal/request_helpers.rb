@@ -17,9 +17,17 @@ module Sidereal
                   request.host
                 end
       end
-      uri << request.script_name.to_s if add_script_name
+      uri << script_name if add_script_name
       uri << (addr || request.path_info).to_s
       uri
+    end
+
+    # Returns the script name (path prefix) for the current request.
+    # Override in subclasses to provide a stable snapshot (e.g. Router snapshots
+    # SCRIPT_NAME at init time so async SSE fibers see the correct prefix even
+    # after Rack::URLMap restores it in its ensure block).
+    def script_name
+      request.script_name.to_s
     end
 
     alias to url

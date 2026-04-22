@@ -19,6 +19,18 @@ RSpec.describe Sidereal::RequestHelpers do
     host_class.new(Rack::Request.new(Rack::MockRequest.env_for(url, env)))
   end
 
+  describe '#script_name' do
+    it 'returns the request SCRIPT_NAME' do
+      helper = build('http://example.com/items', 'SCRIPT_NAME' => '/app')
+      expect(helper.script_name).to eq('/app')
+    end
+
+    it 'returns empty string when SCRIPT_NAME is absent' do
+      helper = build('http://example.com/items')
+      expect(helper.script_name).to eq('')
+    end
+  end
+
   describe '#url' do
     it 'returns the absolute URL for the current request path' do
       helper = build('http://example.com/items')
@@ -71,3 +83,4 @@ RSpec.describe Sidereal::RequestHelpers do
     end
   end
 end
+

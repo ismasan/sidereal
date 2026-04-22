@@ -203,6 +203,33 @@ RSpec.describe Sidereal::Router do
       get '/items/42'
       expect(last_request.env['router.params']).to eq({ id: '42' })
     end
+
+    it 'sets router.params in the env' do
+      get '/items/42?foo=a&bar=b'
+      expect(last_request.env['router.params']).to eq({ id: '42' })
+    end
+  end
+
+  describe '#script_name snapshot' do
+    it 'captures SCRIPT_NAME at init time' do
+      env = Rack::MockRequest.env_for('/items', 'SCRIPT_NAME' => '/myapp')
+      router = TestRouter.new(Rack::Request.new(env))
+      expect(router.script_name).to eq('/myapp')
+    end
+
+    it 'is unaffected when env SCRIPT_NAME is mutated after init (simulates Rack::URLMap restore)' do
+      env = Rack::MockRequest.env_for('/items', 'SCRIPT_NAME' => '/myapp')
+      router = TestRouter.new(Rack::Request.new(env))
+      env['SCRIPT_NAME'] = ''
+      expect(router.script_name).to eq('/myapp')
+    end
+
+    it 'url() uses the snapshotted prefix after env mutation' do
+      env = Rack::MockRequest.env_for('/items', 'SCRIPT_NAME' => '/myapp')
+      router = TestRouter.new(Rack::Request.new(env))
+      env['SCRIPT_NAME'] = ''
+      expect(router.url('/items', false)).to eq('/myapp/items')
+    end
   end
 
   describe 'callable handler' do

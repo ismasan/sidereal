@@ -383,11 +383,14 @@ module Sidereal
 
     # @return [Rack::Request] the current request
     # @return [Rack::Response] the response being built
-    attr_reader :request, :response
+    attr_reader :request, :response, :script_name
 
     # @param request [Rack::Request]
     def initialize(request)
       @request = request
+      # Snapshot SCRIPT_NAME so async SSE fibers see the correct prefix even after
+      # Rack::URLMap's ensure block resets env['SCRIPT_NAME'] to '' once app.call returns.
+      @script_name = request.script_name.to_s.freeze
       @response = Rack::Response.new(BLANK_BODY, 200, DEFAULT_HEADERS.dup)
     end
 
