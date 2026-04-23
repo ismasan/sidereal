@@ -5,7 +5,7 @@ source "https://rubygems.org"
 gem "sidereal", path: "../.."
 gem "falcon"
 gem 'sourced', github: 'ismasan/sourced', branch: 'ccc'
-# gem 'sourced-ui', path: '/Users/ismasan/code/personal/gems/sourced-ui'
+gem 'sourced-ui', github: 'ismasan/sourced-ui', branch: 'ccc' #, path: '/Users/ismasan/code/personal/gems/sourced-ui'
 gem 'sequel'
 gem 'sqlite3'
 gem 'rake'

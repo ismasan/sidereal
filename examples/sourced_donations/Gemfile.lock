@@ -1,4 +1,15 @@
 GIT
+  remote: https://github.com/ismasan/sourced-ui.git
+  revision: 3428e1b9c6ce97d1a2b132ee127d90b2055d7fee
+  branch: ccc
+  specs:
+    sourced-ui (0.1.0)
+      logger
+      phlex
+      sidereal
+      sourced
+
+GIT
   remote: https://github.com/ismasan/sourced.git
   revision: 03fd28f418fd13bd1b537ce68025934530c1b997
   branch: ccc
@@ -13,7 +24,7 @@ PATH
     sidereal (0.1.0)
       async
       brotli
-      datastar (~> 1.0.3)
+      datastar (~> 1.0.4)
       phlex
       plumb (~> 0.0.17)
       rack (~> 3)
@@ -59,7 +70,7 @@ GEM
       fiber-annotation
       fiber-local (~> 1.1)
       json
-    datastar (1.0.3)
+    datastar (1.0.4)
       json
       logger
       rack (>= 3.2)
@@ -150,6 +161,7 @@ DEPENDENCIES
   sequel
   sidereal!
   sourced!
+  sourced-ui!
   sqlite3
 
 CHECKSUMS
@@ -165,7 +177,7 @@ CHECKSUMS
   brotli (0.8.0) sha256=0c5a42046b3b603fb109656881147fd76064c034b7d19c1b4fcc32a093a4d55d
   concurrent-ruby (1.3.6) sha256=6b56837e1e7e5292f9864f34b69c5a2cbc75c0cf5338f1ce9903d10fa762d5ab
   console (1.34.3) sha256=869fbd74697efc4c606f102d2812b0b008e4e7fd738a91c591e8577140ec0dcc
-  datastar (1.0.3) sha256=da630d4c8d1929069d2d3c1e0ed4ad0896a48f704e972ffab1b4b5daac73e00f
+  datastar (1.0.4) sha256=46ac43193e2018f16bd3596531dbee5c59427b7797f03c17792bbc9ebdbb92eb
   diff-lcs (1.6.2) sha256=9ae0d2cba7d4df3075fe8cd8602a8604993efc0dfa934cff568969efb1909962
   falcon (0.55.2) sha256=dfcdd8e4c3a18827a5ca7e346df67ebdaf873ac61a5f7d20ad4923c4d6b180cb
   fiber-annotation (0.2.0) sha256=7abfadf1d119f508867d4103bf231c0354d019cc39a5738945dec2edadaf6c03
@@ -202,6 +214,7 @@ CHECKSUMS
   sequel (5.103.0) sha256=51bf23374cc585724fc51a2ae8b95283422c97ca4585ce28f3db27a26ce55a69
   sidereal (0.1.0)
   sourced (0.0.1)
+  sourced-ui (0.1.0)
   sqlite3 (2.9.3-arm64-darwin) sha256=76b265d3d57362d3e38338f24f50a0c9cd47a4599c9cfbb578fac125d2299906
   string-format (0.2.0) sha256=bc981c14116b061f12134549f32fa2d61a17b5a35dd6fd36596c21722a789af6
   traces (0.18.2) sha256=80f1649cb4daace1d7174b81f3b3b7427af0b93047759ba349960cb8f315e214
