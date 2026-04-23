@@ -215,10 +215,8 @@ module Sidereal
       store.append(cmd)
     end
 
-    # TODO: this should merge request.params (query string)
-    # Or should the router do it?
     def params
-      @params ||= request.params.merge(request.env.fetch('router.params', {}))
+      @params ||= request.env.fetch('router.params', EMPTY_PARAMS)
     end
 
     def pubsub

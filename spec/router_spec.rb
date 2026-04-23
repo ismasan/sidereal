@@ -109,7 +109,7 @@ RSpec.describe Sidereal::Router do
     end
 
     it 'extracts multiple params' do
-      get '/items/42/comments/7'
+      get '/items/42/comments/7?foo=bar'
       expect(last_response.status).to eq(200)
       expect(last_response.body).to eq('item:42:comment:7')
     end
@@ -204,8 +204,13 @@ RSpec.describe Sidereal::Router do
       expect(last_request.env['router.params']).to eq({ id: '42' })
     end
 
-    it 'sets router.params in the env' do
+    it 'merges query-string params into router.params with symbol keys' do
       get '/items/42?foo=a&bar=b'
+      expect(last_request.env['router.params']).to eq({ id: '42', foo: 'a', bar: 'b' })
+    end
+
+    it 'prefers path params over query params on key collision' do
+      get '/items/42?id=99'
       expect(last_request.env['router.params']).to eq({ id: '42' })
     end
   end

@@ -424,8 +424,11 @@ module Sidereal
     # segment by exact hash lookup (static) or {Node#param_child}
     # fallback (dynamic). Returns +404+ if no route matches.
     #
-    # Matched path parameters are stored in
-    # +request.env['router.params']+ as a symbol-keyed hash.
+    # A symbol-keyed hash containing both query-string parameters and
+    # matched path parameters (with path parameters taking precedence on
+    # key collision) is stored in +request.env['router.params']+.
+    # Block handlers still receive only path parameters as keyword
+    # arguments, so handler signatures like +do |id:|+ are unaffected.
     #
     # Runs {#before_route} (set via {.before}) before dispatching
     # to the handler. The before hook can call {#halt} to short-circuit.
@@ -446,7 +449,7 @@ module Sidereal
       return not_found unless node
 
       segments = self.class.split_path(request.path_info)
-      params = nil
+      path_params = nil
 
       segments.each do |segment|
         child = node[segment]
@@ -454,7 +457,7 @@ module Sidereal
           return not_found unless node.param_child
 
           child = node.param_child
-          (params ||= {})[node.param_name] = Rack::Utils.unescape_path(segment)
+          (path_params ||= {})[node.param_name] = Rack::Utils.unescape_path(segment)
         end
         node = child
         return not_found unless node.is_a?(Node)
@@ -464,12 +467,13 @@ module Sidereal
       return not_found unless handler
 
       catch :halt do
-        params ||= EMPTY_PARAMS
+        path_params ||= EMPTY_PARAMS
+        params = merge_query_params(path_params)
         request.env['router.params'] = params
         before_route
 
         ret = if handler.is_a?(Proc) && !handler.lambda?
-          instance_exec(**params, &handler)
+          instance_exec(**path_params, &handler)
         else
           handler.call(request, response, params)
         end
@@ -491,6 +495,13 @@ module Sidereal
     private_constant :NOT_FOUND, :EMPTY_PARAMS
 
     private
+
+    def merge_query_params(path_params)
+      query = request.params
+      return path_params if query.empty?
+
+      query.transform_keys(&:to_sym).merge!(path_params)
+    end
 
     def not_found
       NOT_FOUND
