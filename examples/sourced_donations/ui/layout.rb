@@ -6,9 +6,10 @@ class DonationsLayout < Sidereal::Components::Layout
 
     html do
       head do
+        meta(charset: 'utf-8')
         meta(name: 'viewport', content: 'width=device-width, initial-scale=1.0')
         title { 'Donations Kiosk' }
-        link(rel: 'stylesheet', href: '/css/main.css?3')
+        link(rel: 'stylesheet', href: '/css/main.css?6')
       end
       body do
         div(class: 'page') do
