@@ -20,12 +20,12 @@ gem install sidereal
 
 ## Quick start
 
-A Sidereal app has three main parts: **messages** (typed data), **command handlers** (state changes), and **pages** (reactive UI).
+A Sidereal app has three main parts: **commands** (typed data), **command handlers** (state changes), and **pages** (reactive UI).
 
 ```ruby
 require 'sidereal'
 
-# 1. Define messages
+# 1. Define command messages
 AddTodo = Sidereal::Message.define('todos.add') do
   attribute :title, Sidereal::Types::String.present
 end
@@ -80,9 +80,9 @@ class TodoApp < Sidereal::App
 end
 ```
 
-## Messages
+## Commands
 
-Messages are typed, immutable data objects defined with `Message.define`. Each message has an auto-generated UUID, a type string, timestamps, metadata, and a typed payload.
+Commands are typed, immutable data objects defined with `Message.define`. Each message has an auto-generated UUID, a type string, timestamps, metadata, and a typed payload.
 
 ```ruby
 AddTodo = Sidereal::Message.define('todos.add') do
@@ -99,7 +99,7 @@ Notify = Sidereal::Message.define('todos.notify') do
 end
 ```
 
-Messages use dot-separated type strings (e.g. `'todos.add'`) for registry lookup and serialization. Payload attributes are validated using [Plumb](https://github.com/ismasan/plumb) types.
+Commands use dot-separated type strings (e.g. `'todos.add'`) for registry lookup and serialization. Payload attributes are validated using [Plumb](https://github.com/ismasan/plumb) types.
 
 ```ruby
 cmd = AddTodo.new(payload: { title: 'Buy milk' })
@@ -111,7 +111,7 @@ cmd.created_at      # => 2026-03-26 10:00:00 +0000
 
 ### Correlation chain
 
-Messages maintain a causation/correlation chain for traceability:
+Commands maintain a causation/correlation chain for traceability:
 
 ```ruby
 event = source_cmd.correlate(SomeEvent.new(payload: { ... }))
@@ -121,7 +121,7 @@ event.correlation_id  # => source_cmd.correlation_id
 
 ## App
 
-`Sidereal::App` is a web router with that implements a full reactive framework: commands, pages, layouts, and SSE streaming. It automatically sets up `POST /commands` and `GET /updates` endpoints.
+`Sidereal::App` is a web router with that implements a full reactive framework: command handlers, pages, layouts, and SSE streaming. It automatically sets up `POST /commands` and `GET /updates/:channel_name` endpoints.
 
 ```ruby
 class ChatApp < Sidereal::App
@@ -129,8 +129,12 @@ class ChatApp < Sidereal::App
   layout ChatLayout
 
   # SendMessage is submitted from the browser
+  # Use .handle to white-list this command in the HTTP endpoint
   handle SendMessage
 
+  # Incoming command is dispatched to a background fiber,
+  # and handled by this block
+  # The block can optional #dispatch a new command in a workflow
   command SendMessage do |cmd|
     MessageLog.append(cmd)
     dispatch Notify, message: "#{cmd.payload.author}: #{cmd.payload.content}"
@@ -141,6 +145,7 @@ class ChatApp < Sidereal::App
     # no-op, but events from this command will still be published
   end
 
+  # Mount a page to be served on ChatPage.path
   page ChatPage
 end
 ```
@@ -262,8 +267,6 @@ handle AddTodo do |cmd|
   TODOS[cmd.id] = cmd.payload.to_h
 
   browser.patch_elements TodoList.new(TODOS.values)
-  browser.patch_signals todo_count: TODOS.size
-  browser.execute_script %(document.querySelector('.flash').textContent = 'Saved!')
 end
 ```
 
@@ -290,8 +293,8 @@ Use `dispatch` to enqueue a command for async processing. The dispatched command
 ```ruby
 handle AddTodo do |cmd|
   TODOS[cmd.id] = cmd.payload.to_h
-  dispatch NotifyUser, text: "Todo added: #{cmd.payload.title}"
   browser.patch_elements TodoList.new(TODOS.values)
+  dispatch NotifyUser, text: "Todo added: #{cmd.payload.title}"
 end
 ```
 
