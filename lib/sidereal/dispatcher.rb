@@ -36,6 +36,7 @@ module Sidereal
             begin
               result = commander.handle(msg, pubsub: @pubsub)
             rescue StandardError => ex
+              Console.error(commander, "Handler error", exception: ex)
               commander.on_error(ex)
             end
 

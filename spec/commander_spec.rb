@@ -186,7 +186,7 @@ RSpec.describe Sidereal::Commander do
   end
 
   describe '.on_error' do
-    it 'logs and re-raises by default' do
+    it 're-raises by default' do
       ex = RuntimeError.new('default')
       expect { Sidereal::Commander.on_error(ex) }.to raise_error('default')
     end

@@ -44,7 +44,6 @@ module Sidereal
       end
 
       def on_error(ex)
-        Console.error(self, "Handler error", exception: ex)
         raise ex
       end
     end
