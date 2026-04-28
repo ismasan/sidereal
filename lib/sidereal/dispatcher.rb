@@ -32,13 +32,25 @@ module Sidereal
             commander = @registry[msg.class]
             next if commander.nil?
 
-            result = commander.handle(msg, pubsub: @pubsub)
-            @pubsub.publish result.msg.metadata.fetch(:channel), result.msg
-            result.events.each do |e|
-              @pubsub.publish e.metadata.fetch(:channel), e
+            result = nil
+            begin
+              result = commander.handle(msg, pubsub: @pubsub)
+            rescue StandardError => ex
+              commander.on_error(ex)
             end
-            result.commands.each do |e|
-              @store.append e
+
+            next if result.nil?
+
+            begin
+              @pubsub.publish result.msg.metadata.fetch(:channel), result.msg
+              result.events.each do |e|
+                @pubsub.publish e.metadata.fetch(:channel), e
+              end
+              result.commands.each do |e|
+                @store.append e
+              end
+            rescue StandardError => ex
+              Console.error(self, "Publish error", exception: ex)
             end
           end
         end

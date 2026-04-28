@@ -173,7 +173,7 @@ RSpec.describe Sidereal::Commander do
       expect(result.commands.map(&:class)).to eq([TestSendEmail])
     end
 
-    it 'returns empty Result when handler raises' do
+    it 'propagates handler exceptions to the caller' do
       cmdr_class = Class.new(Sidereal::Commander) do
         command TestAddItem do |cmd|
           raise 'boom'
@@ -181,11 +181,25 @@ RSpec.describe Sidereal::Commander do
       end
 
       cmd = TestAddItem.new(payload: { title: 'x' })
-      result = cmdr_class.handle(cmd, pubsub: pubsub)
+      expect { cmdr_class.handle(cmd, pubsub: pubsub) }.to raise_error('boom')
+    end
+  end
 
-      expect(result.msg).to eq(cmd)
-      expect(result.events).to be_empty
-      expect(result.commands).to be_empty
+  describe '.on_error' do
+    it 'logs and re-raises by default' do
+      ex = RuntimeError.new('default')
+      expect { Sidereal::Commander.on_error(ex) }.to raise_error('default')
+    end
+
+    it 'is overridable on a subclass' do
+      handled = []
+      cmdr_class = Class.new(Sidereal::Commander) do
+        define_singleton_method(:on_error) { |ex| handled << ex }
+      end
+
+      ex = RuntimeError.new('swallowed')
+      expect { cmdr_class.on_error(ex) }.not_to raise_error
+      expect(handled).to eq([ex])
     end
   end
 

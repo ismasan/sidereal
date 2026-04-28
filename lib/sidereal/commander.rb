@@ -5,7 +5,6 @@ module Sidereal
     CMD_METHOD_PREFIX = '__cmd_'
     CMD_HASH = Types::Hash[type: String, payload?: Hash]
     DEFAULT_CMD_HANDLER = ->(*_) {}
-    BLANK_ARRAY = [].freeze
 
     class << self
       def commander = self
@@ -43,6 +42,11 @@ module Sidereal
       def handle(msg, pubsub:)
         new(pubsub:).handle(msg)
       end
+
+      def on_error(ex)
+        Console.error(self, "Handler error", exception: ex)
+        raise ex
+      end
     end
 
     def initialize(pubsub:)
@@ -55,30 +59,16 @@ module Sidereal
     def handle(cmd)
       @__current_msg = cmd
       method_name = Sidereal.message_method_name(CMD_METHOD_PREFIX, cmd.class.type)
-      begin
-        send(method_name, cmd)
-      rescue StandardError => ex
-        on_error(ex)
-        return Result.new(cmd, BLANK_ARRAY, BLANK_ARRAY)
-      end
+      send(method_name, cmd)
 
       Result.new(
         cmd,
         dispatched_events.slice(0..),
         dispatched_commands.slice(0..),
       )
-      # pubsub.publish cmd.metadata.fetch(:channel), cmd
-      # TODO: enqueue dispatched_commands
-      # dispatched_commands.slice(0..).each do |c|
-      #   self.class.new(pubsub:).handle(c)
-      # end
     end
 
     private
-
-    def on_error(ex)
-      Console.warn ex
-    end
 
     def broadcast(msg_class, payload = {})
       msg = msg_class.new(payload: payload.to_h)

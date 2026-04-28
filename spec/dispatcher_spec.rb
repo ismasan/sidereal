@@ -161,4 +161,54 @@ RSpec.describe Sidereal::Dispatcher do
 
     expect(titles).to eq(%w[first second third])
   end
+
+  it 'skips publish when the handler raises (and worker survives if on_error swallows)' do
+    handled = []
+    raising_commander = Class.new(Sidereal::Commander) do
+      command DispatchCmd do |cmd|
+        raise 'boom' if cmd.payload.title == 'bad'
+        dispatch DispatchEvt, cmd.payload.to_h
+      end
+      define_singleton_method(:on_error) { |ex| handled << ex }
+    end
+
+    store.append(DispatchCmd.new(payload: { title: 'bad' }, metadata: { channel: 'ch1' }))
+    store.append(DispatchCmd.new(payload: { title: 'good' }, metadata: { channel: 'ch1' }))
+
+    received = run_and_collect('ch1', store: store, registry: registry_for(raising_commander), pubsub: pubsub) {}
+
+    expect(handled.map(&:message)).to eq(['boom'])
+    # Only the 'good' command's msg + event were published; the failed one was not broadcast.
+    expect(received.map(&:class)).to eq([DispatchCmd, DispatchEvt])
+    expect(received[0].payload.title).to eq('good')
+  end
+
+  it 'swallows publish errors and continues processing' do
+    flaky_pubsub = Object.new
+    real_pubsub = pubsub
+    call_count = 0
+    flaky_pubsub.define_singleton_method(:publish) do |channel, msg|
+      call_count += 1
+      raise 'pubsub down' if call_count == 1
+      real_pubsub.publish(channel, msg)
+    end
+    flaky_pubsub.define_singleton_method(:subscribe) { |c| real_pubsub.subscribe(c) }
+
+    handled_titles = []
+    cmdr = Class.new(Sidereal::Commander) do
+      command DispatchCmd do |cmd|
+        handled_titles << cmd.payload.title
+      end
+    end
+
+    store.append(DispatchCmd.new(payload: { title: 'first' }, metadata: { channel: 'ch1' }))
+    store.append(DispatchCmd.new(payload: { title: 'second' }, metadata: { channel: 'ch1' }))
+
+    received = run_and_collect('ch1', store: store, registry: registry_for(cmdr), pubsub: flaky_pubsub) {}
+
+    # Both handlers ran (handler success → no retry on publish failure)
+    expect(handled_titles).to eq(%w[first second])
+    # First publish raised and was swallowed; second succeeded
+    expect(received.map { |m| m.payload.title }).to eq(['second'])
+  end
 end
