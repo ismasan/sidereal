@@ -32,7 +32,7 @@ module Sidereal
             @store.claim_next do |msg|
               @registry.each do |commander|
                 t.async do
-                  result = commander.handle(msg, pubsub: Sidereal.pubsub)
+                  result = commander.handle(msg, pubsub: @pubsub)
                   @pubsub.publish result.msg.metadata.fetch(:channel), result.msg
                   result.events.each do |e|
                     @pubsub.publish e.metadata.fetch(:channel), e
