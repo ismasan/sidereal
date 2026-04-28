@@ -61,10 +61,7 @@ RSpec.describe 'Sidereal::App.handle' do
       expect(last_response.status).to eq(200)
       expect(handled.size).to eq(1)
 
-      claimed = nil
-      Sync do
-        store.claim_next { |m| claimed = m }
-      end
+      claimed = claim_one(store)
       expect(claimed).to be_a(HandleTestOtherCmd)
       expect(claimed.payload.name).to eq('from handle')
       expect(claimed.causation_id).to eq(handled.first.id)
@@ -77,10 +74,7 @@ RSpec.describe 'Sidereal::App.handle' do
       expect(last_response.status).to eq(200)
       expect(handled).to be_empty
 
-      claimed = nil
-      Sync do
-        store.claim_next { |m| claimed = m }
-      end
+      claimed = claim_one(store)
       expect(claimed).to be_a(HandleTestOtherCmd)
       expect(claimed.payload.name).to eq('bob')
     end
@@ -88,10 +82,7 @@ RSpec.describe 'Sidereal::App.handle' do
     it 'uses the default channel name for command metadata' do
       post '/commands', command: { type: 'app_test.do_other', payload: { name: 'bob' } }
 
-      claimed = nil
-      Sync do
-        store.claim_next { |m| claimed = m }
-      end
+      claimed = claim_one(store)
       expect(claimed.metadata[:channel]).to eq('system')
     end
 
@@ -110,10 +101,7 @@ RSpec.describe 'Sidereal::App.handle' do
       allow(self).to receive(:app).and_return(custom_app)
       post '/commands', command: { type: 'app_test.do_other', payload: { name: 'bob' } }
 
-      claimed = nil
-      Sync do
-        store.claim_next { |m| claimed = m }
-      end
+      claimed = claim_one(store)
       expect(claimed.metadata[:channel]).to eq('custom')
     end
   end
@@ -212,10 +200,7 @@ RSpec.describe 'Sidereal::App.handle' do
       post '/commands', command: { type: 'app_test.do_other', payload: { name: 'bob' } }
       expect(last_response.status).to eq(200)
 
-      claimed = []
-      Sync do
-        2.times { store.claim_next { |m| claimed << m } }
-      end
+      claimed = claim_messages(store, 2)
       expect(claimed.map(&:class)).to eq([HandleTestCmd, HandleTestOtherCmd])
     end
   end

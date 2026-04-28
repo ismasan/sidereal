@@ -1,7 +1,33 @@
 # frozen_string_literal: true
 
 require 'debug'
+require 'async'
 require "sidereal"
+
+module SiderealSpecHelpers
+  # Drain `count` messages from a store and return them.
+  # `claim_next` now loops indefinitely, so tests that just want to
+  # peek at what was appended use this to spin a consumer fiber
+  # that stops once it has the expected number of messages.
+  def claim_messages(store, count)
+    claimed = []
+    Sync do |task|
+      consumer = task.async do
+        store.claim_next { |m| claimed << m }
+      end
+      task.async do
+        loop do
+          break if claimed.size >= count
+          task.yield
+        end
+        consumer.stop
+      end.wait
+    end
+    claimed
+  end
+
+  def claim_one(store) = claim_messages(store, 1).first
+end
 
 RSpec.configure do |config|
   # Enable flags like --only-failures and --next-failure
@@ -13,4 +39,6 @@ RSpec.configure do |config|
   config.expect_with :rspec do |c|
     c.syntax = :expect
   end
+
+  config.include SiderealSpecHelpers
 end

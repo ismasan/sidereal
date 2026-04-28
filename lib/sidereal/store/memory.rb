@@ -23,14 +23,16 @@ module Sidereal
         true
       end
 
-      # Claim the next available message (FIFO).
-      # Blocks the current fiber until a message is available.
-      # Only one consumer will receive any given message.
+      # Yield each message as it becomes available (FIFO).
+      # Blocks the current fiber between messages. Only one consumer
+      # receives any given message. Returns when the fiber is stopped
+      # (Async::Stop propagates out of @queue.pop).
       #
       # @yieldparam message [Sidereal::Message]
-      def claim_next(&)
-        message = @queue.pop
-        yield message
+      def claim_next
+        loop do
+          yield @queue.pop
+        end
       end
     end
   end

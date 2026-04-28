@@ -132,4 +132,37 @@ RSpec.describe Sidereal::Dispatcher do
 
     expect(titles).to eq(%w[first second third])
   end
+
+  it 'waits for all commanders of one message before claiming the next' do
+    # A slow commander on msg1 must finish before msg2's commanders run.
+    # If the worker were pipelining without a barrier, msg2 could start
+    # while msg1's slow commander was still going.
+    events = []
+
+    slow_commander = Class.new(Sidereal::Commander) do
+      command DispatchCmd do |cmd|
+        events << [:enter, :slow, cmd.payload.title]
+        sleep 0.05 if cmd.payload.title == 'first'
+        events << [:exit, :slow, cmd.payload.title]
+      end
+    end
+
+    fast_commander = Class.new(Sidereal::Commander) do
+      command DispatchCmd do |cmd|
+        events << [:enter, :fast, cmd.payload.title]
+        events << [:exit, :fast, cmd.payload.title]
+      end
+    end
+
+    store.append(DispatchCmd.new(payload: { title: 'first' }, metadata: { channel: 'ch1' }))
+    store.append(DispatchCmd.new(payload: { title: 'second' }, metadata: { channel: 'ch1' }))
+
+    run_and_collect('ch1', store: store, registry: [slow_commander, fast_commander], pubsub: pubsub) {}
+
+    second_enter = events.index { |e| e[0] == :enter && e[2] == 'second' }
+    first_exits = events.each_index.select { |i| events[i][0] == :exit && events[i][2] == 'first' }
+
+    expect(first_exits).not_to be_empty
+    expect(first_exits.max).to be < second_enter
+  end
 end

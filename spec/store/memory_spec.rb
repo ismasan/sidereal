@@ -22,12 +22,7 @@ RSpec.describe Sidereal::Store::Memory do
       msg = MsgA.new
       store.append(msg)
 
-      claimed = nil
-      Sync do
-        store.claim_next { |m| claimed = m }
-      end
-
-      expect(claimed).to eq(msg)
+      expect(claim_one(store)).to eq(msg)
     end
 
     it 'yields messages in FIFO order' do
@@ -38,12 +33,7 @@ RSpec.describe Sidereal::Store::Memory do
       store.append(b)
       store.append(c)
 
-      claimed = []
-      Sync do
-        3.times { store.claim_next { |m| claimed << m } }
-      end
-
-      expect(claimed).to eq([a, b, c])
+      expect(claim_messages(store, 3)).to eq([a, b, c])
     end
 
     it 'blocks until a message is available' do
@@ -60,7 +50,13 @@ RSpec.describe Sidereal::Store::Memory do
           store.append(MsgA.new(payload: {}))
         end
 
-        consumer.wait
+        task.async do
+          loop do
+            break if claimed
+            task.yield
+          end
+          consumer.stop
+        end.wait
       end
 
       expect(claimed).to be_a(MsgA)
@@ -74,22 +70,14 @@ RSpec.describe Sidereal::Store::Memory do
 
       Sync do |task|
         consumer_a = task.async do
-          10.times do
-            store.claim_next { |m| claimed_by[:a] << m }
-          rescue Async::Stop
-            break
-          end
+          store.claim_next { |m| claimed_by[:a] << m }
         end
 
         consumer_b = task.async do
-          10.times do
-            store.claim_next { |m| claimed_by[:b] << m }
-          rescue Async::Stop
-            break
-          end
+          store.claim_next { |m| claimed_by[:b] << m }
         end
 
-        # Wait until all messages are consumed
+        # Wait until all messages are consumed, then stop both consumers
         task.async do
           loop do
             break if claimed_by[:a].size + claimed_by[:b].size == 10
