@@ -48,6 +48,17 @@ RSpec.describe Sidereal::Commander do
       expect(cmdr.command_registry['test.add_item']).to eq(TestAddItem)
     end
 
+    it 'exposes registered classes via .handled_commands' do
+      cmdr = Class.new(Sidereal::Commander) do
+        command TestAddItem do |cmd|
+        end
+        command TestSendEmail do |cmd|
+        end
+      end
+
+      expect(cmdr.handled_commands).to contain_exactly(TestAddItem, TestSendEmail)
+    end
+
     it 'raises for non-Message classes' do
       expect {
         Class.new(Sidereal::Commander) do

@@ -44,11 +44,17 @@ module Sidereal
   end
 
   def self.registry
-    @registry ||= []
+    @registry ||= Registry.new
   end
 
-  def self.register(app)
-    registry << app.commander
+  def self.reset_registry!
+    @registry = nil
+  end
+
+  def self.register(commander)
+    commander.handled_commands.each do |cmd_class|
+      registry[cmd_class] = commander
+    end
   end
 
   def self.pubsub = config.pubsub
@@ -63,6 +69,7 @@ require_relative 'sidereal/components/layout'
 require_relative 'sidereal/page'
 require_relative 'sidereal/pubsub/memory'
 require_relative 'sidereal/store/memory'
+require_relative 'sidereal/registry'
 require_relative 'sidereal/dispatcher'
 require_relative 'sidereal/app'
 require_relative 'sidereal/components/command'

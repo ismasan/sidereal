@@ -24,7 +24,6 @@ module Sidereal
     class << self
       def inherited(subclass)
         super
-        Sidereal.register(subclass)
         handled_commands.each do |type, klass|
           subclass.handled_commands[type] = klass
         end
@@ -100,6 +99,8 @@ module Sidereal
       # @see Sidereal::Commander#command
       def command(...)
         commander.command(...)
+        Sidereal.register(commander)
+        self
       end
 
       # Expose a command to the web (+POST /commands+) and register a

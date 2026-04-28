@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 require 'async'
-require 'async/barrier'
 
 module Sidereal
   class Dispatcher
@@ -27,23 +26,20 @@ module Sidereal
     end
 
     def spawn_into(task)
-      @worker_count.times do |i|
-        task.async do |t|
+      @worker_count.times do
+        task.async do
           @store.claim_next do |msg|
-            barrier = Async::Barrier.new(parent: t)
-            @registry.each do |commander|
-              barrier.async do
-                result = commander.handle(msg, pubsub: @pubsub)
-                @pubsub.publish result.msg.metadata.fetch(:channel), result.msg
-                result.events.each do |e|
-                  @pubsub.publish e.metadata.fetch(:channel), e
-                end
-                result.commands.each do |e|
-                  @store.append e
-                end
-              end
+            commander = @registry[msg.class]
+            next if commander.nil?
+
+            result = commander.handle(msg, pubsub: @pubsub)
+            @pubsub.publish result.msg.metadata.fetch(:channel), result.msg
+            result.events.each do |e|
+              @pubsub.publish e.metadata.fetch(:channel), e
             end
-            barrier.wait
+            result.commands.each do |e|
+              @store.append e
+            end
           end
         end
       end

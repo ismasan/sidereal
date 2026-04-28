@@ -16,9 +16,21 @@ DispatchFollowUp = Sidereal::Message.define('dispatch_spec.follow_up') do
   attribute :ref, Sidereal::Types::String
 end
 
+DispatchOtherCmd = Sidereal::Message.define('dispatch_spec.other_thing') do
+  attribute :note, Sidereal::Types::String
+end
+
 RSpec.describe Sidereal::Dispatcher do
   let(:store) { Sidereal::Store::Memory.new }
   let(:pubsub) { Sidereal::PubSub::Memory.new }
+
+  def registry_for(*commanders)
+    Sidereal::Registry.new.tap do |r|
+      commanders.each do |c|
+        c.handled_commands.each { |cmd_class| r[cmd_class] = c }
+      end
+    end
+  end
 
   # Run the dispatcher, subscribe to a channel, and collect published messages.
   # Yields a block where the caller can append commands to the store.
@@ -67,7 +79,7 @@ RSpec.describe Sidereal::Dispatcher do
     cmd = DispatchCmd.new(payload: { title: 'hello' }, metadata: { channel: 'ch1' })
     store.append(cmd)
 
-    received = run_and_collect('ch1', store: store, registry: [commander], pubsub: pubsub) {}
+    received = run_and_collect('ch1', store: store, registry: registry_for(commander), pubsub: pubsub) {}
 
     expect(received.size).to eq(2)
     expect(received[0]).to be_a(DispatchCmd)
@@ -86,33 +98,50 @@ RSpec.describe Sidereal::Dispatcher do
     cmd = DispatchCmd.new(payload: { title: 'original' }, metadata: { channel: 'ch1' })
     store.append(cmd)
 
-    received = run_and_collect('ch1', store: store, registry: [commander_with_followup], pubsub: pubsub) {}
+    received = run_and_collect('ch1', store: store, registry: registry_for(commander_with_followup), pubsub: pubsub) {}
 
     followups = received.select { |m| m.is_a?(DispatchFollowUp) }
     expect(followups.size).to eq(1)
   end
 
-  it 'fans out each command to all registered commanders' do
-    called = []
+  it 'routes each command to its single registered handler' do
+    seen = []
 
-    commander_a = Class.new(Sidereal::Commander) do
+    multi_commander = Class.new(Sidereal::Commander) do
       command DispatchCmd do |cmd|
-        called << :a
+        seen << [:do_thing, cmd.payload.title]
+      end
+      command DispatchOtherCmd do |cmd|
+        seen << [:other, cmd.payload.note]
       end
     end
 
-    commander_b = Class.new(Sidereal::Commander) do
+    store.append(DispatchCmd.new(payload: { title: 'a' }, metadata: { channel: 'ch1' }))
+    store.append(DispatchOtherCmd.new(payload: { note: 'b' }, metadata: { channel: 'ch1' }))
+
+    run_and_collect('ch1', store: store, registry: registry_for(multi_commander), pubsub: pubsub) {}
+
+    expect(seen).to contain_exactly([:do_thing, 'a'], [:other, 'b'])
+  end
+
+  it 'silently skips messages with no registered handler' do
+    seen = []
+
+    cmdr = Class.new(Sidereal::Commander) do
       command DispatchCmd do |cmd|
-        called << :b
+        seen << cmd.payload.title
       end
     end
 
-    cmd = DispatchCmd.new(payload: { title: 'hello' }, metadata: { channel: 'ch1' })
-    store.append(cmd)
+    # First, an unhandled command — should be a noop
+    store.append(DispatchOtherCmd.new(payload: { note: 'ignored' }, metadata: { channel: 'ch1' }))
+    # Then, a handled command — worker should still be alive
+    store.append(DispatchCmd.new(payload: { title: 'kept' }, metadata: { channel: 'ch1' }))
 
-    run_and_collect('ch1', store: store, registry: [commander_a, commander_b], pubsub: pubsub) {}
+    received = run_and_collect('ch1', store: store, registry: registry_for(cmdr), pubsub: pubsub) {}
 
-    expect(called).to contain_exactly(:a, :b)
+    expect(seen).to eq(['kept'])
+    expect(received.map(&:class)).to eq([DispatchCmd])
   end
 
   it 'processes multiple commands in order' do
@@ -128,41 +157,8 @@ RSpec.describe Sidereal::Dispatcher do
     store.append(DispatchCmd.new(payload: { title: 'second' }, metadata: { channel: 'ch1' }))
     store.append(DispatchCmd.new(payload: { title: 'third' }, metadata: { channel: 'ch1' }))
 
-    run_and_collect('ch1', store: store, registry: [ordered_commander], pubsub: pubsub) {}
+    run_and_collect('ch1', store: store, registry: registry_for(ordered_commander), pubsub: pubsub) {}
 
     expect(titles).to eq(%w[first second third])
-  end
-
-  it 'waits for all commanders of one message before claiming the next' do
-    # A slow commander on msg1 must finish before msg2's commanders run.
-    # If the worker were pipelining without a barrier, msg2 could start
-    # while msg1's slow commander was still going.
-    events = []
-
-    slow_commander = Class.new(Sidereal::Commander) do
-      command DispatchCmd do |cmd|
-        events << [:enter, :slow, cmd.payload.title]
-        sleep 0.05 if cmd.payload.title == 'first'
-        events << [:exit, :slow, cmd.payload.title]
-      end
-    end
-
-    fast_commander = Class.new(Sidereal::Commander) do
-      command DispatchCmd do |cmd|
-        events << [:enter, :fast, cmd.payload.title]
-        events << [:exit, :fast, cmd.payload.title]
-      end
-    end
-
-    store.append(DispatchCmd.new(payload: { title: 'first' }, metadata: { channel: 'ch1' }))
-    store.append(DispatchCmd.new(payload: { title: 'second' }, metadata: { channel: 'ch1' }))
-
-    run_and_collect('ch1', store: store, registry: [slow_commander, fast_commander], pubsub: pubsub) {}
-
-    second_enter = events.index { |e| e[0] == :enter && e[2] == 'second' }
-    first_exits = events.each_index.select { |i| events[i][0] == :exit && events[i][2] == 'first' }
-
-    expect(first_exits).not_to be_empty
-    expect(first_exits.max).to be < second_enter
   end
 end

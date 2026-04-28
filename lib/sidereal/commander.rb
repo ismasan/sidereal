@@ -14,6 +14,10 @@ module Sidereal
         @command_registry ||= {}
       end
 
+      def handled_commands
+        command_registry.values
+      end
+
       def command(*args, &block)
         cmd_class = case args
         in [Class => klass] if klass < Sidereal::Message

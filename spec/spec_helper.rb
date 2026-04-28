@@ -41,4 +41,6 @@ RSpec.configure do |config|
   end
 
   config.include SiderealSpecHelpers
+
+  config.before(:each) { Sidereal.reset_registry! }
 end
