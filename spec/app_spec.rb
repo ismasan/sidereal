@@ -79,30 +79,59 @@ RSpec.describe 'Sidereal::App.handle' do
       expect(claimed.payload.name).to eq('bob')
     end
 
-    it 'uses the default channel name for command metadata' do
-      post '/commands', command: { type: 'app_test.do_other', payload: { name: 'bob' } }
+  end
 
-      claimed = claim_one(store)
-      expect(claimed.metadata[:channel]).to eq('system')
-    end
-
-    it 'allows a handle block to dispatch a command with a custom channel' do
-      custom_app = Class.new(Sidereal::App) do
+  describe '#dispatch outside a handle block' do
+    let(:test_app) do
+      Class.new(Sidereal::App) do
         session secret: 'a' * 64
-
         command HandleTestOtherCmd
 
-        handle HandleTestOtherCmd do |cmd|
-          dispatch(cmd.with_metadata(channel: 'custom'))
+        post '/enqueue' do
+          dispatch(HandleTestOtherCmd, name: 'from-bare-route')
           status 200
         end
       end
+    end
 
-      allow(self).to receive(:app).and_return(custom_app)
-      post '/commands', command: { type: 'app_test.do_other', payload: { name: 'bob' } }
+    def app
+      test_app
+    end
 
+    it 'enqueues the command without correlating to any prior message' do
+      post '/enqueue'
+
+      expect(last_response.status).to eq(200)
       claimed = claim_one(store)
-      expect(claimed.metadata[:channel]).to eq('custom')
+      expect(claimed).to be_a(HandleTestOtherCmd)
+      expect(claimed.payload.name).to eq('from-bare-route')
+      # No prior message — causation/correlation default to the message's own id
+      expect(claimed.causation_id).to eq(claimed.id)
+      expect(claimed.correlation_id).to eq(claimed.id)
+    end
+  end
+
+  describe '.channel_name macro' do
+    it 'defines a static channel name on the App\'s commander' do
+      app = Class.new(Sidereal::App) do
+        session secret: 'a' * 64
+        channel_name 'custom'
+        command HandleTestCmd
+      end
+
+      msg = HandleTestCmd.new(payload: { title: 'x' })
+      expect(app.commander.channel_name(msg)).to eq('custom')
+    end
+
+    it 'defines a dynamic channel name from a block' do
+      app = Class.new(Sidereal::App) do
+        session secret: 'a' * 64
+        channel_name { |msg| "items.#{msg.payload.title}" }
+        command HandleTestCmd
+      end
+
+      msg = HandleTestCmd.new(payload: { title: '42' })
+      expect(app.commander.channel_name(msg)).to eq('items.42')
     end
   end
 

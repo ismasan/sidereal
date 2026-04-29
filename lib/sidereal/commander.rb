@@ -43,6 +43,16 @@ module Sidereal
         new(pubsub:).handle(msg)
       end
 
+      # Channel name to publish +message+ to.
+      # Override on a subclass to route messages to specific channels.
+      # Default is 'system'.
+      #
+      # @param message [Sidereal::Message] command or event being routed
+      # @return [String] pubsub channel name
+      def channel_name(_message)
+        'system'
+      end
+
       def on_error(ex)
         raise ex
       end
@@ -72,7 +82,7 @@ module Sidereal
     def broadcast(msg_class, payload = {})
       msg = msg_class.new(payload: payload.to_h)
       msg = @__current_msg.correlate(msg)
-      @pubsub.publish msg.metadata.fetch(:channel), msg
+      @pubsub.publish self.class.channel_name(msg), msg
       self
     end
 

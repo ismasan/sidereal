@@ -72,11 +72,13 @@ RSpec.describe Sidereal::Dispatcher do
         dispatch DispatchEvt, cmd.payload.to_h
       end
       command DispatchFollowUp
+
+      def self.channel_name(_) = 'ch1'
     end
   end
 
   it 'publishes the command and its events to pubsub' do
-    cmd = DispatchCmd.new(payload: { title: 'hello' }, metadata: { channel: 'ch1' })
+    cmd = DispatchCmd.new(payload: { title: 'hello' })
     store.append(cmd)
 
     received = run_and_collect('ch1', store: store, registry: registry_for(commander), pubsub: pubsub) {}
@@ -93,9 +95,11 @@ RSpec.describe Sidereal::Dispatcher do
         dispatch DispatchFollowUp, ref: cmd.payload.title
       end
       command DispatchFollowUp
+
+      def self.channel_name(_) = 'ch1'
     end
 
-    cmd = DispatchCmd.new(payload: { title: 'original' }, metadata: { channel: 'ch1' })
+    cmd = DispatchCmd.new(payload: { title: 'original' })
     store.append(cmd)
 
     received = run_and_collect('ch1', store: store, registry: registry_for(commander_with_followup), pubsub: pubsub) {}
@@ -114,10 +118,12 @@ RSpec.describe Sidereal::Dispatcher do
       command DispatchOtherCmd do |cmd|
         seen << [:other, cmd.payload.note]
       end
+
+      def self.channel_name(_) = 'ch1'
     end
 
-    store.append(DispatchCmd.new(payload: { title: 'a' }, metadata: { channel: 'ch1' }))
-    store.append(DispatchOtherCmd.new(payload: { note: 'b' }, metadata: { channel: 'ch1' }))
+    store.append(DispatchCmd.new(payload: { title: 'a' }))
+    store.append(DispatchOtherCmd.new(payload: { note: 'b' }))
 
     run_and_collect('ch1', store: store, registry: registry_for(multi_commander), pubsub: pubsub) {}
 
@@ -131,12 +137,14 @@ RSpec.describe Sidereal::Dispatcher do
       command DispatchCmd do |cmd|
         seen << cmd.payload.title
       end
+
+      def self.channel_name(_) = 'ch1'
     end
 
     # First, an unhandled command — should be a noop
-    store.append(DispatchOtherCmd.new(payload: { note: 'ignored' }, metadata: { channel: 'ch1' }))
+    store.append(DispatchOtherCmd.new(payload: { note: 'ignored' }))
     # Then, a handled command — worker should still be alive
-    store.append(DispatchCmd.new(payload: { title: 'kept' }, metadata: { channel: 'ch1' }))
+    store.append(DispatchCmd.new(payload: { title: 'kept' }))
 
     received = run_and_collect('ch1', store: store, registry: registry_for(cmdr), pubsub: pubsub) {}
 
@@ -151,15 +159,61 @@ RSpec.describe Sidereal::Dispatcher do
       command DispatchCmd do |cmd|
         titles << cmd.payload.title
       end
+
+      def self.channel_name(_) = 'ch1'
     end
 
-    store.append(DispatchCmd.new(payload: { title: 'first' }, metadata: { channel: 'ch1' }))
-    store.append(DispatchCmd.new(payload: { title: 'second' }, metadata: { channel: 'ch1' }))
-    store.append(DispatchCmd.new(payload: { title: 'third' }, metadata: { channel: 'ch1' }))
+    store.append(DispatchCmd.new(payload: { title: 'first' }))
+    store.append(DispatchCmd.new(payload: { title: 'second' }))
+    store.append(DispatchCmd.new(payload: { title: 'third' }))
 
     run_and_collect('ch1', store: store, registry: registry_for(ordered_commander), pubsub: pubsub) {}
 
     expect(titles).to eq(%w[first second third])
+  end
+
+  it 'routes via the commander, computing the channel from each message' do
+    routed = { 'a' => [], 'b' => [] }
+
+    routing_commander = Class.new(Sidereal::Commander) do
+      command DispatchCmd do |cmd|
+        dispatch DispatchEvt, title: cmd.payload.title
+      end
+
+      define_singleton_method(:channel_name) do |msg|
+        # Use payload to choose channel — exercises that channel_name
+        # receives the message and can switch on it.
+        msg.is_a?(DispatchEvt) ? "evt-#{msg.payload.title}" : 'cmds'
+      end
+    end
+
+    store.append(DispatchCmd.new(payload: { title: 'a' }))
+
+    received_cmds = nil
+    received_evt = nil
+    Sync do |task|
+      cmds = pubsub.subscribe('cmds')
+      evt = pubsub.subscribe('evt-a')
+
+      received_cmds = []
+      received_evt = []
+      task.async { cmds.start { |m, _| received_cmds << m } }
+      task.async { evt.start { |m, _| received_evt << m } }
+
+      Sidereal::Dispatcher.new(
+        worker_count: 1, store: store, registry: registry_for(routing_commander), pubsub: pubsub
+      ).spawn_into(task)
+
+      task.async do
+        sleep 0.05
+        cmds.stop
+        evt.stop
+        task.stop
+      end.wait
+    end
+
+    expect(received_cmds.map(&:class)).to eq([DispatchCmd])
+    expect(received_evt.map(&:class)).to eq([DispatchEvt])
   end
 
   it 'skips publish when the handler raises (and worker survives if on_error swallows)' do
@@ -170,10 +224,12 @@ RSpec.describe Sidereal::Dispatcher do
         dispatch DispatchEvt, cmd.payload.to_h
       end
       define_singleton_method(:on_error) { |ex| handled << ex }
+
+      def self.channel_name(_) = 'ch1'
     end
 
-    store.append(DispatchCmd.new(payload: { title: 'bad' }, metadata: { channel: 'ch1' }))
-    store.append(DispatchCmd.new(payload: { title: 'good' }, metadata: { channel: 'ch1' }))
+    store.append(DispatchCmd.new(payload: { title: 'bad' }))
+    store.append(DispatchCmd.new(payload: { title: 'good' }))
 
     received = run_and_collect('ch1', store: store, registry: registry_for(raising_commander), pubsub: pubsub) {}
 
@@ -199,10 +255,12 @@ RSpec.describe Sidereal::Dispatcher do
       command DispatchCmd do |cmd|
         handled_titles << cmd.payload.title
       end
+
+      def self.channel_name(_) = 'ch1'
     end
 
-    store.append(DispatchCmd.new(payload: { title: 'first' }, metadata: { channel: 'ch1' }))
-    store.append(DispatchCmd.new(payload: { title: 'second' }, metadata: { channel: 'ch1' }))
+    store.append(DispatchCmd.new(payload: { title: 'first' }))
+    store.append(DispatchCmd.new(payload: { title: 'second' }))
 
     received = run_and_collect('ch1', store: store, registry: registry_for(cmdr), pubsub: flaky_pubsub) {}
 

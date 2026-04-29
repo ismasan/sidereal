@@ -77,6 +77,22 @@ module Sidereal
         self
       end
 
+      # Define the channel name used by this App's commander to publish
+      # processed messages. Accepts either a static string or a block
+      # that receives the message and returns a channel name.
+      #
+      # @example Static channel
+      #   channel_name 'todos'
+      # @example Dynamic channel
+      #   channel_name { |msg| "todos.#{msg.payload.list_id}" }
+      #
+      # @return [self]
+      def channel_name(static_value = nil, &block)
+        fn = block || ->(_msg) { static_value }
+        commander.define_singleton_method(:channel_name, &fn)
+        self
+      end
+
       def command_helpers(...)
         commands(...)
       end
@@ -199,20 +215,21 @@ module Sidereal
 
     private def handle_local_command(cmd)
       method_name = Sidereal.message_method_name(HANDLE_METHOD_PREFIX, cmd.type)
-      @__current_msg = before_command(cmd.with_metadata(channel: 'system'))
+      @__current_msg = before_command(cmd)
       send(method_name, @__current_msg)
     end
 
     private def dispatch(*args)
       cmd = case args
         in [Class => c, Hash => payload]
-          @__current_msg.correlate(c.new(payload:))
+          c.new(payload:)
         in [Class => c]
-          @__current_msg.correlate(c.new)
+          c.new
         in [MessageInterface => m]
           m
       end
 
+      cmd = @__current_msg.correlate(cmd) if @__current_msg
       store.append(cmd)
     end
 

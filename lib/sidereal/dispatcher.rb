@@ -43,9 +43,9 @@ module Sidereal
             next if result.nil?
 
             begin
-              @pubsub.publish result.msg.metadata.fetch(:channel), result.msg
+              @pubsub.publish commander.channel_name(result.msg), result.msg
               result.events.each do |e|
-                @pubsub.publish e.metadata.fetch(:channel), e
+                @pubsub.publish commander.channel_name(e), e
               end
               result.commands.each do |e|
                 @store.append e
