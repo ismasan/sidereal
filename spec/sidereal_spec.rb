@@ -62,8 +62,8 @@ end
 RSpec.describe Sidereal::Configuration do
   subject(:config) { described_class.new }
 
-  it 'defaults workers to 1' do
-    expect(config.workers).to eq(1)
+  it 'defaults workers to 25' do
+    expect(config.workers).to eq(25)
   end
 
   it 'defaults store to Store::Memory' do

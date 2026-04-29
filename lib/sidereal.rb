@@ -18,7 +18,7 @@ module Sidereal
     attr_accessor :workers
     attr_writer :store, :pubsub, :dispatcher
 
-    def initialize(workers: 1)
+    def initialize(workers: 25)
       @workers = workers
     end
 
