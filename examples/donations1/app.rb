@@ -26,6 +26,7 @@ DeliverVerificationEmail = Sidereal::Message.define('donations.deliver_verificat
 end
 
 VerifyEmailAddress = Sidereal::Message.define('donations.verify_email_address') do
+  attribute :donation_id, Sidereal::Types::UUID::V4
   attribute :token, Sidereal::Types::String.present
 end
 
@@ -135,7 +136,7 @@ class DonationsApp < Sidereal::App
 
   get '/verify/:token' do |token:|
     if (donation = DonationStore.find_by_token(token))
-      store.append VerifyEmailAddress.new(payload: {token:}).with_metadata(channel: donation_channel(donation.donation_id))
+      dispatch VerifyEmailAddress, token:, donation_id: donation.donation_id
       redirect to("/#{donation.donation_id}")
     else
       status 404
@@ -143,17 +144,22 @@ class DonationsApp < Sidereal::App
     end
   end
 
+
+  channel_name do |cmd|
+    "donations.#{cmd.payload.fetch(:donation_id)}"
+  end
+
   handle SelectAmount do |cmd|
-    dispatch(cmd.with_metadata(channel: donation_channel(cmd.payload.donation_id)))
+    dispatch(cmd)
     browser.redirect "/#{cmd.payload.donation_id}"
   end
 
   handle EnterDonorDetails do |cmd|
-    dispatch(cmd.with_metadata(channel: donation_channel(cmd.payload.donation_id)))
+    dispatch(cmd)
   end
 
   handle PresentCard do |cmd|
-    dispatch(cmd.with_metadata(channel: donation_channel(cmd.payload.donation_id)))
+    dispatch(cmd)
   end
 
   command SelectAmount do |cmd|
@@ -248,8 +254,4 @@ class DonationsApp < Sidereal::App
   end
 
   page DonationPage
-
-  private def donation_channel(donation_id)
-    "donations.#{donation_id}"
-  end
 end
