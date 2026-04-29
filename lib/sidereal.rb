@@ -60,6 +60,51 @@ module Sidereal
   def self.pubsub = config.pubsub
   def self.store = config.store
   def self.dispatcher = config.dispatcher
+
+  # Build (if needed) and append a command to the configured {.store} from
+  # outside the request/handler lifecycle. Use this from CLIs, consoles,
+  # rake tasks, schedulers, or any code that needs to enqueue a command
+  # without an existing causation chain.
+  #
+  # Three call shapes are supported via pattern matching:
+  #
+  # @overload dispatch!(message_class, payload)
+  #   Build a new command from a class and a payload hash. The payload is
+  #   validated by {Sidereal::Message}'s schema; invalid input raises.
+  #   @param message_class [Class<Sidereal::Message>] command class
+  #   @param payload [Hash] payload attributes
+  #
+  # @overload dispatch!(message_class)
+  #   Build a new command with no payload (relies on the message class's
+  #   defaults).
+  #   @param message_class [Class<Sidereal::Message>] command class
+  #
+  # @overload dispatch!(message)
+  #   Append an already-built message instance. Use this when you need to
+  #   set custom +metadata+, +correlation_id+, or +causation_id+ before
+  #   enqueueing.
+  #   @param message [Sidereal::Message] a fully-built message
+  #
+  # @return [true] from {Sidereal::Store#append}
+  # @raise [NoMatchingPatternError] if +args+ doesn't match any shape above
+  # @raise [Plumb::ParseError] if the payload fails validation
+  #
+  # @example
+  #   Sidereal.dispatch!(AddTodo, title: 'Buy milk')
+  #   Sidereal.dispatch!(Tick)  # no-payload command
+  #   Sidereal.dispatch!(AddTodo.new(payload: { title: 'x' }, metadata: { channel: 'todos.42' }))
+  def self.dispatch!(*args)
+    cmd = case args
+      in [Class => c, Hash => payload]
+        c.parse(payload:)
+      in [Class => c]
+        c.parse(Plumb::BLANK_HASH)
+      in [MessageInterface => m]
+        m
+    end
+
+    store.append(cmd)
+  end
 end
 
 require_relative 'sidereal/types'
