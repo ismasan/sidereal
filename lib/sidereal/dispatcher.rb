@@ -27,10 +27,6 @@ module Sidereal
 
     def spawn_into(task)
       @store.start(task)
-      # Spawn pubsub from the dispatcher's long-lived task so its background
-      # fibers (broker, client read loop) outlive any short-lived per-request
-      # fiber that might happen to be the first to subscribe or publish.
-      @pubsub.start(task)
 
       @worker_count.times do
         task.async do

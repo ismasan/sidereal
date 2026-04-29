@@ -249,7 +249,6 @@ RSpec.describe Sidereal::Dispatcher do
       real_pubsub.publish(channel, msg)
     end
     flaky_pubsub.define_singleton_method(:subscribe) { |c| real_pubsub.subscribe(c) }
-    flaky_pubsub.define_singleton_method(:start) { |_t| flaky_pubsub }
 
     handled_titles = []
     cmdr = Class.new(Sidereal::Commander) do
