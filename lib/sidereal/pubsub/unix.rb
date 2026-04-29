@@ -96,9 +96,9 @@ module Sidereal
         channel = Channel.new(name: pattern, pubsub: self)
         @mutex.synchronize do
           if Pattern.wildcard?(pattern)
-            @wildcards = @wildcards + [[Pattern.compile(pattern), channel]]
+            @wildcards << [Pattern.compile(pattern), channel]
           else
-            @subscribers[pattern] = (@subscribers[pattern] || []) + [channel]
+            (@subscribers[pattern] ||= []) << channel
           end
         end
         channel
@@ -110,10 +110,13 @@ module Sidereal
       def unsubscribe(channel)
         @mutex.synchronize do
           if Pattern.wildcard?(channel.name)
-            @wildcards = @wildcards.reject { |_re, ch| ch.equal?(channel) }
+            @wildcards.reject! { |_re, ch| ch.equal?(channel) }
           else
             arr = @subscribers[channel.name]
-            @subscribers[channel.name] = arr - [channel] if arr
+            next unless arr
+
+            arr.delete(channel)
+            @subscribers.delete(channel.name) if arr.empty?
           end
         end
       end
@@ -194,15 +197,24 @@ module Sidereal
         start(task)
       end
 
-      # Local-only fanout. Mirrors {Memory#publish}.
+      # Local-only fanout. Mirrors {Memory#publish}. Collects matching
+      # channels under the lock, then delivers outside it so a subscriber's
+      # handler can safely re-enter the pubsub. Skips the array allocation
+      # entirely on the hot common path: no exact subscribers + no
+      # wildcards (e.g. a publisher process whose subscribers all live
+      # remotely).
       def deliver_local(channel_name, event)
         targets = @mutex.synchronize do
-          list = []
-          list.concat(@subscribers[channel_name]) if @subscribers[channel_name]
-          @wildcards.each { |re, ch| list << ch if re.match?(channel_name) }
-          list
+          exact = @subscribers[channel_name]
+          if @wildcards.empty?
+            exact && exact.dup
+          else
+            list = exact ? exact.dup : []
+            @wildcards.each { |re, ch| list << ch if re.match?(channel_name) }
+            list.empty? ? nil : list
+          end
         end
-        targets.each { |ch| ch << event }
+        targets&.each { |ch| ch << event }
       end
 
       def encode_frame(channel_name, event)
