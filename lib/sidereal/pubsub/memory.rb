@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'singleton'
+require_relative 'pattern'
 
 module Sidereal
   module PubSub
@@ -8,17 +9,11 @@ module Sidereal
     # Thread/fiber-safe. Each subscriber gets its own queue,
     # so a slow consumer won't block other subscribers.
     #
-    # Supports NATS-style wildcard subscriptions:
-    #   `*` matches exactly one non-empty segment
-    #       (e.g. "donations.*" matches "donations.111" but not "donations.111.created")
-    #   `>` matches one or more non-empty segments; must be the trailing token
-    #       (e.g. "donations.>" matches "donations.111" and "donations.222.created")
+    # See {Pattern} for the wildcard subscription rules.
     class Memory
       include Singleton
 
       public_class_method :new
-
-      SEGMENT_SEPARATOR = '.'
 
       def initialize
         @mutex = Mutex.new
@@ -26,14 +21,21 @@ module Sidereal
         @wildcards = []
       end
 
+      # Lifecycle hook. {Memory} has no background work, so this is a no-op
+      # that exists to keep the contract uniform with backends that do
+      # (e.g. {Sidereal::PubSub::Unix}).
+      def start(_task)
+        self
+      end
+
       # @param pattern [String] exact channel name or wildcard pattern
       # @return [Channel]
       def subscribe(pattern)
-        validate_subscription!(pattern)
+        Pattern.validate_subscription!(pattern)
         channel = Channel.new(name: pattern, pubsub: self)
         @mutex.synchronize do
-          if wildcard?(pattern)
-            @wildcards = @wildcards + [[compile(pattern), channel]]
+          if Pattern.wildcard?(pattern)
+            @wildcards = @wildcards + [[Pattern.compile(pattern), channel]]
           else
             @subscribers[pattern] = (@subscribers[pattern] || []) + [channel]
           end
@@ -45,7 +47,7 @@ module Sidereal
       # @param channel [Channel]
       def unsubscribe(channel)
         @mutex.synchronize do
-          if wildcard?(channel.name)
+          if Pattern.wildcard?(channel.name)
             @wildcards = @wildcards.reject { |_re, ch| ch.equal?(channel) }
           else
             arr = @subscribers[channel.name]
@@ -55,10 +57,10 @@ module Sidereal
       end
 
       # @param channel_name [String] concrete channel name (no wildcards)
-      # @param event [Sourced::Message]
+      # @param event [Sidereal::Message]
       # @return [self]
       def publish(channel_name, event)
-        validate_publish!(channel_name)
+        Pattern.validate_publish!(channel_name)
         targets = @mutex.synchronize do
           list = []
           list.concat(@subscribers[channel_name]) if @subscribers[channel_name]
@@ -67,52 +69,6 @@ module Sidereal
         end
         targets.each { |ch| ch << event }
         self
-      end
-
-      private
-
-      def wildcard?(name)
-        name.split(SEGMENT_SEPARATOR, -1).any? { |seg| seg == '*' || seg == '>' }
-      end
-
-      def validate_subscription!(pattern)
-        raise ArgumentError, 'channel pattern must not be empty' if pattern.empty?
-
-        segments = pattern.split(SEGMENT_SEPARATOR, -1)
-        if segments.any?(&:empty?)
-          raise ArgumentError, "empty segment in channel pattern #{pattern.inspect}"
-        end
-
-        segments.each_with_index do |seg, i|
-          if seg == '>' && i != segments.size - 1
-            raise ArgumentError,
-                  "`>` wildcard must be the last segment in #{pattern.inspect}"
-          end
-        end
-      end
-
-      def validate_publish!(channel_name)
-        raise ArgumentError, 'channel name must not be empty' if channel_name.empty?
-
-        segments = channel_name.split(SEGMENT_SEPARATOR, -1)
-        if segments.any?(&:empty?)
-          raise ArgumentError, "empty segment in channel name #{channel_name.inspect}"
-        end
-        if segments.any? { |s| s == '*' || s == '>' }
-          raise ArgumentError,
-                "wildcards are not allowed when publishing: #{channel_name.inspect}"
-        end
-      end
-
-      def compile(pattern)
-        parts = pattern.split(SEGMENT_SEPARATOR).map do |seg|
-          case seg
-          when '*' then '[^.]+'
-          when '>' then '.+'
-          else Regexp.escape(seg)
-          end
-        end
-        Regexp.new('\A' + parts.join('\.') + '\z')
       end
 
       class Channel
@@ -125,7 +81,7 @@ module Sidereal
         end
 
         # Push a message into this channel's queue.
-        # @param message [Sourced::Message]
+        # @param message [Sidereal::Message]
         # @return [self]
         def <<(message)
           @queue << message
@@ -134,7 +90,7 @@ module Sidereal
 
         # Block and process messages from the queue.
         # @param handler [#call, nil]
-        # @yieldparam message [Sourced::Message]
+        # @yieldparam message [Sidereal::Message]
         # @yieldparam channel [Channel]
         # @return [self]
         def start(handler: nil, &block)

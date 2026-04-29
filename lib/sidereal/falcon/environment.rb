@@ -1,5 +1,8 @@
 # frozen_string_literal: true
 
+require 'falcon/environment/server'
+require 'falcon/environment/rackup'
+require 'falcon/service/server'
 require 'sidereal/dispatcher'
 
 module Sidereal
