@@ -403,17 +403,19 @@ class DonationPage < Sidereal::Page
 end
 ```
 
-For events to actually reach that channel, the publisher needs to stamp them with matching channel metadata. The Falcon worker publishes each event to `event.metadata[:channel]` (falling back to `'system'`), so set it via `with_metadata` — typically inside a `handle` block when the command first enters the system:
+For events to actually reach that channel, declare how the App derives a channel name from each message. Use `channel_name` on the `App` — either a static string or a block that receives the message and returns a channel:
 
 ```ruby
 class DonationsApp < Sidereal::App
-  handle SelectAmount do |cmd|
-    dispatch cmd.with_metadata(channel: "donations.#{cmd.payload.donation_id}")
+  channel_name do |msg|
+    "donations.#{msg.payload.donation_id}"
   end
+
+  handle SelectAmount
 end
 ```
 
-The channel propagates through the correlation chain, so downstream commands and events dispatched in response stay on the same channel without further wiring.
+The block runs for every message the App's commander publishes — both the incoming command and the events it emits — so there's no per-command wiring. Downstream commands and events dispatched in response are routed by the same rule.
 
 #### Channel name syntax
 
@@ -443,7 +445,19 @@ class CampaignsListPage < Sidereal::Page
 end
 ```
 
-Pair this with a hierarchical publishing scheme (`"campaigns.#{campaign_id}.donations.#{donation_id}"` for donation events, `"campaigns.#{campaign_id}"` for campaign events) to get routing "for free" from the channel name alone.
+Pair this with a hierarchical `channel_name` block on the App to get routing "for free" from the channel name alone:
+
+```ruby
+class DonationsApp < Sidereal::App
+  channel_name do |msg|
+    if msg.type.start_with?('donations.')
+      "campaigns.#{msg.payload.campaign_id}.donations.#{msg.payload.donation_id}"
+    else
+      "campaigns.#{msg.payload.campaign_id}"
+    end
+  end
+end
+```
 
 ### Sub-components
 
@@ -786,8 +800,7 @@ class TodoDecider < Sourced::Decider
   # Publish events to Sidereal's PubSub for SSE streaming
   after_sync do |state:, events:|
     events.each do |evt|
-      channel = evt.metadata[:channel] || 'system'
-      Sidereal.pubsub.publish(channel, evt)
+      Sidereal.pubsub.publish(TodoApp.commander.channel_name(evt), evt)
     end
   end
 end
@@ -795,7 +808,7 @@ end
 Sourced.register(TodoDecider)
 ```
 
-The `after_sync` block runs after the store transaction commits and pushes events into Sidereal's PubSub, where Page reactions pick them up and stream DOM updates via SSE.
+The `after_sync` block runs after the store transaction commits and pushes events into Sidereal's PubSub, where Page reactions pick them up and stream DOM updates via SSE. Sourced's dispatcher doesn't auto-publish to PubSub the way Sidereal's does, so the channel is resolved by calling the App's `channel_name` block directly.
 
 ### Pages and App
 
@@ -819,6 +832,8 @@ end
 class TodoApp < Sidereal::App
   session secret: ENV.fetch('SESSION_SECRET')
 
+  channel_name { |msg| "todos.#{msg.payload.todo_id}" }
+
   # Expose AddTodo to the browser — the default handler
   # appends it to the Sourced store for async processing
   handle AddTodo
@@ -834,7 +849,7 @@ You can also process a command synchronously during the HTTP request using `Sour
 ```ruby
 handle AddTodo do |cmd|
   _cmd, _decider, events = Sourced.handle!(TodoDecider, cmd)
-  events.each { |evt| pubsub.publish(channel_name, evt) }
+  events.each { |evt| pubsub.publish(self.class.commander.channel_name(evt), evt) }
   browser.patch_elements TodoList.new(TODOS.values)
 end
 ```
