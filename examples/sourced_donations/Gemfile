@@ -9,6 +9,7 @@ gem 'sourced-ui', github: 'ismasan/sourced-ui', branch: 'ccc' #, path: '/Users/i
 gem 'sequel'
 gem 'sqlite3'
 gem 'rake'
+gem 'irb'
 
 group :test do
   gem 'rspec'

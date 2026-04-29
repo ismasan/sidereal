@@ -11,8 +11,7 @@ class DonationsApp < Sidereal::App
     decider, events = Sourced.load(Donation, campaign_id:, donation_id:)
     if decider.state.verification_token == token
       cmd = Donation::VerifyEmailAddress.new(payload: { donation_id:, campaign_id: })
-        .with_metadata(channel: donation_channel(campaign_id, donation_id))
-      Sourced.store.append(cmd)
+      Sidereal.dispatch!(cmd)
       redirect to("/#{campaign_id}/#{donation_id}")
     else
       [404, { 'content-type' => 'text/plain' }, ['Verification link not found.']]
@@ -23,27 +22,23 @@ class DonationsApp < Sidereal::App
     cmd.with_metadata(producer: 'UI')
   end
 
-  handle Campaign::CreateCampaign, Campaign::CloseCampaign do |cmd|
-    dispatch cmd.with_metadata(channel: "campaigns.#{cmd.payload.campaign_id}")
+  channel_name do |msg|
+    if msg.payload.attributes.key?(:donation_id)
+      "campaigns.#{msg.payload.campaign_id}.donations.#{msg.payload.donation_id}"
+    else
+      "campaigns.#{msg.payload.campaign_id}"
+    end
   end
 
+  handle Campaign::CreateCampaign, Campaign::CloseCampaign
+
   handle Donation::StartDonation do |cmd|
-    dispatch cmd.with_metadata(channel: donation_channel(cmd.payload.campaign_id, cmd.payload.donation_id))
+    dispatch cmd
     browser.redirect "/#{cmd.payload.campaign_id}/#{cmd.payload.donation_id}"
   end
 
-  handle Donation::SelectAmount do |cmd|
-    dispatch cmd.with_metadata(channel: donation_channel(cmd.payload.campaign_id, cmd.payload.donation_id))
-  end
-
-  handle Donation::EnterDonorDetails, Donation::StartPayment do |cmd|
-    dispatch cmd.with_metadata(channel: donation_channel(cmd.payload.campaign_id, cmd.payload.donation_id))
-  end
+  handle Donation::SelectAmount, Donation::EnterDonorDetails, Donation::StartPayment
 
   page CampaignsListPage
   page DonationPage
-
-  private def donation_channel(campaign_id, donation_id)
-    "campaigns.#{campaign_id}.donations.#{donation_id}"
-  end
 end

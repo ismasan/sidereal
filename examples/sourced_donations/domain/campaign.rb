@@ -77,8 +77,7 @@ class Campaign < Sourced::Decider
 
   after_sync do |state:, events:, **|
     events.each do |evt|
-      channel = evt.metadata[:channel] || "campaigns.#{state.campaign_id}"
-      Sidereal.pubsub.publish(channel, evt)
+      Sidereal.pubsub.publish(DonationsApp.commander.channel_name(evt), evt)
     end
   end
 end

@@ -60,8 +60,7 @@ class Donation < Sourced::Decider
   # bridge to Sidereal SSE — publish each event on the per-donation channel
   after_sync do |state:, events:, **|
     events.each do |evt|
-      channel = evt.metadata[:channel] || "donations.#{state.donation_id}"
-      Sidereal.pubsub.publish(channel, evt)
+      Sidereal.pubsub.publish(DonationsApp.commander.channel_name(evt), evt)
     end
   end
 end
