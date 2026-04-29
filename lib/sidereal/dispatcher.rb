@@ -26,9 +26,12 @@ module Sidereal
     end
 
     def spawn_into(task)
+      @store.start(task)
+
       @worker_count.times do
         task.async do
           @store.claim_next do |msg|
+
             commander = @registry[msg.class]
             next if commander.nil?
 

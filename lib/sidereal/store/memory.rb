@@ -13,6 +13,12 @@ module Sidereal
         @queue = Async::Queue.new
       end
 
+      # Lifecycle hook called by the dispatcher before any claim_next.
+      # Memory store has no shared poller, so this is a no-op.
+      def start(_task)
+        self
+      end
+
       # Append a message to the store.
       # Non-blocking — returns immediately regardless of consumers.
       #
@@ -29,7 +35,7 @@ module Sidereal
       # (Async::Stop propagates out of @queue.pop).
       #
       # @yieldparam message [Sidereal::Message]
-      def claim_next
+      def claim_next(&)
         loop do
           yield @queue.pop
         end

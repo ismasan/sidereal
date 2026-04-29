@@ -12,6 +12,7 @@ module SiderealSpecHelpers
   def claim_messages(store, count)
     claimed = []
     Sync do |task|
+      store.start(task)
       consumer = task.async do
         store.claim_next { |m| claimed << m }
       end
