@@ -69,21 +69,15 @@ module Sidereal
         @started = false
       end
 
-      # Whether this process currently holds the broker role — i.e. has won
-      # the +flock+ election and bound the listening socket. While +true+,
-      # this process is fanning out frames to every connected peer. Flips
-      # back to +false+ when the broker is torn down (clean shutdown or a
-      # detected EOF triggering reconnect).
+      # Whether this process currently holds the broker role.
       # @return [Boolean]
       def leader?
         !@server.nil?
       end
 
-      # Lifecycle hook. Idempotent; safe to call from any caller before any
-      # publish or subscribe. Spawns a single +run_client+ fiber as a
-      # transient child of +task+; that fiber handles election (via
-      # +flock+), broker setup (when elected), and the read loop, with
-      # automatic reconnect on EOF or error.
+      # Idempotent. Spawns the election + read loop as a transient child of
+      # +task+; that fiber handles flock election, broker setup when
+      # elected, and reconnect-with-backoff on EOF or error.
       def start(task)
         @mutex.synchronize do
           return self if @started
@@ -213,10 +207,8 @@ module Sidereal
 
       def encode_frame(channel_name, event)
         attrs = event.to_h
-        attrs.each do |k, v|
-          attrs[k] = v.iso8601(6) if v.is_a?(Time)
-        end
-        JSON.dump(channel: channel_name, msg: attrs) + "\n"
+        attrs.transform_values! { |v| v.is_a?(Time) ? v.iso8601(6) : v }
+        JSON.generate(channel: channel_name, msg: attrs) << "\n"
       end
 
       def decode_frame(line)
@@ -262,7 +254,11 @@ module Sidereal
       def run_one_connection(task)
         if try_become_leader
           # Replace any stale socket from a dead prior leader.
-          File.unlink(@socket_path) if File.exist?(@socket_path)
+          begin
+            File.unlink(@socket_path)
+          rescue Errno::ENOENT
+            # nothing to clean up
+          end
           @server = UNIXServer.new(@socket_path)
           @broker_task = task.async(transient: true) { run_broker(task) }
           Console.info(self, "pubsub: elected as broker", pid: Process.pid, socket: @socket_path)
@@ -274,8 +270,7 @@ module Sidereal
 
         @client_socket.each_line do |line|
           begin
-            channel_name, event = decode_frame(line)
-            deliver_local(channel_name, event) if channel_name && event
+            deliver_local(*decode_frame(line))
           rescue StandardError => ex
             Console.error(self, 'pubsub frame decode failed', exception: ex, line: line)
           end
@@ -304,10 +299,10 @@ module Sidereal
           Console.info(self, "pubsub: stepped down as broker", pid: Process.pid)
         end
 
-        @peers_mutex.synchronize do
-          @peers.each_key { |peer| peer.close rescue nil }
-          @peers.clear
-        end
+        # Drain peers via drop_peer so writer fibers blocked on their
+        # write_queue.pop see the nil sentinel and exit cleanly. A bare
+        # @peers.clear would leak those fibers until parent teardown.
+        @peers.keys.each { |peer| drop_peer(peer) }
       end
 
       def rand_backoff
@@ -335,6 +330,8 @@ module Sidereal
           while (line = write_queue.pop)
             peer.write(line)
           end
+        rescue Errno::EPIPE, Errno::ECONNRESET, IOError
+          # peer disconnected — normal
         rescue StandardError => ex
           Console.warn(self, 'broker peer writer failed', exception: ex)
         ensure
@@ -344,6 +341,8 @@ module Sidereal
         # Reader fiber: each_line → fan out to every other peer.
         task.async(transient: true) do
           peer.each_line { |line| fan_out(line, except: peer) }
+        rescue Errno::EPIPE, Errno::ECONNRESET, IOError, EOFError
+          # peer disconnected — normal
         rescue StandardError => ex
           Console.warn(self, 'broker peer reader failed', exception: ex)
         ensure
@@ -352,18 +351,18 @@ module Sidereal
       end
 
       def fan_out(line, except:)
-        slow_peers = []
+        slow_peers = nil
         @peers_mutex.synchronize do
           @peers.each do |peer, queue|
             next if peer.equal?(except)
             if queue.size >= @write_queue_size
-              slow_peers << peer
+              (slow_peers ||= []) << peer
             else
               queue << line
             end
           end
         end
-        slow_peers.each do |peer|
+        slow_peers&.each do |peer|
           Console.warn(self, 'dropping slow peer', peer: peer.inspect)
           drop_peer(peer)
         end
