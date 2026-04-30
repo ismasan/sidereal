@@ -183,6 +183,70 @@ RSpec.describe Sidereal::Commander do
       cmd = TestAddItem.new(payload: { title: 'x' })
       expect { cmdr_class.handle(cmd, pubsub: pubsub) }.to raise_error('boom')
     end
+
+    describe 'scheduling dispatched messages' do
+      it 'schedules a dispatched command via .at' do
+        future = Time.now + 10
+        cmdr_class = Class.new(Sidereal::Commander) do
+          command TestAddItem do |_cmd|
+            dispatch(TestSendEmail, to: 'user@example.com').at(future)
+          end
+          command TestSendEmail
+        end
+
+        cmd = TestAddItem.new(payload: { title: 'x' })
+        result = cmdr_class.handle(cmd, pubsub: pubsub)
+
+        expect(result.commands.size).to eq(1)
+        expect(result.commands.first).to be_a(TestSendEmail)
+        expect(result.commands.first.created_at).to be_within(0.001).of(future)
+      end
+
+      it 'schedules a dispatched event via .at' do
+        future = Time.now + 30
+        cmdr_class = Class.new(Sidereal::Commander) do
+          command TestAddItem do |cmd|
+            dispatch(TestItemAdded, title: cmd.payload.title).at(future)
+          end
+        end
+
+        cmd = TestAddItem.new(payload: { title: 'x' })
+        result = cmdr_class.handle(cmd, pubsub: pubsub)
+
+        expect(result.events.first.created_at).to be_within(0.001).of(future)
+      end
+
+      it 'supports .in(seconds) as relative scheduling sugar' do
+        before = Time.now
+        cmdr_class = Class.new(Sidereal::Commander) do
+          command TestAddItem do |_cmd|
+            dispatch(TestSendEmail, to: 'a@b.com').in(60)
+          end
+          command TestSendEmail
+        end
+
+        cmd = TestAddItem.new(payload: { title: 'x' })
+        result = cmdr_class.handle(cmd, pubsub: pubsub)
+
+        expect(result.commands.first.created_at).to be_within(0.5).of(before + 60)
+      end
+
+      it 'preserves correlation when scheduling' do
+        cmdr_class = Class.new(Sidereal::Commander) do
+          command TestAddItem do |_cmd|
+            dispatch(TestSendEmail, to: 'x@y.com').at(Time.now + 5)
+          end
+          command TestSendEmail
+        end
+
+        cmd = TestAddItem.new(payload: { title: 'x' })
+        result = cmdr_class.handle(cmd, pubsub: pubsub)
+
+        scheduled = result.commands.first
+        expect(scheduled.causation_id).to eq(cmd.id)
+        expect(scheduled.correlation_id).to eq(cmd.correlation_id)
+      end
+    end
   end
 
   describe '.channel_name' do

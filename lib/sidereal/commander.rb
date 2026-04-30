@@ -72,8 +72,8 @@ module Sidereal
 
       Result.new(
         cmd,
-        dispatched_events.slice(0..),
-        dispatched_commands.slice(0..),
+        dispatched_events.slice(0..).map(&:message),
+        dispatched_commands.slice(0..).map(&:message),
       )
     end
 
@@ -86,15 +86,33 @@ module Sidereal
       self
     end
 
+    class MessageDispatch
+      attr_reader :message
+
+      def initialize(msg)
+        @message = msg
+      end
+
+      def at(t)
+        @message = @message.at(t)
+        self
+      end
+
+      def in(seconds)
+        at(Time.now + seconds)
+      end
+    end
+
     def dispatch(msg_class, payload = {})
       msg = msg_class.new(payload: payload.to_h)
       msg = @__current_msg.correlate(msg)
+      dsp = MessageDispatch.new(msg)
       if self.class.command_registry[msg.class.type]
-        dispatched_commands << msg
+        dispatched_commands << dsp
       else
-        dispatched_events << msg
+        dispatched_events << dsp
       end
-      self
+      dsp
     end
 
     def dispatched_commands

@@ -181,6 +181,31 @@ command AddTodo do |cmd|
 end
 ```
 
+### Scheduled commands
+
+Chain `.at(time)` or `.in(seconds)` on a `dispatch` call to defer processing of a command (or event) until a future time:
+
+```ruby
+command PlaceOrder do |cmd|
+  ORDERS[cmd.id] = cmd.payload.to_h
+
+  # Run an hour from now
+  dispatch(SendReminder, order_id: cmd.id).in(3600)
+
+  # Run at a specific time
+  dispatch(ExpireOrder, order_id: cmd.id).at(Time.now + 86400)
+end
+```
+
+The dispatched message lands on the store with its `created_at` set to the scheduled time. Stores that support scheduled delivery hold the message back and only deliver it once that time has passed:
+
+| Store | Scheduled delivery |
+|---|---|
+| `Store::FileSystem` | Honored — future-dated messages are written to a `scheduled/` directory and promoted by a background fiber when due. |
+| `Store::Memory` | Ignored — messages are delivered immediately regardless of `created_at`. Use `FileSystem` when you need scheduling. |
+
+Scheduling does not propagate across correlation: an event dispatched downstream of a scheduled command runs at its own `created_at` (i.e. immediately), not at the source's future time.
+
 ### Broadcast
 
 Use `broadcast` inside a command handler to publish a message immediately to the SSE stream, without waiting for the command to finish processing. Useful for progress indicators.
