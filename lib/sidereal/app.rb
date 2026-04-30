@@ -219,6 +219,11 @@ module Sidereal
       send(method_name, @__current_msg)
     end
 
+    # This dispatch is available to sync command handlers
+    # @example
+    #  handle SomeCommand do |cmd|
+    #    dispatch cmd
+    #  end
     private def dispatch(*args)
       cmd = case args
         in [Class => c, Hash => payload]
