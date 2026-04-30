@@ -4,13 +4,13 @@ require 'async'
 
 module Sidereal
   class Dispatcher
-    def self.spawn_into(task)
+    def self.start(task)
       new(
         worker_count: Sidereal.config.workers,
         store: Sidereal.store,
         registry: Sidereal.registry,
         pubsub: Sidereal.pubsub
-      ).spawn_into(task)
+      ).start(task)
     end
 
     def initialize(
@@ -25,7 +25,7 @@ module Sidereal
       @pubsub = pubsub
     end
 
-    def spawn_into(task)
+    def start(task)
       @store.start(task)
 
       @worker_count.times do

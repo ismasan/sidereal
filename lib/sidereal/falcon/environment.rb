@@ -1,5 +1,8 @@
 # frozen_string_literal: true
 
+require 'falcon/environment/server'
+require 'falcon/environment/rackup'
+require 'falcon/service/server'
 require 'sidereal/dispatcher'
 
 module Sidereal
@@ -39,7 +42,13 @@ module Sidereal
 
           Async do |task|
             server.run
-            @dispatcher = Sidereal.dispatcher.spawn_into(task)
+            # Start the configured pubsub here (not inside the dispatcher)
+            # so it works regardless of which dispatcher implementation is
+            # plugged in — e.g. Sourced's Dispatcher in examples/sourced_donations
+            # also benefits from the long-lived Falcon task as the parent for
+            # pubsub's background fibers.
+            Sidereal.pubsub.start(task)
+            @dispatcher = Sidereal.dispatcher.start(task)
 
             task.children.each(&:wait)
           end

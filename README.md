@@ -710,7 +710,7 @@ Sidereal.configure do |c|
 end
 ```
 
-A custom store must respond to `#append(message)`. A custom dispatcher must respond to `.spawn_into(task)` (class-level) and `#stop`.
+A custom store must respond to `#append(message)`. A custom dispatcher must respond to `.start(task)` (class-level) and `#stop`.
 
 ## How it works
 

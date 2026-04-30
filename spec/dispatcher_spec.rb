@@ -53,7 +53,7 @@ RSpec.describe Sidereal::Dispatcher do
         store: store,
         registry: registry,
         pubsub: pubsub
-      ).spawn_into(task)
+      ).start(task)
 
       task.async do
         block.call if block
@@ -202,7 +202,7 @@ RSpec.describe Sidereal::Dispatcher do
 
       Sidereal::Dispatcher.new(
         worker_count: 1, store: store, registry: registry_for(routing_commander), pubsub: pubsub
-      ).spawn_into(task)
+      ).start(task)
 
       task.async do
         sleep 0.05

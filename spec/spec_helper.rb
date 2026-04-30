@@ -2,7 +2,14 @@
 
 require 'debug'
 require 'async'
+require 'console'
+require 'logger'
 require "sidereal"
+
+# Silence Console logs during tests — error/warn output from intentional
+# failure-path tests (dispatcher handler errors, publish errors) drowns
+# out the rspec progress otherwise. Set CONSOLE_LEVEL=debug to re-enable.
+Console.logger.level = Logger::FATAL unless ENV['CONSOLE_LEVEL']
 
 module SiderealSpecHelpers
   # Drain `count` messages from a store and return them.

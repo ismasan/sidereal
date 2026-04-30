@@ -2,10 +2,18 @@
 
 require 'async'
 require_relative 'sidereal/version'
+require_relative 'sidereal/types'
 
 module Sidereal
   class Error < StandardError; end
   # Your code goes here...
+
+  DispatcherInterface = Types::Interface[:start]
+  PubsubInterface = Types::Interface[:start, :subscribe, :publish]
+  # Sidereal apps only append to stores
+  # It's up to dispatcher implementations how to use the store to claim commands
+  # Ex. Sourced's store has a more sophisticated claim mechanism than Sidereal::Store
+  StoreWriterInterface = Types::Interface[:append]
 
   def self.message_method_name(prefix, name)
     "__handle_#{prefix}_#{name.split('::').map(&:downcase).join('_')}"
@@ -16,22 +24,25 @@ module Sidereal
 
   class Configuration
     attr_accessor :workers
-    attr_writer :store, :pubsub, :dispatcher
+    attr_reader :store, :pubsub, :dispatcher
 
     def initialize(workers: 25)
       @workers = workers
+      @pubsub = PubSub::Memory.instance
+      @store = Store::Memory.instance
+      @dispatcher = Sidereal::Dispatcher
     end
 
-    def store
-      @store || Store::Memory.instance
+    def store=(s)
+      @store = StoreWriterInterface.parse(s)
     end
 
-    def pubsub
-      @pubsub || PubSub::Memory.instance
+    def pubsub=(p)
+      @pubsub = PubsubInterface.parse(p)
     end
 
-    def dispatcher
-      @dispatcher || Dispatcher
+    def dispatcher=(d)
+      @dispatcher = DispatcherInterface.parse(d)
     end
   end
 
@@ -107,7 +118,6 @@ module Sidereal
   end
 end
 
-require_relative 'sidereal/types'
 require_relative 'sidereal/message'
 require_relative 'sidereal/router'
 require_relative 'sidereal/components/layout'
