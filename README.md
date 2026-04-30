@@ -737,6 +737,38 @@ end
 
 A custom store must respond to `#append(message)`. A custom dispatcher must respond to `.start(task)` (class-level) and `#stop`.
 
+### Filesystem store
+
+`Sidereal::Store::FileSystem` is a built-in durable store that survives process restarts and lets multiple worker processes on the same host share a queue. It also honors [scheduled commands](#scheduled-commands), unlike the default in-memory store.
+
+It isn't autoloaded — require it explicitly, then point `Sidereal.configure` at an instance:
+
+```ruby
+require 'sidereal'
+require 'sidereal/store/file_system'
+
+Sidereal.configure do |c|
+  c.store = Sidereal::Store::FileSystem.new(root: 'storage/store')
+end
+```
+
+The store creates four sibling directories under `root/`: `tmp/`, `ready/`, `scheduled/`, and `processing/`. Producers append by atomic-renaming from `tmp/` into `ready/` (or `scheduled/` for future-dated messages). A poller fiber claims into `processing/`; a scheduler fiber promotes due files from `scheduled/` to `ready/`; a sweeper recovers anything left in `processing/` by a crashed worker.
+
+Constructor options:
+
+| Option | Default | Description |
+|---|---|---|
+| `root:` | `'tmp/sidereal-store'` | Directory holding the four subdirs. Must be on a single local filesystem (atomic rename is unreliable across NFS). |
+| `poll_interval:` | `0.1` | Seconds the poller sleeps when `ready/` is empty. |
+| `scheduler_interval:` | `1.0` | Seconds between scans of `scheduled/` for due messages. Sub-second granularity is not provided. |
+| `sweep_interval:` | `60` | Seconds between sweeps of stale `processing/` files. |
+| `stale_threshold:` | `300` | A `processing/` file older than this (or owned by a dead PID) is treated as abandoned and renamed back to `ready/`. |
+| `max_in_flight:` | `50` | Bound on the in-process queue between the poller and worker fibers. When handlers fall behind, the queue blocks and disk becomes the buffer. |
+
+**At-least-once delivery:** a crash mid-handling causes the message to be re-claimed once the sweeper recovers the abandoned `processing/` file. Handlers must be idempotent.
+
+**Single-machine only:** the design relies on POSIX atomic rename, which is unreliable across networked filesystems like NFS. Use a different store if you need to fan workers out across hosts.
+
 ## How it works
 
 <img width="935" height="783" alt="CleanShot 2026-04-21 at 14 37 31" src="https://github.com/user-attachments/assets/cbe698e6-3343-4873-aabd-65959ceb9051" />
