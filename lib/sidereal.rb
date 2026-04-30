@@ -9,6 +9,7 @@ module Sidereal
   # Your code goes here...
 
   DispatcherInterface = Types::Interface[:start]
+  PubsubInterface = Types::Interface[:start, :subscribe, :publish]
 
   def self.message_method_name(prefix, name)
     "__handle_#{prefix}_#{name.split('::').map(&:downcase).join('_')}"
@@ -19,26 +20,25 @@ module Sidereal
 
   class Configuration
     attr_accessor :workers
-    attr_writer :store, :pubsub
+    attr_reader :store, :pubsub, :dispatcher
 
     def initialize(workers: 25)
       @workers = workers
+      @pubsub = PubSub::Memory.instance
+      @store = Store::Memory.instance
+      @dispatcher = Sidereal::Dispatcher
     end
 
-    def store
-      @store || Store::Memory.instance
+    def store=(s)
+      @store = s
     end
 
-    def pubsub
-      @pubsub || PubSub::Memory.instance
+    def pubsub=(p)
+      @pubsub = PubsubInterface.parse(p)
     end
 
     def dispatcher=(d)
       @dispatcher = DispatcherInterface.parse(d)
-    end
-
-    def dispatcher
-      @dispatcher || Dispatcher
     end
   end
 

@@ -85,9 +85,19 @@ RSpec.describe Sidereal::Configuration do
   end
 
   it 'allows setting a custom pubsub' do
-    custom_pubsub = Object.new
+    custom_pubsub = Class.new do
+      def self.start = new
+      def self.subscribe(...) = self
+      def self.publish(...) = self
+    end
+
     config.pubsub = custom_pubsub
     expect(config.pubsub).to eq(custom_pubsub)
+
+    invalid_pubsub = Class.new
+    expect {
+      config.pubsub = invalid_pubsub
+    }.to raise_error(Plumb::ParseError)
   end
 
   it 'allows setting a custom dispatcher class' do
