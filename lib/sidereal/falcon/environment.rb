@@ -48,7 +48,7 @@ module Sidereal
             # also benefits from the long-lived Falcon task as the parent for
             # pubsub's background fibers.
             Sidereal.pubsub.start(task)
-            @dispatcher = Sidereal.dispatcher.spawn_into(task)
+            @dispatcher = Sidereal.dispatcher.start(task)
 
             task.children.each(&:wait)
           end
