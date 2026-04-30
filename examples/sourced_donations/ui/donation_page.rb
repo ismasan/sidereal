@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative 'event_list'
+
 class DonationPage < Sidereal::Page
   path '/:campaign_id/:donation_id'
 
@@ -12,13 +14,15 @@ class DonationPage < Sidereal::Page
      Donation::PaymentReady,
      Donation::PaymentStarted,
      Donation::PaymentConfirmed do |evt|
-    browser.patch_elements DonationPage.new(
-      donation: DonationPage.load_donation(evt.payload.campaign_id, evt.payload.donation_id)
+    state, messages = DonationPage.load_donation_with_history(
+      evt.payload.campaign_id, evt.payload.donation_id
     )
+    browser.patch_elements DonationPage.new(donation: state, messages: messages)
   end
 
   def self.load(params, _ctx)
-    new(donation: load_donation(params[:campaign_id], params[:donation_id]))
+    state, messages = load_donation_with_history(params[:campaign_id], params[:donation_id])
+    new(donation: state, messages: messages)
   end
 
   def self.load_donation(campaign_id, donation_id)
@@ -26,27 +30,89 @@ class DonationPage < Sidereal::Page
     view.state
   end
 
-  def initialize(donation:)
+  # Loads donation state + the full command/event stream for the sidebar in
+  # one partition read. The sidebar always shows the complete history — the
+  # +upto+ param only affects which messages contribute to the projected
+  # state, so the user can jump forward/backward from any historic snapshot.
+  def self.load_donation_with_history(campaign_id, donation_id, upto: nil)
+    partition = { campaign_id: campaign_id, donation_id: donation_id }
+    # Merge Donation's own messages (for display) with DonationView's evolve
+    # types (for campaign context like name/target) so a single read covers
+    # both the sidebar list and state computation.
+    handled_types = (Donation.display_types +
+      DonationView.handled_messages_for_evolve.map(&:type)).uniq
+    result = Sourced.store.read_partition(partition, handled_types: handled_types)
+    all_messages = result.messages
+
+    display_messages = all_messages.reject { |m| campaign_message?(m) }
+
+    # For the state projection, use all messages up to the chosen step.
+    # Campaign messages are kept regardless (campaign_created must still
+    # set campaign_name even when viewing step 1 of the donation).
+    evolve_messages = if upto
+      kept_ids = display_messages.first(upto).map(&:id).to_set
+      all_messages.select { |m| campaign_message?(m) || kept_ids.include?(m.id) }
+    else
+      all_messages
+    end
+
+    view = DonationView.new({ campaign_id: campaign_id, donation_id: donation_id })
+    view.evolve(evolve_messages)
+
+    [view.state, display_messages]
+  end
+
+  def self.campaign_message?(msg)
+    msg.type.start_with?('campaigns.')
+  end
+
+  def initialize(donation:, messages: [], current_step: nil)
     @donation = donation
+    @messages = messages
+    @current_step = current_step
   end
 
   def channel_name
+    return 'static' if @current_step
     "campaigns.#{@donation.campaign_id}.donations.#{@donation.donation_id}"
   end
 
+  # Historic snapshots suppress page_key so Page.subscribe returns early and
+  # doesn't overwrite the frozen render with current state on SSE connect.
+  def page_signals
+    @current_step ? {} : { page_key: self.class.page_key }
+  end
+
   def view_template
-    div(id: 'donation-page') do
-      header(class: 'header') do
-        p(class: 'eyebrow') { a(href: '/') { 'Community Fund' } }
-        h1 { @donation.campaign_name }
-        if @donation.campaign_target_amount
-          p(class: 'campaign-tag') { "Target €#{@donation.campaign_target_amount}" }
+    div(id: 'donation-page', class: 'donation-layout') do
+      div(class: 'donation-layout__main') do
+        header(class: 'header') do
+          p(class: 'eyebrow') { a(href: '/') { 'Community Fund' } }
+          h1 { @donation.campaign_name }
+          if @donation.campaign_target_amount
+            p(class: 'campaign-tag') { "Target €#{@donation.campaign_target_amount}" }
+          end
+          if @current_step
+            p(class: 'historic-tag') do
+              plain "Viewing state at step #{@current_step} — "
+              a(href: "/#{@donation.campaign_id}/#{@donation.donation_id}") { 'back to live' }
+            end
+          end
+        end
+
+        main(class: 'kiosk') do
+          render Stepper.new(@donation)
+          render CurrentStep.new(@donation)
         end
       end
 
-      main(class: 'kiosk') do
-        render Stepper.new(@donation)
-        render CurrentStep.new(@donation)
+      if @messages.any?
+        render EventList.new(
+          messages: @messages,
+          campaign_id: @donation.campaign_id,
+          donation_id: @donation.donation_id,
+          current_step: @current_step
+        )
       end
     end
   end

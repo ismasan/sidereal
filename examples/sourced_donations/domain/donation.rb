@@ -120,6 +120,16 @@ class Donation < Sourced::Decider
     attribute :paid_at, Sourced::Types::Forms::Time
   end
 
+  # ---- Display ----
+
+  # Message types shown in the DonationPage event-list sidebar. Union of
+  # all commands and events scoped to the donation stream (no Campaign
+  # messages — they're shared across donations). Also used as the filter
+  # for the partition read that drives the sidebar.
+  def self.display_types
+    (handled_messages + handled_messages_for_evolve).uniq.map(&:type)
+  end
+
   # ---- State ----
 
   State = Struct.new(
@@ -326,9 +336,7 @@ class Donation < Sourced::Decider
 
   after_sync do |state:, events:, **|
     events.each do |evt|
-      channel = evt.metadata[:channel] ||
-        "campaigns.#{state.campaign_id}.donations.#{state.donation_id}"
-      Sidereal.pubsub.publish(channel, evt)
+      Sidereal.pubsub.publish(DonationsApp.commander.channel_name(evt), evt)
     end
   end
 end
