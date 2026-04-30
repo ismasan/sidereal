@@ -10,6 +10,10 @@ module Sidereal
 
   DispatcherInterface = Types::Interface[:start]
   PubsubInterface = Types::Interface[:start, :subscribe, :publish]
+  # Sidereal apps only append to stores
+  # It's up to dispatcher implementations how to use the store to claim commands
+  # Ex. Sourced's store has a more sophisticated claim mechanism than Sidereal::Store
+  StoreWriterInterface = Types::Interface[:append]
 
   def self.message_method_name(prefix, name)
     "__handle_#{prefix}_#{name.split('::').map(&:downcase).join('_')}"
@@ -30,7 +34,7 @@ module Sidereal
     end
 
     def store=(s)
-      @store = s
+      @store = StoreWriterInterface.parse(s)
     end
 
     def pubsub=(p)

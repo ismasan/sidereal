@@ -79,9 +79,17 @@ RSpec.describe Sidereal::Configuration do
   end
 
   it 'allows setting a custom store' do
-    custom_store = Object.new
+    custom_store = Class.new do
+      def self.append(...) = self
+    end
+
     config.store = custom_store
     expect(config.store).to eq(custom_store)
+
+    invalid_store = Class.new
+    expect {
+      config.store = invalid_store
+    }.to raise_error(Plumb::ParseError)
   end
 
   it 'allows setting a custom pubsub' do
