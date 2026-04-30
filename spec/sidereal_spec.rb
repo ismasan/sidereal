@@ -91,8 +91,17 @@ RSpec.describe Sidereal::Configuration do
   end
 
   it 'allows setting a custom dispatcher class' do
-    custom_dispatcher = Class.new
+    custom_dispatcher = Class.new do
+      def self.start = new
+    end
+
     config.dispatcher = custom_dispatcher
     expect(config.dispatcher).to eq(custom_dispatcher)
+
+    invalid_dispatcher = Class.new
+
+    expect {
+      config.dispatcher = invalid_dispatcher
+    }.to raise_error(Plumb::ParseError)
   end
 end

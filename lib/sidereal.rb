@@ -2,10 +2,13 @@
 
 require 'async'
 require_relative 'sidereal/version'
+require_relative 'sidereal/types'
 
 module Sidereal
   class Error < StandardError; end
   # Your code goes here...
+
+  DispatcherInterface = Types::Interface[:start]
 
   def self.message_method_name(prefix, name)
     "__handle_#{prefix}_#{name.split('::').map(&:downcase).join('_')}"
@@ -16,7 +19,7 @@ module Sidereal
 
   class Configuration
     attr_accessor :workers
-    attr_writer :store, :pubsub, :dispatcher
+    attr_writer :store, :pubsub
 
     def initialize(workers: 25)
       @workers = workers
@@ -28,6 +31,10 @@ module Sidereal
 
     def pubsub
       @pubsub || PubSub::Memory.instance
+    end
+
+    def dispatcher=(d)
+      @dispatcher = DispatcherInterface.parse(d)
     end
 
     def dispatcher
@@ -107,7 +114,6 @@ module Sidereal
   end
 end
 
-require_relative 'sidereal/types'
 require_relative 'sidereal/message'
 require_relative 'sidereal/router'
 require_relative 'sidereal/components/layout'
