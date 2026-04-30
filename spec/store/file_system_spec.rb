@@ -27,11 +27,11 @@ RSpec.describe Sidereal::Store::FileSystem do
       expect(store.append(FsStoreCmd.new(payload: { name: 'a' }))).to be true
     end
 
-    it 'creates a file under pending/' do
+    it 'creates a file under ready/' do
       store.append(FsStoreCmd.new(payload: { name: 'a' }))
-      pending = Dir.children(File.join(@root, 'pending'))
-      expect(pending.size).to eq(1)
-      expect(pending.first).to end_with('.json')
+      ready = Dir.children(File.join(@root, 'ready'))
+      expect(ready.size).to eq(1)
+      expect(ready.first).to end_with('.json')
     end
 
     it 'leaves no files in tmp/' do
@@ -61,7 +61,7 @@ RSpec.describe Sidereal::Store::FileSystem do
       store.append(FsStoreCmd.new(payload: { name: 'a' }))
       claim_one(store)
       expect(Dir.children(File.join(@root, 'processing'))).to be_empty
-      expect(Dir.children(File.join(@root, 'pending'))).to be_empty
+      expect(Dir.children(File.join(@root, 'ready'))).to be_empty
     end
 
     it 'survives across store instances (state persists on disk)' do
@@ -129,7 +129,7 @@ RSpec.describe Sidereal::Store::FileSystem do
       [path, original]
     end
 
-    it 'returns files claimed by a dead pid back to pending/' do
+    it 'returns files claimed by a dead pid back to ready/' do
       payload = JSON.dump(FsStoreCmd.new(payload: { name: 'abandoned' }).to_h)
       _path, original = stage_processing_file(
         content: payload,
@@ -140,7 +140,7 @@ RSpec.describe Sidereal::Store::FileSystem do
       # Drive one iteration of the sweep + claim
       claimed = claim_one(store)
       expect(claimed.payload.name).to eq('abandoned')
-      expect(Dir.children(File.join(@root, 'pending'))).to be_empty
+      expect(Dir.children(File.join(@root, 'ready'))).to be_empty
       expect(Dir.children(File.join(@root, 'processing'))).to be_empty
     end
 
@@ -169,7 +169,7 @@ RSpec.describe Sidereal::Store::FileSystem do
         claim_ns: Process.clock_gettime(Process::CLOCK_REALTIME, :nanosecond)
       )
 
-      # Append a fresh pending message so claim_next can make progress.
+      # Append a fresh ready message so claim_next can make progress.
       slow_store.append(FsStoreCmd.new(payload: { name: 'fresh' }))
       claimed = claim_one(slow_store)
       # Because sweep is throttled, the stale file is NOT recovered;
@@ -226,6 +226,72 @@ RSpec.describe Sidereal::Store::FileSystem do
       expect(all_ids.size).to eq(n) # all claimed
       expect(parent_ids).not_to be_empty
       expect(child_ids).not_to be_empty
+    end
+  end
+
+  describe 'scheduled delivery' do
+    let(:store) do
+      described_class.new(
+        root: @root,
+        poll_interval: 0.01,
+        scheduler_interval: 0.05,
+        sweep_interval: 60
+      )
+    end
+
+    it 'routes a future-dated message to scheduled/ on append' do
+      msg = FsStoreCmd.new(payload: { name: 'later' }).at(Time.now + 5)
+      store.append(msg)
+      expect(Dir.children(File.join(@root, 'scheduled')).size).to eq(1)
+      expect(Dir.children(File.join(@root, 'ready'))).to be_empty
+    end
+
+    it 'routes a present-dated message to ready/ on append' do
+      store.append(FsStoreCmd.new(payload: { name: 'now' }))
+      expect(Dir.children(File.join(@root, 'ready')).size).to eq(1)
+      expect(Dir.children(File.join(@root, 'scheduled'))).to be_empty
+    end
+
+    it 'promotes scheduled messages once their created_at has passed' do
+      msg = FsStoreCmd.new(payload: { name: 'soon' }).at(Time.now + 0.2)
+      store.append(msg)
+
+      claimed = claim_one(store) # blocks until scheduler promotes + poller claims
+      expect(claimed.payload.name).to eq('soon')
+      expect(claimed.created_at).to be <= Time.now
+    end
+
+    it 'does not block immediate messages on far-future scheduled ones' do
+      far_future = FsStoreCmd.new(payload: { name: 'far' }).at(Time.now + 3600)
+      store.append(far_future)
+      store.append(FsStoreCmd.new(payload: { name: 'immediate' }))
+
+      claimed = claim_one(store)
+      expect(claimed.payload.name).to eq('immediate')
+    end
+
+    it 'promotes due scheduled messages in due-order' do
+      t0 = Time.now
+      store.append(FsStoreCmd.new(payload: { name: 'third' }).at(t0 + 0.6))
+      store.append(FsStoreCmd.new(payload: { name: 'first' }).at(t0 + 0.2))
+      store.append(FsStoreCmd.new(payload: { name: 'second' }).at(t0 + 0.4))
+
+      claimed = claim_messages(store, 3)
+      expect(claimed.map { |m| m.payload.name }).to eq(%w[first second third])
+    end
+
+    it 'preserves scheduled state across store instances on disk' do
+      producer = described_class.new(root: @root)
+      producer.append(FsStoreCmd.new(payload: { name: 'persisted' }).at(Time.now + 0.2))
+      expect(Dir.children(File.join(@root, 'scheduled')).size).to eq(1)
+
+      consumer = described_class.new(
+        root: @root,
+        poll_interval: 0.01,
+        scheduler_interval: 0.05
+      )
+      claimed = claim_one(consumer)
+      expect(claimed.payload.name).to eq('persisted')
     end
   end
 end
