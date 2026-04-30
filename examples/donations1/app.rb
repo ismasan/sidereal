@@ -1,8 +1,18 @@
 # frozen_string_literal: true
 
 require 'sidereal'
+require 'sidereal/store/file_system'
+require 'sidereal/pubsub/unix'
 require 'pstore'
 require 'securerandom'
+
+Sidereal.configure do |c|
+  c.store = Sidereal::Store::FileSystem.new(root: 'storage/store')
+  c.pubsub = Sidereal::PubSub::Unix.new(
+    socket_path: 'storage/sidereal-pubsub.sock',
+    lock_path: 'storage/sidereal-pubsub.lock'
+  )
+end
 
 # -- Messages --
 
