@@ -173,6 +173,12 @@ class DonationsApp < Sidereal::App
 
   handle PresentCard
 
+  command Sidereal::System::NotifyRetry do |cmd|
+    Console.warn "RETRYING!", cmd:
+    # App can update state, notify APM, start a new workflow, etc
+    # dispatch StartErrorNotifications
+  end
+
   command SelectAmount do |cmd|
     amount = cmd.payload.amount
     next unless DONATION_AMOUNTS.include?(amount)
