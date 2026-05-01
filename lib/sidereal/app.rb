@@ -137,6 +137,24 @@ module Sidereal
         self
       end
 
+      # Register a cron-scheduled block. The block runs on every tick of
+      # the cron expression, on a fiber spawned by {Sidereal.scheduler}.
+      # Inside the block, +dispatch(MessageClass, payload)+ enqueues a
+      # command onto {Sidereal.store} stamped with
+      # +metadata: { producer: '<cron expr>' }+.
+      #
+      # @example
+      #   schedule '5 0 * * *' do
+      #     dispatch Cleanup, foo: 'bar'
+      #   end
+      #
+      # @param cron_expr [String] cron expression (5 or 6 fields)
+      # @return [self]
+      def schedule(cron_expr, &block)
+        Sidereal.scheduler.schedule(cron_expr, &block)
+        self
+      end
+
       # Expose a command to the web (+POST /commands+) and register a
       # handler that runs synchronously during the HTTP request.
       #

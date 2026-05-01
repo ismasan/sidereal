@@ -49,6 +49,7 @@ module Sidereal
             # pubsub's background fibers.
             Sidereal.pubsub.start(task)
             @dispatcher = Sidereal.dispatcher.start(task)
+            Sidereal.scheduler.start(task)
 
             task.children.each(&:wait)
           end

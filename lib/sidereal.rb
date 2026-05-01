@@ -62,6 +62,14 @@ module Sidereal
     @registry = nil
   end
 
+  def self.scheduler
+    @scheduler ||= Scheduler.new
+  end
+
+  def self.reset_scheduler!
+    @scheduler = nil
+  end
+
   def self.register(commander)
     commander.handled_commands.each do |cmd_class|
       registry[cmd_class] = commander
@@ -128,5 +136,6 @@ require_relative 'sidereal/store'
 require_relative 'sidereal/store/memory'
 require_relative 'sidereal/registry'
 require_relative 'sidereal/dispatcher'
+require_relative 'sidereal/scheduler'
 require_relative 'sidereal/app'
 require_relative 'sidereal/components/command'
