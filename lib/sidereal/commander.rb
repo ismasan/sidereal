@@ -8,6 +8,24 @@ module Sidereal
     DEFAULT_MAX_ATTEMPTS = 5
 
     class << self
+      # Every Commander subclass auto-registers no-op handlers for the
+      # framework's system notifications. Apps (or custom commander
+      # subclasses) can override any of them via the +command+ DSL
+      # with a block to react to retries/failures. Iterates
+      # +Sidereal::System::Notification.registry+ so new system
+      # message classes (defined via +Notification.define(...)+) are
+      # picked up automatically without touching this hook.
+      #
+      # Registering at the base class level (rather than only in
+      # App.commander) is important because users can also wire a
+      # custom Commander subclass via +App.commands(MyCommander)+ —
+      # that path bypasses +App.commander+'s lazy initialization but
+      # still inherits from Commander, so this hook covers it.
+      def inherited(subclass)
+        super
+        Sidereal::System::Notification.registry.all { |klass| subclass.command(klass) }
+      end
+
       def commander = self
 
       def command_registry

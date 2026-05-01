@@ -56,7 +56,7 @@ RSpec.describe Sidereal::Commander do
         end
       end
 
-      expect(cmdr.handled_commands).to contain_exactly(TestAddItem, TestSendEmail)
+      expect(cmdr.handled_commands).to include(TestAddItem, TestSendEmail)
     end
 
     it 'raises for non-Message classes' do
@@ -272,10 +272,10 @@ RSpec.describe Sidereal::Commander do
       Sidereal::Store::Meta.new(attempt: attempt, first_appended_at: Time.now)
     end
 
-    it 'returns Result::Retry on attempts 1..4 by default' do
+    it 'returns Result::Retry for attempts below DEFAULT_MAX_ATTEMPTS' do
       ex = RuntimeError.new('boom')
 
-      (1..4).each do |attempt|
+      (1...Sidereal::Commander::DEFAULT_MAX_ATTEMPTS).each do |attempt|
         result = Sidereal::Commander.on_error(ex, msg, meta_for(attempt))
         expect(result).to be_a(Sidereal::Store::Result::Retry)
       end
@@ -284,7 +284,7 @@ RSpec.describe Sidereal::Commander do
     it 'schedules retry with 2**attempt-second backoff' do
       ex = RuntimeError.new('boom')
 
-      [1, 2, 3, 4].each do |attempt|
+      (1...Sidereal::Commander::DEFAULT_MAX_ATTEMPTS).each do |attempt|
         before = Time.now
         result = Sidereal::Commander.on_error(ex, msg, meta_for(attempt))
         after = Time.now
@@ -393,8 +393,10 @@ RSpec.describe Sidereal::Commander do
       cmdr_a = Class.new(Sidereal::Commander) { command TestAddItem }
       cmdr_b = Class.new(Sidereal::Commander) { command TestSendEmail }
 
-      expect(cmdr_a.command_registry.keys).to eq(['test.add_item'])
-      expect(cmdr_b.command_registry.keys).to eq(['test.send_email'])
+      expect(cmdr_a.command_registry).to have_key('test.add_item')
+      expect(cmdr_a.command_registry).not_to have_key('test.send_email')
+      expect(cmdr_b.command_registry).to have_key('test.send_email')
+      expect(cmdr_b.command_registry).not_to have_key('test.add_item')
     end
   end
 end
