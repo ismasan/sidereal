@@ -56,7 +56,7 @@ RSpec.describe Sidereal::Commander do
         end
       end
 
-      expect(cmdr.handled_commands).to contain_exactly(TestAddItem, TestSendEmail)
+      expect(cmdr.handled_commands).to include(TestAddItem, TestSendEmail)
     end
 
     it 'raises for non-Message classes' do
@@ -183,6 +183,70 @@ RSpec.describe Sidereal::Commander do
       cmd = TestAddItem.new(payload: { title: 'x' })
       expect { cmdr_class.handle(cmd, pubsub: pubsub) }.to raise_error('boom')
     end
+
+    describe 'scheduling dispatched messages' do
+      it 'schedules a dispatched command via .at' do
+        future = Time.now + 10
+        cmdr_class = Class.new(Sidereal::Commander) do
+          command TestAddItem do |_cmd|
+            dispatch(TestSendEmail, to: 'user@example.com').at(future)
+          end
+          command TestSendEmail
+        end
+
+        cmd = TestAddItem.new(payload: { title: 'x' })
+        result = cmdr_class.handle(cmd, pubsub: pubsub)
+
+        expect(result.commands.size).to eq(1)
+        expect(result.commands.first).to be_a(TestSendEmail)
+        expect(result.commands.first.created_at).to be_within(0.001).of(future)
+      end
+
+      it 'schedules a dispatched event via .at' do
+        future = Time.now + 30
+        cmdr_class = Class.new(Sidereal::Commander) do
+          command TestAddItem do |cmd|
+            dispatch(TestItemAdded, title: cmd.payload.title).at(future)
+          end
+        end
+
+        cmd = TestAddItem.new(payload: { title: 'x' })
+        result = cmdr_class.handle(cmd, pubsub: pubsub)
+
+        expect(result.events.first.created_at).to be_within(0.001).of(future)
+      end
+
+      it 'supports .in(seconds) as relative scheduling sugar' do
+        before = Time.now
+        cmdr_class = Class.new(Sidereal::Commander) do
+          command TestAddItem do |_cmd|
+            dispatch(TestSendEmail, to: 'a@b.com').in(60)
+          end
+          command TestSendEmail
+        end
+
+        cmd = TestAddItem.new(payload: { title: 'x' })
+        result = cmdr_class.handle(cmd, pubsub: pubsub)
+
+        expect(result.commands.first.created_at).to be_within(0.5).of(before + 60)
+      end
+
+      it 'preserves correlation when scheduling' do
+        cmdr_class = Class.new(Sidereal::Commander) do
+          command TestAddItem do |_cmd|
+            dispatch(TestSendEmail, to: 'x@y.com').at(Time.now + 5)
+          end
+          command TestSendEmail
+        end
+
+        cmd = TestAddItem.new(payload: { title: 'x' })
+        result = cmdr_class.handle(cmd, pubsub: pubsub)
+
+        scheduled = result.commands.first
+        expect(scheduled.causation_id).to eq(cmd.id)
+        expect(scheduled.correlation_id).to eq(cmd.correlation_id)
+      end
+    end
   end
 
   describe '.channel_name' do
@@ -202,20 +266,56 @@ RSpec.describe Sidereal::Commander do
   end
 
   describe '.on_error' do
-    it 're-raises by default' do
-      ex = RuntimeError.new('default')
-      expect { Sidereal::Commander.on_error(ex) }.to raise_error('default')
+    let(:msg) { TestAddItem.new(payload: { name: 'x' }) }
+
+    def meta_for(attempt)
+      Sidereal::Store::Meta.new(attempt: attempt, first_appended_at: Time.now)
     end
 
-    it 'is overridable on a subclass' do
-      handled = []
+    it 'returns Result::Retry for attempts below DEFAULT_MAX_ATTEMPTS' do
+      ex = RuntimeError.new('boom')
+
+      (1...Sidereal::Commander::DEFAULT_MAX_ATTEMPTS).each do |attempt|
+        result = Sidereal::Commander.on_error(ex, msg, meta_for(attempt))
+        expect(result).to be_a(Sidereal::Store::Result::Retry)
+      end
+    end
+
+    it 'schedules retry with 2**attempt-second backoff' do
+      ex = RuntimeError.new('boom')
+
+      (1...Sidereal::Commander::DEFAULT_MAX_ATTEMPTS).each do |attempt|
+        before = Time.now
+        result = Sidereal::Commander.on_error(ex, msg, meta_for(attempt))
+        after = Time.now
+
+        expect(result.at).to be_between(before + (2**attempt), after + (2**attempt)).inclusive
+      end
+    end
+
+    it 'returns Result::Fail at attempt == DEFAULT_MAX_ATTEMPTS' do
+      ex = RuntimeError.new('boom')
+      result = Sidereal::Commander.on_error(ex, msg, meta_for(Sidereal::Commander::DEFAULT_MAX_ATTEMPTS))
+
+      expect(result).to be_a(Sidereal::Store::Result::Fail)
+      expect(result.error).to be(ex)
+    end
+
+    it 'is overridable on a subclass and receives (exception, message, meta)' do
+      received = nil
       cmdr_class = Class.new(Sidereal::Commander) do
-        define_singleton_method(:on_error) { |ex| handled << ex }
+        define_singleton_method(:on_error) do |ex, msg, meta|
+          received = [ex, msg, meta]
+          Sidereal::Store::Result::Ack
+        end
       end
 
       ex = RuntimeError.new('swallowed')
-      expect { cmdr_class.on_error(ex) }.not_to raise_error
-      expect(handled).to eq([ex])
+      meta = meta_for(2)
+      result = cmdr_class.on_error(ex, msg, meta)
+
+      expect(result).to eq(Sidereal::Store::Result::Ack)
+      expect(received).to eq([ex, msg, meta])
     end
   end
 
@@ -293,8 +393,10 @@ RSpec.describe Sidereal::Commander do
       cmdr_a = Class.new(Sidereal::Commander) { command TestAddItem }
       cmdr_b = Class.new(Sidereal::Commander) { command TestSendEmail }
 
-      expect(cmdr_a.command_registry.keys).to eq(['test.add_item'])
-      expect(cmdr_b.command_registry.keys).to eq(['test.send_email'])
+      expect(cmdr_a.command_registry).to have_key('test.add_item')
+      expect(cmdr_a.command_registry).not_to have_key('test.send_email')
+      expect(cmdr_b.command_registry).to have_key('test.send_email')
+      expect(cmdr_b.command_registry).not_to have_key('test.add_item')
     end
   end
 end

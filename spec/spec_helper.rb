@@ -21,7 +21,10 @@ module SiderealSpecHelpers
     Sync do |task|
       store.start(task)
       consumer = task.async do
-        store.claim_next { |m| claimed << m }
+        store.claim_next do |m, _meta|
+          claimed << m
+          Sidereal::Store::Result::Ack
+        end
       end
       task.async do
         loop do

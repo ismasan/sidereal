@@ -68,7 +68,11 @@ module Sidereal
       end
 
       def commander
-        @commander ||= Class.new(Commander)
+        @commander ||= begin
+          cls = Class.new(Commander)
+          const_set(:Commander, cls)
+          cls
+        end
       end
 
       def commands(cmder = nil, &block)
@@ -81,6 +85,14 @@ module Sidereal
       # processed messages. Accepts either a static string or a block
       # that receives the message and returns a channel name.
       #
+      # System notifications ({Sidereal::System::NotifyRetry} and
+      # {NotifyFailure}) bypass the user-supplied resolver and instead
+      # use the +:source_channel+ stamped into the notification's
+      # +metadata+ by the dispatcher. This prevents user resolvers that
+      # access domain-specific payload keys (e.g.
+      # +msg.payload.fetch(:donation_id)+) from crashing on system
+      # messages whose payload has a different shape.
+      #
       # @example Static channel
       #   channel_name 'todos'
       # @example Dynamic channel
@@ -88,8 +100,14 @@ module Sidereal
       #
       # @return [self]
       def channel_name(static_value = nil, &block)
-        fn = block || ->(_msg) { static_value }
-        commander.define_singleton_method(:channel_name, &fn)
+        user_fn = block || ->(_msg) { static_value }
+        commander.define_singleton_method(:channel_name) do |msg|
+          if msg.is_a?(Sidereal::System::Notification)
+            msg.metadata[:source_channel] || 'system'
+          else
+            user_fn.call(msg)
+          end
+        end
         self
       end
 
@@ -219,6 +237,11 @@ module Sidereal
       send(method_name, @__current_msg)
     end
 
+    # This dispatch is available to sync command handlers
+    # @example
+    #  handle SomeCommand do |cmd|
+    #    dispatch cmd
+    #  end
     private def dispatch(*args)
       cmd = case args
         in [Class => c, Hash => payload]

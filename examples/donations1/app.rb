@@ -1,14 +1,24 @@
 # frozen_string_literal: true
 
 require 'sidereal'
+require 'sidereal/store/file_system'
+require 'sidereal/pubsub/unix'
 require 'pstore'
 require 'securerandom'
+
+Sidereal.configure do |c|
+  c.store = Sidereal::Store::FileSystem.new(root: 'storage/store')
+  c.pubsub = Sidereal::PubSub::Unix.new(
+    socket_path: 'storage/sidereal-pubsub.sock',
+    lock_path: 'storage/sidereal-pubsub.lock'
+  )
+end
 
 # -- Messages --
 
 SelectAmount = Sidereal::Message.define('donations.select_amount') do
   attribute :donation_id, Sidereal::Types::AutoUUID
-  attribute :amount, Sidereal::Types::String.present
+  attribute :amount, Sidereal::Types::Lax::Integer.present
 end
 
 EnterDonorDetails = Sidereal::Message.define('donations.enter_donor_details') do
@@ -41,6 +51,10 @@ end
 ConfirmPayment = Sidereal::Message.define('donations.confirm_payment') do
   attribute :donation_id, Sidereal::Types::UUID::V4
   attribute :payment_reference, Sidereal::Types::String.present
+end
+
+ExpireDonation = Sidereal::Message.define('donations.expire') do
+  attribute :donation_id, Sidereal::Types::UUID::V4
 end
 
 require_relative 'ui/layout'
@@ -113,6 +127,7 @@ module DonationStore
 end
 
 DONATION_AMOUNTS = [5, 10, 30, 50].freeze
+DONATION_TIMEOUT_SECONDS = 60
 
 module MockPaymentService
   module_function
@@ -154,16 +169,18 @@ class DonationsApp < Sidereal::App
     browser.redirect "/#{cmd.payload.donation_id}"
   end
 
-  handle EnterDonorDetails do |cmd|
-    dispatch(cmd)
-  end
+  handle EnterDonorDetails
 
-  handle PresentCard do |cmd|
-    dispatch(cmd)
+  handle PresentCard
+
+  command Sidereal::System::NotifyRetry do |cmd|
+    Console.warn "RETRYING!", cmd:
+    # App can update state, notify APM, start a new workflow, etc
+    # dispatch StartErrorNotifications
   end
 
   command SelectAmount do |cmd|
-    amount = cmd.payload.amount.to_i
+    amount = cmd.payload.amount
     next unless DONATION_AMOUNTS.include?(amount)
 
     DonationStore.upsert Donation.new(
@@ -171,6 +188,9 @@ class DonationsApp < Sidereal::App
       amount:,
       status: 'amount_selected'
     )
+
+    # Schedule expiration in X seconds (unless completed)
+    dispatch(ExpireDonation, donation_id: cmd.payload.donation_id).in(DONATION_TIMEOUT_SECONDS)
   end
 
   command EnterDonorDetails do |cmd|
@@ -246,6 +266,15 @@ class DonationsApp < Sidereal::App
     donation.payment_reference = cmd.payload.payment_reference
     donation.paid_at = Time.now
     donation.status = 'payment_confirmed'
+    DonationStore.upsert(donation)
+  end
+
+  command ExpireDonation do |cmd|
+    donation = DonationStore.find(cmd.payload.donation_id)
+    next unless donation
+    next if %w[card_presented payment_confirmed expired].include?(donation.status)
+
+    donation.status = 'expired'
     DonationStore.upsert(donation)
   end
 

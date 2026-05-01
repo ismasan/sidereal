@@ -147,6 +147,30 @@ RSpec.describe Sidereal::Message do
       source.correlate(target)
       expect(source.causation_id).to eq(source.id)
     end
+
+    it 'preserves the target created_at (does not propagate from source)' do
+      future = Time.now + 3600
+      source = msg_class.new(payload: { name: 'Joe', email: 'joe@example.com' }).at(future)
+      target = bare_class.new
+      correlated = source.correlate(target)
+      expect(correlated.created_at).to eq(target.created_at)
+      expect(correlated.created_at).not_to eq(source.created_at)
+    end
+  end
+
+  describe '#at' do
+    it 'returns a copy with created_at set to the given time' do
+      msg = bare_class.new
+      future = Time.now + 60
+      delayed = msg.at(future)
+      expect(delayed.created_at).to eq(future)
+      expect(delayed.id).to eq(msg.id)
+    end
+
+    it 'raises when given a time in the past' do
+      msg = bare_class.new
+      expect { msg.at(Time.now - 60) }.to raise_error(Sidereal::PastMessageDateError)
+    end
   end
 
   describe '.from' do

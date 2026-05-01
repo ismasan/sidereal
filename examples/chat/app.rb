@@ -4,10 +4,14 @@ require 'dotenv'
 Dotenv.load '.env'
 
 require 'sidereal'
+require 'sidereal/pubsub/unix'
+require 'sidereal/store/file_system'
 require 'ruby_llm'
 
 Sidereal.configure do |c|
   c.workers = 3
+  c.store = Sidereal::Store::FileSystem.new(root: 'tmp/sidereal-store')
+  c.pubsub = Sidereal::PubSub::Unix.new
 end
 
 RubyLLM.configure do |config|

@@ -119,10 +119,12 @@ module Sidereal
 end
 
 require_relative 'sidereal/message'
+require_relative 'sidereal/system'
 require_relative 'sidereal/router'
 require_relative 'sidereal/components/layout'
 require_relative 'sidereal/page'
 require_relative 'sidereal/pubsub/memory'
+require_relative 'sidereal/store'
 require_relative 'sidereal/store/memory'
 require_relative 'sidereal/registry'
 require_relative 'sidereal/dispatcher'

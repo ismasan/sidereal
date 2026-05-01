@@ -3,7 +3,7 @@
 class DonationPage < Sidereal::Page
   path '/:donation_id'
 
-  on SelectAmount, EnterDonorDetails, ShowPaymentButton, PresentCard, ConfirmPayment do |evt|
+  on SelectAmount, EnterDonorDetails, ShowPaymentButton, PresentCard, ConfirmPayment, ExpireDonation do |evt|
     browser.patch_elements DonationPage.new(donation: DonationStore.find(evt.payload.donation_id))
   end
 
@@ -74,12 +74,18 @@ class DonationPage < Sidereal::Page
     end
 
     def view_template
-      nav(class: 'stepper', aria_label: 'Donation progress') do
-        current = @donation ? STATUS_INDEX.fetch(@donation.status, 0) : -1
+      expired = @donation&.status == 'expired'
+      nav_classes = ['stepper', ('stepper--expired' if expired)].compact.join(' ')
+      nav(class: nav_classes, aria_label: 'Donation progress') do
+        current = (@donation && !expired) ? STATUS_INDEX.fetch(@donation.status, 0) : -1
         STEPS.each_with_index do |(_, label, source), index|
           classes = ['step', "step--#{source}"]
-          classes << 'step--complete' if index < current
-          classes << 'step--current' if index == current
+          if expired
+            classes << 'step--expired'
+          else
+            classes << 'step--complete' if index < current
+            classes << 'step--current' if index == current
+          end
           div(class: classes.join(' '), title: step_title(source)) do
             span(class: 'step__dot') { (index + 1).to_s }
             span(class: 'step__label') { label }
@@ -119,6 +125,8 @@ class DonationPage < Sidereal::Page
           render PaymentProcessing.new(@donation)
         when 'payment_confirmed'
           render ThankYou.new(@donation)
+        when 'expired'
+          render Expired.new(@donation)
         else
           render AmountPicker.new
         end
@@ -315,6 +323,45 @@ class DonationPage < Sidereal::Page
           end
         end
         a(href: '/', class: 'primary-button') { 'Make another donation' }
+      end
+    end
+  end
+
+  class Expired < Sidereal::Components::BaseComponent
+    def initialize(donation)
+      @donation = donation
+    end
+
+    def view_template
+      div(class: 'step-screen expired') do
+        p(class: 'expired-mark') { '✕' }
+        h2 { 'Donation expired' }
+        p(class: 'lede') { 'This donation session has timed out. No payment was taken.' }
+
+        if @donation.amount || @donation.name || @donation.email
+          dl(class: 'receipt') do
+            if @donation.amount
+              div do
+                dt { 'Amount' }
+                dd { "€#{@donation.amount}" }
+              end
+            end
+            if @donation.name
+              div do
+                dt { 'Donor' }
+                dd { @donation.name }
+              end
+            end
+            if @donation.email
+              div do
+                dt { 'Email' }
+                dd { @donation.email }
+              end
+            end
+          end
+        end
+
+        a(href: '/', class: 'primary-button') { 'Start a new donation' }
       end
     end
   end

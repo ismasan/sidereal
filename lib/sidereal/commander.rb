@@ -5,8 +5,27 @@ module Sidereal
     CMD_METHOD_PREFIX = '__cmd_'
     CMD_HASH = Types::Hash[type: String, payload?: Hash]
     DEFAULT_CMD_HANDLER = ->(*_) {}
+    DEFAULT_MAX_ATTEMPTS = 5
 
     class << self
+      # Every Commander subclass auto-registers no-op handlers for the
+      # framework's system notifications. Apps (or custom commander
+      # subclasses) can override any of them via the +command+ DSL
+      # with a block to react to retries/failures. Iterates
+      # +Sidereal::System::Notification.registry+ so new system
+      # message classes (defined via +Notification.define(...)+) are
+      # picked up automatically without touching this hook.
+      #
+      # Registering at the base class level (rather than only in
+      # App.commander) is important because users can also wire a
+      # custom Commander subclass via +App.commands(MyCommander)+ —
+      # that path bypasses +App.commander+'s lazy initialization but
+      # still inherits from Commander, so this hook covers it.
+      def inherited(subclass)
+        super
+        Sidereal::System::Notification.registry.all { |klass| subclass.command(klass) }
+      end
+
       def commander = self
 
       def command_registry
@@ -53,8 +72,27 @@ module Sidereal
         'system'
       end
 
-      def on_error(ex)
-        raise ex
+      # Decide what to do with a failed command. Called by the dispatcher
+      # when {#handle} raises. Return a {Sidereal::Store::Result} value:
+      #
+      #   Store::Result::Retry.new(at:)   — re-schedule for another attempt
+      #   Store::Result::Fail.new(error:) — give up; dead-letter
+      #   Store::Result::Ack              — swallow the error silently
+      #
+      # Default: exponential backoff up to {DEFAULT_MAX_ATTEMPTS} attempts,
+      # then fail. Override on a subclass to customize per-commander policy
+      # (e.g. branch on +exception.class+ or +message.class+).
+      #
+      # @param exception [StandardError]
+      # @param message [Sidereal::Message] the command being processed
+      # @param meta [Sidereal::Store::Meta] attempt number and origin time
+      # @return [Sidereal::Store::Result]
+      def on_error(exception, _message, meta)
+        if meta.attempt < DEFAULT_MAX_ATTEMPTS
+          Sidereal::Store::Result::Retry.new(at: Time.now + (2**meta.attempt))
+        else
+          Sidereal::Store::Result::Fail.new(error: exception)
+        end
       end
     end
 
@@ -72,8 +110,8 @@ module Sidereal
 
       Result.new(
         cmd,
-        dispatched_events.slice(0..),
-        dispatched_commands.slice(0..),
+        dispatched_events.slice(0..).map(&:message),
+        dispatched_commands.slice(0..).map(&:message),
       )
     end
 
@@ -86,15 +124,33 @@ module Sidereal
       self
     end
 
+    class MessageDispatch
+      attr_reader :message
+
+      def initialize(msg)
+        @message = msg
+      end
+
+      def at(t)
+        @message = @message.at(t)
+        self
+      end
+
+      def in(seconds)
+        at(Time.now + seconds)
+      end
+    end
+
     def dispatch(msg_class, payload = {})
       msg = msg_class.new(payload: payload.to_h)
       msg = @__current_msg.correlate(msg)
+      dsp = MessageDispatch.new(msg)
       if self.class.command_registry[msg.class.type]
-        dispatched_commands << msg
+        dispatched_commands << dsp
       else
-        dispatched_events << msg
+        dispatched_events << dsp
       end
-      self
+      dsp
     end
 
     def dispatched_commands

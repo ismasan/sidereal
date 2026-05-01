@@ -386,6 +386,30 @@ h2 {
   font-weight: 900;
 }
 
+.expired-mark {
+  width: 72px;
+  height: 72px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 20px;
+  border-radius: 999px;
+  color: #fff;
+  background: #b3261e;
+  font-size: 2rem;
+  font-weight: 900;
+}
+
+.stepper--expired .step__dot {
+  background: var(--line);
+  color: var(--muted);
+}
+
+.stepper--expired .step__label {
+  color: var(--muted);
+  text-decoration: line-through;
+  text-decoration-color: var(--muted);
+}
+
 .receipt {
   display: grid;
   gap: 10px;

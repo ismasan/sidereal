@@ -7,8 +7,10 @@
 /spec/reports/
 /tmp/
 /examples/**/.env
-/examples/sourced_donations/storage
+/examples/**/tmp/
+/examples/**/storage/
 /examples/donations1/donations.pstore
+/examples/chat/chat_messages.jsonl
 
 # rspec failure tracking
 .rspec_status

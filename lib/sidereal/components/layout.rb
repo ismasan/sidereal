@@ -43,6 +43,13 @@ module Sidereal
       end
 
       def sidereal_foot
+        # Container for system notification toasts (NotifyRetry,
+        # NotifyFailure). Page reactions prepend into this element so
+        # toasts overlay the page rather than pushing content down.
+        # Empty when no notifications are active — its fixed positioning
+        # keeps it 0×0 visually until a toast lands inside.
+        div(id: 'sidereal-sysnotify-stack')
+
         return unless page.channel_name
         onload = _d.init.get(context.url("/updates/#{page.channel_name}", false))
         # onload needs to be at the end

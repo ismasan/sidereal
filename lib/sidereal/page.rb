@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative 'components/base_component'
+require_relative 'components/system_notify'
 
 module Sidereal
   class Page < Components::BaseComponent
@@ -115,6 +116,27 @@ module Sidereal
           subclass.reactions[message_class] = block
         end
       end
+    end
+
+    # Default reactions to framework-dispatched system notifications.
+    # Stack toasts at the top of the body. Subclasses inherit these via
+    # the {.inherited} hook above; user pages can override with their
+    # own +on(NotifyRetry)+ / +on(NotifyFailure)+ blocks. Will be
+    # gated on a development-only flag in a future iteration.
+    on Sidereal::System::NotifyRetry do |evt|
+      browser.patch_elements(
+        Sidereal::Components::SystemNotifyRetry.new(evt),
+        mode: 'prepend',
+        selector: '#sidereal-sysnotify-stack'
+      )
+    end
+
+    on Sidereal::System::NotifyFailure do |evt|
+      browser.patch_elements(
+        Sidereal::Components::SystemNotifyFailure.new(evt),
+        mode: 'prepend',
+        selector: '#sidereal-sysnotify-stack'
+      )
     end
   end
 end

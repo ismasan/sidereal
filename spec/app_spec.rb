@@ -12,6 +12,39 @@ HandleTestOtherCmd = Sidereal::Message.define('app_test.do_other') do
   attribute :name, Sidereal::Types::String.present
 end
 
+RSpec.describe 'Sidereal::App.commander' do
+  it 'auto-registers no-op handlers for system notifications' do
+    app = Class.new(Sidereal::App)
+    app.const_set(:Name, 'AutoRegisterTestApp') # for naming, optional
+
+    expect(app.commander.command_registry).to include(
+      Sidereal::System::NotifyRetry.type => Sidereal::System::NotifyRetry,
+      Sidereal::System::NotifyFailure.type => Sidereal::System::NotifyFailure
+    )
+  end
+
+  it 'allows overriding the no-op NotifyFailure handler' do
+    captured = []
+    app = Class.new(Sidereal::App) do
+      command(Sidereal::System::NotifyFailure) { |cmd| captured << cmd }
+    end
+
+    cmd = Sidereal::System::NotifyFailure.new(
+      payload: {
+        command_type: 'x',
+        command_id: SecureRandom.uuid,
+        attempt: 1,
+        error_class: 'RuntimeError',
+        error_message: 'oops',
+        backtrace: []
+      }
+    )
+    app.commander.handle(cmd, pubsub: Sidereal::PubSub::Memory.new)
+
+    expect(captured).to eq([cmd])
+  end
+end
+
 RSpec.describe 'Sidereal::App.handle' do
   include Rack::Test::Methods
 

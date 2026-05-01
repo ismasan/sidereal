@@ -181,6 +181,31 @@ command AddTodo do |cmd|
 end
 ```
 
+### Scheduled commands
+
+Chain `.at(time)` or `.in(seconds)` on a `dispatch` call to defer processing of a command (or event) until a future time:
+
+```ruby
+command PlaceOrder do |cmd|
+  ORDERS[cmd.id] = cmd.payload.to_h
+
+  # Run an hour from now
+  dispatch(SendReminder, order_id: cmd.id).in(3600)
+
+  # Run at a specific time
+  dispatch(ExpireOrder, order_id: cmd.id).at(Time.now + 86400)
+end
+```
+
+The dispatched message lands on the store with its `created_at` set to the scheduled time. Stores that support scheduled delivery hold the message back and only deliver it once that time has passed:
+
+| Store | Scheduled delivery |
+|---|---|
+| `Store::FileSystem` | Honored — future-dated messages are written to a `scheduled/` directory and promoted by a background fiber when due. |
+| `Store::Memory` | Ignored — messages are delivered immediately regardless of `created_at`. Use `FileSystem` when you need scheduling. |
+
+Scheduling does not propagate across correlation: an event dispatched downstream of a scheduled command runs at its own `created_at` (i.e. immediately), not at the source's future time.
+
 ### Broadcast
 
 Use `broadcast` inside a command handler to publish a message immediately to the SSE stream, without waiting for the command to finish processing. Useful for progress indicators.
@@ -711,6 +736,138 @@ end
 ```
 
 A custom store must respond to `#append(message)`. A custom dispatcher must respond to `.start(task)` (class-level) and `#stop`.
+
+### Filesystem store
+
+`Sidereal::Store::FileSystem` is a built-in durable store that survives process restarts and lets multiple worker processes on the same host share a queue. It also honors [scheduled commands](#scheduled-commands), unlike the default in-memory store.
+
+It isn't autoloaded — require it explicitly, then point `Sidereal.configure` at an instance:
+
+```ruby
+require 'sidereal'
+require 'sidereal/store/file_system'
+
+Sidereal.configure do |c|
+  c.store = Sidereal::Store::FileSystem.new(root: 'storage/store')
+end
+```
+
+The store creates five sibling directories under `root/`: `tmp/`, `ready/`, `scheduled/`, `processing/`, and `dead/`. Producers append by atomic-renaming from `tmp/` into `ready/` (or `scheduled/` for future-dated messages). A poller fiber claims into `processing/`; a scheduler fiber promotes due files from `scheduled/` to `ready/`; a sweeper recovers anything left in `processing/` by a crashed worker. Permanently-failed messages land in `dead/` along with a `<f>.error.json` sidecar — see [Failure handling](#failure-handling-retries-and-dead-lettering).
+
+Constructor options:
+
+| Option | Default | Description |
+|---|---|---|
+| `root:` | `'tmp/sidereal-store'` | Directory holding the four subdirs. Must be on a single local filesystem (atomic rename is unreliable across NFS). |
+| `poll_interval:` | `0.1` | Seconds the poller sleeps when `ready/` is empty. |
+| `scheduler_interval:` | `1.0` | Seconds between scans of `scheduled/` for due messages. Sub-second granularity is not provided. |
+| `sweep_interval:` | `60` | Seconds between sweeps of stale `processing/` files. |
+| `stale_threshold:` | `300` | A `processing/` file older than this (or owned by a dead PID) is treated as abandoned and renamed back to `ready/`. |
+| `max_in_flight:` | `50` | Bound on the in-process queue between the poller and worker fibers. When handlers fall behind, the queue blocks and disk becomes the buffer. |
+
+**At-least-once delivery:** a crash mid-handling causes the message to be re-claimed once the sweeper recovers the abandoned `processing/` file. Handlers must be idempotent.
+
+**Single-machine only:** the design relies on POSIX atomic rename, which is unreliable across networked filesystems like NFS. Use a different store if you need to fan workers out across hosts.
+
+## Failure handling, retries and dead-lettering
+
+When a command handler raises, the dispatcher calls `Commander.on_error(exception, message, meta)` and uses the returned value to decide what to do next:
+
+| Return value | Effect |
+|---|---|
+| `Sidereal::Store::Result::Retry.new(at: time)` | re-schedule for another attempt at `time` |
+| `Sidereal::Store::Result::Fail.new(error: exception)` | give up — dead-letter the message |
+| `Sidereal::Store::Result::Ack` | swallow silently — drop the message |
+
+The default policy retries with exponential backoff (`2 ** meta.attempt` seconds) up to `Sidereal::Commander::DEFAULT_MAX_ATTEMPTS` attempts, then fails. Override per-commander:
+
+```ruby
+class MyApp < Sidereal::App
+  commands do
+    def self.on_error(exception, message, meta)
+      case exception
+      when MyDomain::Invalid
+        Sidereal::Store::Result::Fail.new(error: exception)  # bail immediately
+      when Net::Timeout
+        Sidereal::Store::Result::Retry.new(at: Time.now + (5 * meta.attempt))
+      else
+        super  # fall back to the default policy
+      end
+    end
+  end
+end
+```
+
+`meta.attempt` starts at 1 and increments on each retry. `meta.first_appended_at` is preserved across retries — useful for "give up after N hours regardless of attempt count" policies.
+
+### Where retried/failed messages go
+
+- **`Sidereal::Store::FileSystem`** — `Retry` renames the message into `scheduled/` with a bumped attempt counter and the new `not_before_ns`; the body stays untouched (commanders cannot mutate the message between attempts). `Fail` writes a sidecar `dead/<f>.error.json` with the exception class/message/backtrace, then renames the message into `dead/`. The sweeper does not touch `dead/` — those messages are terminal until you act on them manually.
+- **`Sidereal::Store::Memory`** — `Retry` and `Fail` log at WARN level and ack/drop the message. The in-memory store has no scheduling or dead-letter primitives.
+
+**Requeueing dead messages.** Once you've fixed the underlying cause of failure, `Sidereal::Store::FileSystem#requeue(filename)` moves a dead-lettered message back into `ready/`. The new filename has `attempt` reset to 1 and `not_before_ns` set to now (immediately ready); `first_append_ns` is preserved so age-based diagnostics retain the lineage. The `.error.json` sidecar is removed.
+
+```ruby
+store = Sidereal::Store::FileSystem.new(root: 'storage/store')
+store.requeue('1762000000-1761000000-3-12345-abcdef.json')
+# => "<root>/ready/<new-filename>.json"
+```
+
+Path components in the input are stripped via `File.basename`, so `'abc.json'`, `'dead/abc.json'`, and `'/abs/dead/abc.json'` are all equivalent — the file is always resolved against the store's configured `dead/` directory. Missing files raise `ArgumentError`.
+
+**At-least-once delivery still applies:** a worker crash before `Retry`/`Fail` is acted on leaves the file in `processing/` for the sweeper to recover, which re-runs the handler. Handlers must be idempotent.
+
+### System notification messages
+
+For each `Retry` or `Fail` decision, the dispatcher also appends a system command to the store so other handlers and pages can observe failures:
+
+- `Sidereal::System::NotifyRetry` — payload: `command_type`, `command_id`, `command_payload`, `attempt`, `retry_at` (ISO8601), `error_class`, `error_message`, `backtrace`.
+- `Sidereal::System::NotifyFailure` — same payload minus `retry_at`.
+
+Both inherit from `Sidereal::System::Notification` (a marker base). Code that needs system-wide handling can check `msg.is_a?(Sidereal::System::Notification)` rather than enumerating concrete classes.
+
+These flow through the normal command pipeline: every `Sidereal::Commander` subclass auto-registers no-op handlers for them on inheritance, so they get handled, published via pubsub, and routed to the same channel the source command would have been published to (the dispatcher stamps `metadata[:source_channel]` so user-supplied `channel_name` blocks don't have to know about system messages).
+
+Override either side — handler or page reaction — to react to failures:
+
+```ruby
+class MyApp < Sidereal::App
+  # Server-side: log to APM, persist to an error table, etc.
+  command Sidereal::System::NotifyFailure do |cmd|
+    APM.notify(cmd.payload.error_class, cmd.payload.error_message)
+  end
+end
+
+class TodoPage < Sidereal::Page
+  # Client-side: show a custom UI element instead of the default toast
+  on Sidereal::System::NotifyFailure do |evt|
+    browser.patch_elements MyErrorBanner.new(evt)
+  end
+end
+```
+
+Custom handlers should not raise. A raising `NotifyFailure` handler would itself be dispatched through the same retry/fail machinery, but the dispatcher detects system-message failures and breaks the cascade by skipping further notification dispatch.
+
+### Default dev UI: error toasts
+
+The base `Sidereal::Page` ships with default reactions that render `Sidereal::Components::SystemNotifyRetry` (amber) or `SystemNotifyFailure` (red) toasts and prepend them into a fixed-position stack at the top-right of the page (`#sidereal-sysnotify-stack`, supplied by the base layout's `sidereal_foot`). Each toast shows the command type, error class/message, attempt count, retry time, and a collapsible backtrace; they slide in/out, are dismissable, and carry their own inline `<style>` so they don't depend on host CSS.
+
+The default reactions fire in any environment for now. Override `on(NotifyRetry)` / `on(NotifyFailure)` on your page (or define a custom NotifyFailure handler in the App's commander to skip the publish entirely) to suppress them.
+
+### Adding a new system message type
+
+```ruby
+module Sidereal
+  module System
+    NotifyDeprecated = Notification.define('sidereal.system.notify_deprecated') do
+      attribute :command_type, Sidereal::Types::String
+      attribute :reason, Sidereal::Types::String
+    end
+  end
+end
+```
+
+Defining via `Notification.define(...)` registers it under the `Notification` registry. The dispatcher's loop prevention, `App.channel_name`'s bypass, and Commander's no-op auto-registration all key off `is_a?(Notification)` and the registry, so they pick up the new class automatically. You'll still need to add the corresponding `Page.on(...)` reaction and (optionally) a UI component to render it.
 
 ## How it works
 
