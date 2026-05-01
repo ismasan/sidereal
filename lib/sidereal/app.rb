@@ -68,7 +68,11 @@ module Sidereal
       end
 
       def commander
-        @commander ||= Class.new(Commander)
+        @commander ||= begin
+          cls = Class.new(Commander)
+          const_set(:Commander, cls)
+          cls
+        end
       end
 
       def commands(cmder = nil, &block)

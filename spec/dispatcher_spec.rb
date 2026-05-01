@@ -217,13 +217,16 @@ RSpec.describe Sidereal::Dispatcher do
   end
 
   it 'skips publish when the handler raises (and worker survives if on_error swallows)' do
-    handled = []
+    on_error_calls = []
     raising_commander = Class.new(Sidereal::Commander) do
       command DispatchCmd do |cmd|
         raise 'boom' if cmd.payload.title == 'bad'
         dispatch DispatchEvt, cmd.payload.to_h
       end
-      define_singleton_method(:on_error) { |ex| handled << ex }
+      define_singleton_method(:on_error) do |ex, msg, meta|
+        on_error_calls << [ex, msg, meta]
+        Sidereal::Store::Result::Ack
+      end
 
       def self.channel_name(_) = 'ch1'
     end
@@ -233,8 +236,37 @@ RSpec.describe Sidereal::Dispatcher do
 
     received = run_and_collect('ch1', store: store, registry: registry_for(raising_commander), pubsub: pubsub) {}
 
-    expect(handled.map(&:message)).to eq(['boom'])
+    expect(on_error_calls.size).to eq(1)
+    ex, msg, meta = on_error_calls[0]
+    expect(ex.message).to eq('boom')
+    expect(msg).to be_a(DispatchCmd)
+    expect(msg.payload.title).to eq('bad')
+    expect(meta).to be_a(Sidereal::Store::Meta)
+    expect(meta.attempt).to eq(1)
+
     # Only the 'good' command's msg + event were published; the failed one was not broadcast.
+    expect(received.map(&:class)).to eq([DispatchCmd, DispatchEvt])
+    expect(received[0].payload.title).to eq('good')
+  end
+
+  it 'survives when on_error itself raises' do
+    raising_commander = Class.new(Sidereal::Commander) do
+      command DispatchCmd do |cmd|
+        raise 'boom' if cmd.payload.title == 'bad'
+        dispatch DispatchEvt, cmd.payload.to_h
+      end
+      define_singleton_method(:on_error) { |_ex, _msg, _meta| raise 'on_error itself blew up' }
+
+      def self.channel_name(_) = 'ch1'
+    end
+
+    store.append(DispatchCmd.new(payload: { title: 'bad' }))
+    store.append(DispatchCmd.new(payload: { title: 'good' }))
+
+    received = run_and_collect('ch1', store: store, registry: registry_for(raising_commander), pubsub: pubsub) {}
+
+    # The 'bad' message was logged + dropped (Memory store can't dead-letter).
+    # The worker survives and processes the next message.
     expect(received.map(&:class)).to eq([DispatchCmd, DispatchEvt])
     expect(received[0].payload.title).to eq('good')
   end

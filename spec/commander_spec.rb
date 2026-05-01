@@ -266,20 +266,56 @@ RSpec.describe Sidereal::Commander do
   end
 
   describe '.on_error' do
-    it 're-raises by default' do
-      ex = RuntimeError.new('default')
-      expect { Sidereal::Commander.on_error(ex) }.to raise_error('default')
+    let(:msg) { TestAddItem.new(payload: { name: 'x' }) }
+
+    def meta_for(attempt)
+      Sidereal::Store::Meta.new(attempt: attempt, first_appended_at: Time.now)
     end
 
-    it 'is overridable on a subclass' do
-      handled = []
+    it 'returns Result::Retry on attempts 1..4 by default' do
+      ex = RuntimeError.new('boom')
+
+      (1..4).each do |attempt|
+        result = Sidereal::Commander.on_error(ex, msg, meta_for(attempt))
+        expect(result).to be_a(Sidereal::Store::Result::Retry)
+      end
+    end
+
+    it 'schedules retry with 2**attempt-second backoff' do
+      ex = RuntimeError.new('boom')
+
+      [1, 2, 3, 4].each do |attempt|
+        before = Time.now
+        result = Sidereal::Commander.on_error(ex, msg, meta_for(attempt))
+        after = Time.now
+
+        expect(result.at).to be_between(before + (2**attempt), after + (2**attempt)).inclusive
+      end
+    end
+
+    it 'returns Result::Fail at attempt == DEFAULT_MAX_ATTEMPTS' do
+      ex = RuntimeError.new('boom')
+      result = Sidereal::Commander.on_error(ex, msg, meta_for(Sidereal::Commander::DEFAULT_MAX_ATTEMPTS))
+
+      expect(result).to be_a(Sidereal::Store::Result::Fail)
+      expect(result.error).to be(ex)
+    end
+
+    it 'is overridable on a subclass and receives (exception, message, meta)' do
+      received = nil
       cmdr_class = Class.new(Sidereal::Commander) do
-        define_singleton_method(:on_error) { |ex| handled << ex }
+        define_singleton_method(:on_error) do |ex, msg, meta|
+          received = [ex, msg, meta]
+          Sidereal::Store::Result::Ack
+        end
       end
 
       ex = RuntimeError.new('swallowed')
-      expect { cmdr_class.on_error(ex) }.not_to raise_error
-      expect(handled).to eq([ex])
+      meta = meta_for(2)
+      result = cmdr_class.on_error(ex, msg, meta)
+
+      expect(result).to eq(Sidereal::Store::Result::Ack)
+      expect(received).to eq([ex, msg, meta])
     end
   end
 

@@ -5,6 +5,7 @@ module Sidereal
     CMD_METHOD_PREFIX = '__cmd_'
     CMD_HASH = Types::Hash[type: String, payload?: Hash]
     DEFAULT_CMD_HANDLER = ->(*_) {}
+    DEFAULT_MAX_ATTEMPTS = 5
 
     class << self
       def commander = self
@@ -53,8 +54,27 @@ module Sidereal
         'system'
       end
 
-      def on_error(ex)
-        raise ex
+      # Decide what to do with a failed command. Called by the dispatcher
+      # when {#handle} raises. Return a {Sidereal::Store::Result} value:
+      #
+      #   Store::Result::Retry.new(at:)   — re-schedule for another attempt
+      #   Store::Result::Fail.new(error:) — give up; dead-letter
+      #   Store::Result::Ack              — swallow the error silently
+      #
+      # Default: exponential backoff up to {DEFAULT_MAX_ATTEMPTS} attempts,
+      # then fail. Override on a subclass to customize per-commander policy
+      # (e.g. branch on +exception.class+ or +message.class+).
+      #
+      # @param exception [StandardError]
+      # @param message [Sidereal::Message] the command being processed
+      # @param meta [Sidereal::Store::Meta] attempt number and origin time
+      # @return [Sidereal::Store::Result]
+      def on_error(exception, _message, meta)
+        if meta.attempt < DEFAULT_MAX_ATTEMPTS
+          Sidereal::Store::Result::Retry.new(at: Time.now + (2**meta.attempt))
+        else
+          Sidereal::Store::Result::Fail.new(error: exception)
+        end
       end
     end
 

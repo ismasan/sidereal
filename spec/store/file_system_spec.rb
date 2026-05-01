@@ -95,10 +95,16 @@ RSpec.describe Sidereal::Store::FileSystem do
       Sync do |task|
         store.start(task)
         consumer_a = task.async do
-          store.claim_next { |m| claimed_by[:a] << m }
+          store.claim_next do |m, _meta|
+            claimed_by[:a] << m
+            Sidereal::Store::Result::Ack
+          end
         end
         consumer_b = task.async do
-          store.claim_next { |m| claimed_by[:b] << m }
+          store.claim_next do |m, _meta|
+            claimed_by[:b] << m
+            Sidereal::Store::Result::Ack
+          end
         end
 
         task.async do
@@ -292,6 +298,194 @@ RSpec.describe Sidereal::Store::FileSystem do
       )
       claimed = claim_one(consumer)
       expect(claimed.payload.name).to eq('persisted')
+    end
+  end
+
+  describe 'retry/fail/meta' do
+    # Drive one claim, yield (msg, meta) to the test block, use its
+    # return as the Result, then stop. Returns [msg, meta].
+    def one_claim(store)
+      captured = nil
+      Sync do |task|
+        store.start(task)
+        consumer = task.async do
+          store.claim_next do |m, meta|
+            captured = [m, meta]
+            yield(m, meta)
+          end
+        end
+        task.async do
+          loop do
+            break if captured
+            sleep 0.01
+          end
+          # let the store finish handling the result
+          sleep 0.05
+          consumer.stop
+        end.wait
+      end
+      captured
+    end
+
+    describe 'meta' do
+      it 'attempt is 1 on first claim' do
+        store.append(FsStoreCmd.new(payload: { name: 'x' }))
+        _, meta = one_claim(store) { Sidereal::Store::Result::Ack }
+        expect(meta.attempt).to eq(1)
+      end
+
+      it 'first_appended_at falls between before and after the append call' do
+        before = Time.now
+        store.append(FsStoreCmd.new(payload: { name: 'x' }))
+        after = Time.now
+        _, meta = one_claim(store) { Sidereal::Store::Result::Ack }
+        expect(meta.first_appended_at).to be_between(before, after).inclusive
+      end
+    end
+
+    describe 'Result::Retry' do
+      it 'moves the message to scheduled/ with attempt bumped to 2' do
+        store.append(FsStoreCmd.new(payload: { name: 'x' }))
+        retry_at = Time.now + 5
+
+        one_claim(store) { Sidereal::Store::Result::Retry.new(at: retry_at) }
+
+        expect(Dir.children(File.join(@root, 'processing'))).to be_empty
+        expect(Dir.children(File.join(@root, 'ready'))).to be_empty
+        expect(Dir.children(File.join(@root, 'dead'))).to be_empty
+
+        scheduled = Dir.children(File.join(@root, 'scheduled'))
+        expect(scheduled.size).to eq(1)
+
+        parts = described_class.parse_filename(scheduled.first)
+        expect(parts[:attempt]).to eq(2)
+        expected_ns = retry_at.tv_sec * 1_000_000_000 + retry_at.tv_nsec
+        expect(parts[:not_before_ns]).to eq(expected_ns)
+      end
+
+      it 'preserves first_append_ns across retry' do
+        store.append(FsStoreCmd.new(payload: { name: 'x' }))
+        original = described_class.parse_filename(Dir.children(File.join(@root, 'ready')).first)
+
+        one_claim(store) { Sidereal::Store::Result::Retry.new(at: Time.now + 5) }
+
+        retried = described_class.parse_filename(Dir.children(File.join(@root, 'scheduled')).first)
+        expect(retried[:first_append_ns]).to eq(original[:first_append_ns])
+      end
+
+      it 'leaves the file body byte-identical' do
+        store.append(FsStoreCmd.new(payload: { name: 'x' }))
+        original_body = File.read(
+          File.join(@root, 'ready', Dir.children(File.join(@root, 'ready')).first)
+        )
+
+        one_claim(store) { Sidereal::Store::Result::Retry.new(at: Time.now + 5) }
+
+        retried_body = File.read(
+          File.join(@root, 'scheduled', Dir.children(File.join(@root, 'scheduled')).first)
+        )
+        expect(retried_body).to eq(original_body)
+      end
+
+      it 'second claim observes meta.attempt == 2 with first_appended_at preserved' do
+        fast_store = described_class.new(
+          root: @root,
+          poll_interval: 0.01,
+          scheduler_interval: 0.05
+        )
+        fast_store.append(FsStoreCmd.new(payload: { name: 'x' }))
+
+        metas = []
+        Sync do |task|
+          fast_store.start(task)
+          consumer = task.async do
+            fast_store.claim_next do |_m, meta|
+              metas << meta
+              if metas.size == 1
+                Sidereal::Store::Result::Retry.new(at: Time.now + 0.1)
+              else
+                Sidereal::Store::Result::Ack
+              end
+            end
+          end
+          task.async do
+            loop do
+              break if metas.size >= 2
+              sleep 0.01
+            end
+            consumer.stop
+          end.wait
+        end
+
+        expect(metas[0].attempt).to eq(1)
+        expect(metas[1].attempt).to eq(2)
+        expect(metas[1].first_appended_at).to eq(metas[0].first_appended_at)
+      end
+    end
+
+    describe 'Result::Fail' do
+      it 'moves the message to dead/ and writes a sidecar' do
+        store.append(FsStoreCmd.new(payload: { name: 'x' }))
+
+        one_claim(store) do
+          Sidereal::Store::Result::Fail.new(error: RuntimeError.new('boom'))
+        end
+
+        expect(Dir.children(File.join(@root, 'processing'))).to be_empty
+        expect(Dir.children(File.join(@root, 'ready'))).to be_empty
+        expect(Dir.children(File.join(@root, 'scheduled'))).to be_empty
+
+        dead = Dir.children(File.join(@root, 'dead'))
+        expect(dead.size).to eq(2)
+        expect(dead.count { |n| n.end_with?('.error.json') }).to eq(1)
+        expect(dead.count { |n| !n.end_with?('.error.json') }).to eq(1)
+      end
+
+      it 'sidecar contains exception class, message, and backtrace' do
+        store.append(FsStoreCmd.new(payload: { name: 'x' }))
+        captured_ex = begin
+          raise 'boom'
+        rescue StandardError => e
+          e
+        end
+
+        one_claim(store) { Sidereal::Store::Result::Fail.new(error: captured_ex) }
+
+        sidecar_name = Dir.children(File.join(@root, 'dead')).find { |n| n.end_with?('.error.json') }
+        contents = JSON.parse(File.read(File.join(@root, 'dead', sidecar_name)))
+        expect(contents['class']).to eq('RuntimeError')
+        expect(contents['message']).to eq('boom')
+        expect(contents['backtrace']).to be_an(Array)
+        expect(contents['backtrace']).not_to be_empty
+      end
+
+      it 'leaves the message body byte-identical in dead/' do
+        store.append(FsStoreCmd.new(payload: { name: 'x' }))
+        original_body = File.read(
+          File.join(@root, 'ready', Dir.children(File.join(@root, 'ready')).first)
+        )
+
+        one_claim(store) do
+          Sidereal::Store::Result::Fail.new(error: RuntimeError.new('boom'))
+        end
+
+        msg_name = Dir.children(File.join(@root, 'dead')).find { |n| !n.end_with?('.error.json') }
+        dead_body = File.read(File.join(@root, 'dead', msg_name))
+        expect(dead_body).to eq(original_body)
+      end
+    end
+
+    describe 'malformed return value' do
+      it 'unlinks the file (treats as ack)' do
+        store.append(FsStoreCmd.new(payload: { name: 'x' }))
+
+        one_claim(store) { :something_unexpected }
+
+        expect(Dir.children(File.join(@root, 'processing'))).to be_empty
+        expect(Dir.children(File.join(@root, 'ready'))).to be_empty
+        expect(Dir.children(File.join(@root, 'scheduled'))).to be_empty
+        expect(Dir.children(File.join(@root, 'dead'))).to be_empty
+      end
     end
   end
 end
