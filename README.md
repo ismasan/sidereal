@@ -752,7 +752,7 @@ Sidereal.configure do |c|
 end
 ```
 
-The store creates four sibling directories under `root/`: `tmp/`, `ready/`, `scheduled/`, and `processing/`. Producers append by atomic-renaming from `tmp/` into `ready/` (or `scheduled/` for future-dated messages). A poller fiber claims into `processing/`; a scheduler fiber promotes due files from `scheduled/` to `ready/`; a sweeper recovers anything left in `processing/` by a crashed worker.
+The store creates five sibling directories under `root/`: `tmp/`, `ready/`, `scheduled/`, `processing/`, and `dead/`. Producers append by atomic-renaming from `tmp/` into `ready/` (or `scheduled/` for future-dated messages). A poller fiber claims into `processing/`; a scheduler fiber promotes due files from `scheduled/` to `ready/`; a sweeper recovers anything left in `processing/` by a crashed worker. Permanently-failed messages land in `dead/` along with a `<f>.error.json` sidecar — see [Failure handling](#failure-handling-retries-and-dead-lettering).
 
 Constructor options:
 
@@ -768,6 +768,96 @@ Constructor options:
 **At-least-once delivery:** a crash mid-handling causes the message to be re-claimed once the sweeper recovers the abandoned `processing/` file. Handlers must be idempotent.
 
 **Single-machine only:** the design relies on POSIX atomic rename, which is unreliable across networked filesystems like NFS. Use a different store if you need to fan workers out across hosts.
+
+## Failure handling, retries and dead-lettering
+
+When a command handler raises, the dispatcher calls `Commander.on_error(exception, message, meta)` and uses the returned value to decide what to do next:
+
+| Return value | Effect |
+|---|---|
+| `Sidereal::Store::Result::Retry.new(at: time)` | re-schedule for another attempt at `time` |
+| `Sidereal::Store::Result::Fail.new(error: exception)` | give up — dead-letter the message |
+| `Sidereal::Store::Result::Ack` | swallow silently — drop the message |
+
+The default policy retries with exponential backoff (`2 ** meta.attempt` seconds) up to `Sidereal::Commander::DEFAULT_MAX_ATTEMPTS` attempts, then fails. Override per-commander:
+
+```ruby
+class MyApp < Sidereal::App
+  commands do
+    def self.on_error(exception, message, meta)
+      case exception
+      when MyDomain::Invalid
+        Sidereal::Store::Result::Fail.new(error: exception)  # bail immediately
+      when Net::Timeout
+        Sidereal::Store::Result::Retry.new(at: Time.now + (5 * meta.attempt))
+      else
+        super  # fall back to the default policy
+      end
+    end
+  end
+end
+```
+
+`meta.attempt` starts at 1 and increments on each retry. `meta.first_appended_at` is preserved across retries — useful for "give up after N hours regardless of attempt count" policies.
+
+### Where retried/failed messages go
+
+- **`Sidereal::Store::FileSystem`** — `Retry` renames the message into `scheduled/` with a bumped attempt counter and the new `not_before_ns`; the body stays untouched (commanders cannot mutate the message between attempts). `Fail` writes a sidecar `dead/<f>.error.json` with the exception class/message/backtrace, then renames the message into `dead/`. The sweeper does not touch `dead/` — those messages are terminal until you act on them manually.
+- **`Sidereal::Store::Memory`** — `Retry` and `Fail` log at WARN level and ack/drop the message. The in-memory store has no scheduling or dead-letter primitives.
+
+**At-least-once delivery still applies:** a worker crash before `Retry`/`Fail` is acted on leaves the file in `processing/` for the sweeper to recover, which re-runs the handler. Handlers must be idempotent.
+
+### System notification messages
+
+For each `Retry` or `Fail` decision, the dispatcher also appends a system command to the store so other handlers and pages can observe failures:
+
+- `Sidereal::System::NotifyRetry` — payload: `command_type`, `command_id`, `command_payload`, `attempt`, `retry_at` (ISO8601), `error_class`, `error_message`, `backtrace`.
+- `Sidereal::System::NotifyFailure` — same payload minus `retry_at`.
+
+Both inherit from `Sidereal::System::Notification` (a marker base). Code that needs system-wide handling can check `msg.is_a?(Sidereal::System::Notification)` rather than enumerating concrete classes.
+
+These flow through the normal command pipeline: every `Sidereal::Commander` subclass auto-registers no-op handlers for them on inheritance, so they get handled, published via pubsub, and routed to the same channel the source command would have been published to (the dispatcher stamps `metadata[:source_channel]` so user-supplied `channel_name` blocks don't have to know about system messages).
+
+Override either side — handler or page reaction — to react to failures:
+
+```ruby
+class MyApp < Sidereal::App
+  # Server-side: log to APM, persist to an error table, etc.
+  command Sidereal::System::NotifyFailure do |cmd|
+    APM.notify(cmd.payload.error_class, cmd.payload.error_message)
+  end
+end
+
+class TodoPage < Sidereal::Page
+  # Client-side: show a custom UI element instead of the default toast
+  on Sidereal::System::NotifyFailure do |evt|
+    browser.patch_elements MyErrorBanner.new(evt)
+  end
+end
+```
+
+Custom handlers should not raise. A raising `NotifyFailure` handler would itself be dispatched through the same retry/fail machinery, but the dispatcher detects system-message failures and breaks the cascade by skipping further notification dispatch.
+
+### Default dev UI: error toasts
+
+The base `Sidereal::Page` ships with default reactions that render `Sidereal::Components::SystemNotifyRetry` (amber) or `SystemNotifyFailure` (red) toasts and prepend them into a fixed-position stack at the top-right of the page (`#sidereal-sysnotify-stack`, supplied by the base layout's `sidereal_foot`). Each toast shows the command type, error class/message, attempt count, retry time, and a collapsible backtrace; they slide in/out, are dismissable, and carry their own inline `<style>` so they don't depend on host CSS.
+
+The default reactions fire in any environment for now. Override `on(NotifyRetry)` / `on(NotifyFailure)` on your page (or define a custom NotifyFailure handler in the App's commander to skip the publish entirely) to suppress them.
+
+### Adding a new system message type
+
+```ruby
+module Sidereal
+  module System
+    NotifyDeprecated = Notification.define('sidereal.system.notify_deprecated') do
+      attribute :command_type, Sidereal::Types::String
+      attribute :reason, Sidereal::Types::String
+    end
+  end
+end
+```
+
+Defining via `Notification.define(...)` registers it under the `Notification` registry. The dispatcher's loop prevention, `App.channel_name`'s bypass, and Commander's no-op auto-registration all key off `is_a?(Notification)` and the registry, so they pick up the new class automatically. You'll still need to add the corresponding `Page.on(...)` reaction and (optionally) a UI component to render it.
 
 ## How it works
 
