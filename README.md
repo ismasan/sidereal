@@ -805,6 +805,16 @@ end
 - **`Sidereal::Store::FileSystem`** — `Retry` renames the message into `scheduled/` with a bumped attempt counter and the new `not_before_ns`; the body stays untouched (commanders cannot mutate the message between attempts). `Fail` writes a sidecar `dead/<f>.error.json` with the exception class/message/backtrace, then renames the message into `dead/`. The sweeper does not touch `dead/` — those messages are terminal until you act on them manually.
 - **`Sidereal::Store::Memory`** — `Retry` and `Fail` log at WARN level and ack/drop the message. The in-memory store has no scheduling or dead-letter primitives.
 
+**Requeueing dead messages.** Once you've fixed the underlying cause of failure, `Sidereal::Store::FileSystem#requeue(filename)` moves a dead-lettered message back into `ready/`. The new filename has `attempt` reset to 1 and `not_before_ns` set to now (immediately ready); `first_append_ns` is preserved so age-based diagnostics retain the lineage. The `.error.json` sidecar is removed.
+
+```ruby
+store = Sidereal::Store::FileSystem.new(root: 'storage/store')
+store.requeue('1762000000-1761000000-3-12345-abcdef.json')
+# => "<root>/ready/<new-filename>.json"
+```
+
+Path components in the input are stripped via `File.basename`, so `'abc.json'`, `'dead/abc.json'`, and `'/abs/dead/abc.json'` are all equivalent — the file is always resolved against the store's configured `dead/` directory. Missing files raise `ArgumentError`.
+
 **At-least-once delivery still applies:** a worker crash before `Retry`/`Fail` is acted on leaves the file in `processing/` for the sweeper to recover, which re-runs the handler. Handlers must be idempotent.
 
 ### System notification messages

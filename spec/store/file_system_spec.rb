@@ -487,5 +487,90 @@ RSpec.describe Sidereal::Store::FileSystem do
         expect(Dir.children(File.join(@root, 'dead'))).to be_empty
       end
     end
+
+    describe '#requeue' do
+      # Drive a Result::Fail and return the dead message's basename.
+      def fail_and_get_dead_name(store)
+        store.append(FsStoreCmd.new(payload: { name: 'x' }))
+        one_claim(store) do
+          Sidereal::Store::Result::Fail.new(error: RuntimeError.new('boom'))
+        end
+        Dir.children(File.join(@root, 'dead')).find { |n| !n.end_with?('.error.json') }
+      end
+
+      it 'moves the message file from dead/ to ready/ and removes the sidecar' do
+        dead_name = fail_and_get_dead_name(store)
+        expect(Dir.children(File.join(@root, 'dead')).size).to eq(2) # message + sidecar
+
+        store.requeue(dead_name)
+
+        expect(Dir.children(File.join(@root, 'dead'))).to be_empty
+        expect(Dir.children(File.join(@root, 'ready')).size).to eq(1)
+      end
+
+      it 'resets attempt to 1 in the new filename' do
+        dead_name = fail_and_get_dead_name(store)
+
+        store.requeue(dead_name)
+
+        ready_name = Dir.children(File.join(@root, 'ready')).first
+        parts = described_class.parse_filename(ready_name)
+        expect(parts[:attempt]).to eq(1)
+      end
+
+      it 'preserves first_append_ns from the original' do
+        dead_name = fail_and_get_dead_name(store)
+        original_first_append = described_class.parse_filename(dead_name)[:first_append_ns]
+
+        store.requeue(dead_name)
+
+        ready_name = Dir.children(File.join(@root, 'ready')).first
+        expect(described_class.parse_filename(ready_name)[:first_append_ns]).to eq(original_first_append)
+      end
+
+      it 'sets not_before_ns to approximately now' do
+        dead_name = fail_and_get_dead_name(store)
+        before_ns = Process.clock_gettime(Process::CLOCK_REALTIME, :nanosecond)
+
+        store.requeue(dead_name)
+        after_ns = Process.clock_gettime(Process::CLOCK_REALTIME, :nanosecond)
+
+        ready_name = Dir.children(File.join(@root, 'ready')).first
+        not_before = described_class.parse_filename(ready_name)[:not_before_ns]
+        expect(not_before).to be_between(before_ns, after_ns).inclusive
+      end
+
+      it 'returns the new path under ready/' do
+        dead_name = fail_and_get_dead_name(store)
+
+        result = store.requeue(dead_name)
+
+        expect(result).to eq(File.join(@root, 'ready', Dir.children(File.join(@root, 'ready')).first))
+        expect(File.exist?(result)).to be true
+      end
+
+      it 'works when no sidecar exists for the dead message' do
+        dead_name = fail_and_get_dead_name(store)
+        File.unlink(File.join(@root, 'dead', "#{dead_name}.error.json"))
+        # only the message file remains in dead/
+
+        expect { store.requeue(dead_name) }.not_to raise_error
+        expect(Dir.children(File.join(@root, 'dead'))).to be_empty
+        expect(Dir.children(File.join(@root, 'ready')).size).to eq(1)
+      end
+
+      it 'strips path components and uses the basename' do
+        dead_name = fail_and_get_dead_name(store)
+
+        # Any path-like input (relative or absolute) is reduced to its
+        # basename and resolved against the configured dead/ directory.
+        expect { store.requeue("dead/#{dead_name}") }.not_to raise_error
+        expect(Dir.children(File.join(@root, 'ready')).size).to eq(1)
+      end
+
+      it 'raises ArgumentError when the file does not exist in dead/' do
+        expect { store.requeue('missing.json') }.to raise_error(ArgumentError, /not found in dead/)
+      end
+    end
   end
 end

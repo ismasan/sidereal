@@ -170,6 +170,45 @@ module Sidereal
         self
       end
 
+      # Move a dead-lettered message back into +ready/+ so it can be
+      # picked up by the next poller pass. Use this from a console or
+      # ops script after the underlying cause of failure has been
+      # addressed and the message is safe to re-process.
+      #
+      # Takes a filename only — any directory components in the input
+      # are stripped via +File.basename+, then the configured dead
+      # directory is prepended. So +"abc.json"+,
+      # +"dead/abc.json"+, and +"<root>/dead/abc.json"+ all resolve to
+      # the same file under the store's own +dead/+ directory.
+      #
+      # The new filename resets +attempt+ to 1 (full retry budget),
+      # sets +not_before_ns+ to now (immediately ready), and preserves
+      # +first_append_ns+ from the original (so age-based diagnostics
+      # still see the message's true lineage). The +.error.json+
+      # sidecar, if present, is deleted.
+      #
+      # @param filename [String] basename of a file in +dead/+
+      #   (path components, if any, are stripped)
+      # @return [String] path of the requeued message in +ready/+
+      # @raise [ArgumentError] if the file does not exist in +dead/+
+      def requeue(filename)
+        name = File.basename(filename)
+        src_path = File.join(@dead_dir, name)
+        raise ArgumentError, "not found in dead/: #{name}" unless File.exist?(src_path)
+
+        parts = self.class.parse_filename(name)
+        now_ns = Process.clock_gettime(Process::CLOCK_REALTIME, :nanosecond)
+        new_name = build_filename(now_ns, parts[:first_append_ns], 1)
+        dest_path = File.join(@ready_dir, new_name)
+
+        File.rename(src_path, dest_path)
+
+        sidecar = "#{src_path}.error.json"
+        File.unlink(sidecar) if File.exist?(sidecar)
+
+        dest_path
+      end
+
       # Pop one path from the internal queue, deserialize, yield with
       # per-claim {Sidereal::Store::Meta}, and act on the block's return.
       # The block must return a {Sidereal::Store::Result} value:
