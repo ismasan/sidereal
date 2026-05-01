@@ -18,8 +18,8 @@ class FakeSSE
     @patches = []
   end
 
-  def patch_elements(component)
-    @patches << component
+  def patch_elements(component, options = {})
+    @patches << { component: component, options: options }
   end
 end
 
@@ -74,7 +74,7 @@ RSpec.describe Sidereal::Page do
         end
       end
 
-      expect(page_class.reactions.keys).to contain_exactly(PageTestItemAdded, PageTestNotification)
+      expect(page_class.reactions.keys).to include(PageTestItemAdded, PageTestNotification)
       expect(page_class.reactions[PageTestItemAdded]).to eq(page_class.reactions[PageTestNotification])
     end
 
@@ -99,8 +99,9 @@ RSpec.describe Sidereal::Page do
         end
       end
 
-      expect(child.reactions.keys).to contain_exactly(PageTestItemAdded, PageTestNotification)
-      expect(parent.reactions.keys).to eq([PageTestItemAdded])
+      expect(child.reactions.keys).to include(PageTestItemAdded, PageTestNotification)
+      expect(parent.reactions.keys).to include(PageTestItemAdded)
+      expect(parent.reactions.keys).not_to include(PageTestNotification)
     end
 
     it 'does not share reactions between page subclasses' do
@@ -114,8 +115,10 @@ RSpec.describe Sidereal::Page do
         end
       end
 
-      expect(page_a.reactions.keys).to eq([PageTestItemAdded])
-      expect(page_b.reactions.keys).to eq([PageTestNotification])
+      expect(page_a.reactions.keys).to include(PageTestItemAdded)
+      expect(page_a.reactions.keys).not_to include(PageTestNotification)
+      expect(page_b.reactions.keys).to include(PageTestNotification)
+      expect(page_b.reactions.keys).not_to include(PageTestItemAdded)
     end
   end
 
@@ -284,6 +287,92 @@ RSpec.describe Sidereal::Page do
       Sidereal::Page.subscribe(channel, sse, nil)
 
       expect(captured_params).to eq({ id: '42' })
+    end
+  end
+
+  describe 'default system notification reactions' do
+    let(:page_context_class) { Sidereal::Page::PageContext }
+
+    let(:page_class) do
+      Class.new(Sidereal::Page) do
+        path '/sys'
+        def self.load(_p, _c) = new
+        def view_template = div { 'x' }
+      end
+    end
+
+    def build_retry_evt
+      Sidereal::System::NotifyRetry.new(payload: {
+        command_type: 'todos.add',
+        command_id: SecureRandom.uuid,
+        command_payload: { title: 'x' },
+        attempt: 2,
+        retry_at: Time.now.iso8601(6),
+        error_class: 'RuntimeError',
+        error_message: 'boom',
+        backtrace: ['a.rb:1', 'b.rb:2']
+      })
+    end
+
+    def build_failure_evt
+      Sidereal::System::NotifyFailure.new(payload: {
+        command_type: 'todos.add',
+        command_id: SecureRandom.uuid,
+        command_payload: { title: 'x' },
+        attempt: 5,
+        error_class: 'RuntimeError',
+        error_message: 'permanent',
+        backtrace: []
+      })
+    end
+
+    it 'subclasses inherit reactions for both system commands' do
+      expect(page_class.reactions).to have_key(Sidereal::System::NotifyRetry)
+      expect(page_class.reactions).to have_key(Sidereal::System::NotifyFailure)
+    end
+
+    it 'reacts to NotifyRetry by patching SystemNotifyRetry to body, prepend mode' do
+      sse = FakeSSE.new('page_key' => '/sys', 'params' => {})
+      page_context = page_context_class.new(sse, nil, page_class)
+
+      page_context.react(build_retry_evt)
+
+      expect(sse.patches.size).to eq(1)
+      patch = sse.patches.first
+      expect(patch[:component]).to be_a(Sidereal::Components::SystemNotifyRetry)
+      expect(patch[:options]).to eq(mode: 'prepend', selector: '#sidereal-sysnotify-stack')
+    end
+
+    it 'reacts to NotifyFailure by patching SystemNotifyFailure to body, prepend mode' do
+      sse = FakeSSE.new('page_key' => '/sys', 'params' => {})
+      page_context = page_context_class.new(sse, nil, page_class)
+
+      page_context.react(build_failure_evt)
+
+      expect(sse.patches.size).to eq(1)
+      patch = sse.patches.first
+      expect(patch[:component]).to be_a(Sidereal::Components::SystemNotifyFailure)
+      expect(patch[:options]).to eq(mode: 'prepend', selector: '#sidereal-sysnotify-stack')
+    end
+
+    it 'allows a user page to override the default NotifyFailure reaction' do
+      called_with = nil
+      override = Class.new(Sidereal::Page) do
+        path '/sys-override'
+        def self.load(_p, _c) = new
+        def view_template = div { 'x' }
+        on(Sidereal::System::NotifyFailure) { |evt| called_with = evt }
+      end
+
+      sse = FakeSSE.new('page_key' => '/sys-override', 'params' => {})
+      page_context = page_context_class.new(sse, nil, override)
+
+      evt = build_failure_evt
+      page_context.react(evt)
+
+      expect(called_with).to eq(evt)
+      # The default patch_elements call should NOT have run.
+      expect(sse.patches).to be_empty
     end
   end
 end
