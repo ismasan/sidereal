@@ -4,6 +4,7 @@ require 'spec_helper'
 require 'async'
 require 'tmpdir'
 require 'sidereal/pubsub/unix'
+require 'sidereal/elector/file_system'
 
 UnixPubSubMsg = Sidereal::Message.define('unix_pubsub_spec.event') do
   attribute :tag, Sidereal::Types::String
@@ -19,12 +20,12 @@ RSpec.describe Sidereal::PubSub::Unix do
     end
   end
 
-  def build_pubsub(**overrides)
+  def build_pubsub(elector: Sidereal::Elector::AlwaysLeader.new, **overrides)
     described_class.new(
       socket_path: File.join(@root, 'pubsub.sock'),
-      lock_path: File.join(@root, 'pubsub.lock'),
       reconnect_min: 0.01,
       reconnect_max: 0.02,
+      elector: elector,
       **overrides
     )
   end
@@ -194,30 +195,31 @@ RSpec.describe Sidereal::PubSub::Unix do
     it 'raises when the socket path is too long' do
       long_path = File.join(@root, 'a' * 200, 'pubsub.sock')
       expect do
-        described_class.new(socket_path: long_path, lock_path: File.join(@root, 'pubsub.lock'))
+        described_class.new(socket_path: long_path)
       end.to raise_error(ArgumentError, /too long/)
     end
   end
 
-  describe 'leader election' do
-    it 'lets exactly one of two pubsubs sharing a socket become leader' do
-      a = build_pubsub
-      b = build_pubsub
+  describe 'leader election (delegated to injected Elector)' do
+    it 'lets exactly one of two pubsubs sharing a lock file become broker' do
+      lock_path = File.join(@root, 'pubsub.lock')
+      e_a = Sidereal::Elector::FileSystem.new(lock_path: lock_path, retry_interval: 0.05)
+      e_b = Sidereal::Elector::FileSystem.new(lock_path: lock_path, retry_interval: 0.05)
+      a = build_pubsub(elector: e_a)
+      b = build_pubsub(elector: e_b)
 
       a_is_leader = nil
       b_is_leader = nil
 
       Sync do |task|
         a.start(task)
-        # Give A time to acquire flock and bind.
-        sleep 0.1
+        sleep 0.1     # let A acquire the flock and on_promote run
         b.start(task)
         sleep 0.1
 
         a_is_leader = a.leader?
         b_is_leader = b.leader?
 
-        # Tear down explicitly to avoid lingering fibers.
         task.stop
       end
 

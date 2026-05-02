@@ -10,13 +10,14 @@ module Sidereal
   module PubSub
     # Unix-domain-socket pubsub for cross-process delivery on a single host.
     #
-    # Topology: embedded leader. The first process to acquire a +flock+ on
-    # +lock_path+ binds +socket_path+ and runs an in-process broker fiber
+    # Topology: embedded leader, election delegated to an injected
+    # {Sidereal::Elector}. When the elector promotes this process,
+    # Pubsub binds +socket_path+ and runs an in-process broker fiber
     # that fans out frames to every connected peer. Other processes
-    # +connect+ as plain clients. When the leader dies, the kernel closes
-    # its listening socket; clients see EOF and re-run election +
-    # connection inside their reconnect-with-backoff loop. +flock+ is
-    # auto-released on process death — no stale-lock cleanup required.
+    # +connect+ as plain clients. When the leader dies, the elector
+    # detects the vacancy and a successor is promoted; meanwhile,
+    # clients see EOF and reconnect via the broker socket once the
+    # new broker has bound it.
     #
     # Wire format: newline-delimited JSON, one frame type:
     #
@@ -29,7 +30,6 @@ module Sidereal
     # Public contract is identical to {PubSub::Memory}.
     class Unix
       DEFAULT_SOCKET = 'tmp/sidereal-pubsub.sock'
-      DEFAULT_LOCK   = 'tmp/sidereal-pubsub.lock'
       DEFAULT_WRITE_QUEUE = 1_000
 
       # macOS sockaddr_un.sun_path is 104 bytes; Linux is 108. Use the smaller.
@@ -37,21 +37,20 @@ module Sidereal
 
       def initialize(
         socket_path: DEFAULT_SOCKET,
-        lock_path: DEFAULT_LOCK,
         reconnect_min: 0.05,
         reconnect_max: 0.5,
-        write_queue_size: DEFAULT_WRITE_QUEUE
+        write_queue_size: DEFAULT_WRITE_QUEUE,
+        elector: nil
       )
         @socket_path = File.expand_path(socket_path)
-        @lock_path = File.expand_path(lock_path)
         validate_socket_path!(@socket_path)
 
         @reconnect_min = reconnect_min
         @reconnect_max = reconnect_max
         @write_queue_size = write_queue_size
+        @elector = elector            # nil = resolve from Sidereal.elector at start time
 
         FileUtils.mkdir_p(File.dirname(@socket_path))
-        FileUtils.mkdir_p(File.dirname(@lock_path))
 
         @mutex = Mutex.new
         @subscribers = {}
@@ -62,27 +61,39 @@ module Sidereal
 
         @send_mutex = Mutex.new
         @client_socket = nil
-        @leader_lock_io = nil
         @server = nil
         @broker_task = nil
 
         @started = false
       end
 
-      # Whether this process currently holds the broker role.
+      # Whether this process currently holds the broker role. Tracks
+      # the elector's view, not the socket state — the broker fiber
+      # itself comes up asynchronously inside +on_promote+.
       # @return [Boolean]
       def leader?
-        !@server.nil?
+        elector = @elector || Sidereal.elector
+        elector.leader?
       end
 
-      # Idempotent. Spawns the election + read loop as a transient child of
-      # +task+; that fiber handles flock election, broker setup when
-      # elected, and reconnect-with-backoff on EOF or error.
+      # Idempotent. Wires broker lifecycle to the elector and spawns a
+      # client-reconnect fiber as a transient child of +task+. The
+      # client fiber polls until the broker socket exists (created by
+      # whichever process the elector promoted) and reads frames.
       def start(task)
         @mutex.synchronize do
           return self if @started
           @started = true
         end
+
+        elector = @elector || Sidereal.elector
+        elector.on_promote { setup_broker(task) }
+        elector.on_demote { teardown_broker }
+        # Idempotent — when wired through Falcon::Service the elector
+        # is already started before pubsub.start runs; this call is a
+        # no-op in that path. For tests / standalone use, this is
+        # what kicks the election off.
+        elector.start(task)
 
         task.async(transient: true) { run_client(task) }
         self
@@ -235,50 +246,63 @@ module Sidereal
         end
       end
 
-      # Try to acquire the leader flock. On success, store the open file
-      # in @leader_lock_io (closing it releases the lock).
-      # @return [Boolean]
-      def try_become_leader
-        io = File.open(@lock_path, File::RDWR | File::CREAT, 0o644)
-        if io.flock(File::LOCK_EX | File::LOCK_NB)
-          @leader_lock_io = io
-          true
-        else
-          io.close
-          false
-        end
+      # Bring up the broker on this process. Called from the elector's
+      # +on_promote+ callback. Replaces any stale socket left by a
+      # dead prior leader. Spawns the broker accept loop as a
+      # transient child of +task+ so it dies cleanly with the service.
+      def setup_broker(task)
+        File.unlink(@socket_path) rescue Errno::ENOENT
+        @server = UNIXServer.new(@socket_path)
+        @broker_task = task.async(transient: true) { run_broker(task) }
+        Console.info(self, 'pubsub: elected as broker', pid: Process.pid, socket: @socket_path)
+      rescue StandardError => ex
+        Console.error(self, 'pubsub broker setup failed', exception: ex)
+        teardown_broker
       end
 
-      # Combined election + connection + read loop with reconnect-with-
-      # backoff. Every iteration re-runs election: when the prior leader
-      # dies, every connected client lands here and races for flock.
-      def run_client(task)
+      # Tear down the broker on this process. Called from the
+      # elector's +on_demote+ callback. Followers (never-promoted
+      # processes) hit this once at startup with no broker to tear
+      # down — all branches are nil-safe.
+      def teardown_broker
+        if (broker = @broker_task)
+          @broker_task = nil
+          broker.stop
+        end
+
+        if (srv = @server)
+          @server = nil
+          srv.close rescue nil
+          Console.info(self, 'pubsub: stepped down as broker', pid: Process.pid)
+        end
+
+        # Drain peers via drop_peer so writer fibers blocked on their
+        # write_queue.pop see the nil sentinel and exit cleanly. A bare
+        # @peers.clear would leak those fibers until parent teardown.
+        @peers.keys.each { |peer| drop_peer(peer) }
+      end
+
+      # Independent reconnect-with-backoff loop. Runs in every process
+      # regardless of election state: the leader connects to its own
+      # broker, followers connect to whoever the elector promoted.
+      # +Errno::ENOENT+ / +ECONNREFUSED+ during startup or failover
+      # are normal — keep retrying.
+      def run_client(_task)
         loop do
-          run_one_connection(task)
+          run_one_connection
+        rescue Errno::ENOENT, Errno::ECONNREFUSED
+          # broker not up yet (startup) or just stepped down (failover) — retry
         rescue StandardError => ex
           Console.warn(self, 'pubsub client iteration error', exception: ex)
         ensure
-          tear_down_connection
+          tear_down_client
           sleep(rand_backoff)
         end
       end
 
-      def run_one_connection(task)
-        if try_become_leader
-          # Replace any stale socket from a dead prior leader.
-          begin
-            File.unlink(@socket_path)
-          rescue Errno::ENOENT
-            # nothing to clean up
-          end
-          @server = UNIXServer.new(@socket_path)
-          @broker_task = task.async(transient: true) { run_broker(task) }
-          Console.info(self, "pubsub: elected as broker", pid: Process.pid, socket: @socket_path)
-        else
-          Console.info(self, "pubsub: connecting as client", pid: Process.pid, socket: @socket_path)
-        end
-
+      def run_one_connection
         @client_socket = UNIXSocket.new(@socket_path)
+        Console.info(self, 'pubsub: connecting as client', pid: Process.pid, socket: @socket_path)
 
         @client_socket.each_line do |line|
           begin
@@ -289,32 +313,10 @@ module Sidereal
         end
       end
 
-      def tear_down_connection
-        if (sock = @client_socket)
-          @client_socket = nil
-          sock.close rescue nil
-        end
-
-        if (broker = @broker_task)
-          @broker_task = nil
-          broker.stop
-        end
-
-        if (srv = @server)
-          @server = nil
-          srv.close rescue nil
-        end
-
-        if (lock = @leader_lock_io)
-          @leader_lock_io = nil
-          lock.close rescue nil
-          Console.info(self, "pubsub: stepped down as broker", pid: Process.pid)
-        end
-
-        # Drain peers via drop_peer so writer fibers blocked on their
-        # write_queue.pop see the nil sentinel and exit cleanly. A bare
-        # @peers.clear would leak those fibers until parent teardown.
-        @peers.keys.each { |peer| drop_peer(peer) }
+      def tear_down_client
+        sock = @client_socket
+        @client_socket = nil
+        sock&.close rescue nil
       end
 
       def rand_backoff

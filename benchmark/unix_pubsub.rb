@@ -48,6 +48,7 @@ require 'tmpdir'
 $LOAD_PATH.unshift File.expand_path('../lib', __dir__)
 require 'sidereal'
 require 'sidereal/pubsub/unix'
+require 'sidereal/elector/file_system'
 
 opts = {
   subscribers: 10,
@@ -105,8 +106,8 @@ end
 def build(root)
   Sidereal::PubSub::Unix.new(
     socket_path:      File.join(root, 'p.sock'),
-    lock_path:        File.join(root, 'p.lock'),
-    write_queue_size: 1_000_000
+    write_queue_size: 1_000_000,
+    elector: Sidereal::Elector::FileSystem.new(lock_path: File.join(root, 'p.lock'))
   )
 end
 
