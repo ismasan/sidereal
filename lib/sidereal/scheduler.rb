@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require 'time'   # Time.iso8601
 require 'fugit'
 require 'async'
 
@@ -39,13 +40,22 @@ module Sidereal
     # surfaced on +TriggerSchedule.payload.schedule_name+ and inside
     # the +producer+ metadata hash so dispatched commands carry a
     # readable trail back to the originating schedule.
-    Schedule = Data.define(:id, :name, :cron_expr, :cron, :block) do
+    Schedule = Data.define(:id, :name, :cron_expr, :cron, :from, :to, :block) do
       # Human-readable identifier stamped on +TriggerSchedule.metadata[:producer]+
       # and inherited by every command dispatched from the schedule
       # block via +Message#correlate+. Single-line string so it can sit
       # comfortably in logs, dead-letter sidecars, and chat messages.
       def producer_label
         "Schedule ##{id} '#{name}' (#{cron_expr})"
+      end
+
+      # Whether this schedule should be considered for firing at +time+.
+      # Bounds are inclusive on both ends. Returns +true+ when no
+      # bounds are set (the common case).
+      def active_at?(time)
+        return false if from && time < from
+        return false if to   && time > to
+        true
       end
 
       # Execute the schedule's block on +context+ via instance_exec, so
@@ -80,8 +90,15 @@ module Sidereal
     # - +schedule(cron_expr) { ... }+ — auto-named as +"<id> (<cron_expr>)"+
     # - +schedule(name, cron_expr) { ... }+ — user-supplied name
     #
+    # Optional +from:+ / +to:+ keyword arguments bound the schedule to
+    # a wall-clock window. Each accepts +nil+, a +Time+, a +DateTime+,
+    # or an ISO8601 +String+ (parsed once at registration). When both
+    # are given, the cron expression is validated to fire at least
+    # once inside the window — guarding against e.g. a daily cron
+    # paired with a sub-day window.
+    #
     # @return [self]
-    def schedule(*args, &block)
+    def schedule(*args, from: nil, to: nil, &block)
       name, cron_expr = case args
       in [String => cron_expr]
         [nil, cron_expr]
@@ -91,10 +108,15 @@ module Sidereal
         raise ArgumentError, "schedule takes (cron_expr) or (name, cron_expr); got #{args.inspect}"
       end
 
+      from = coerce_time(from)
+      to   = coerce_time(to)
+
       cron = Fugit.parse_cron(cron_expr) or raise ArgumentError, "invalid cron: #{cron_expr.inspect}"
+      validate_window!(cron, cron_expr, from, to)
+
       id = @schedules.size
       name ||= "#{id} (#{cron_expr})"
-      @schedules[id] = Schedule.new(id:, name:, cron_expr:, cron:, block:)
+      @schedules[id] = Schedule.new(id:, name:, cron_expr:, cron:, from:, to:, block:)
       self
     end
 
@@ -126,6 +148,7 @@ module Sidereal
       store = @store || Sidereal.store
 
       @schedules.each_value do |sch|
+        next unless sch.active_at?(now)
         next_at = sch.cron.next_time(baseline).to_local_time
         next if next_at > now
 
@@ -145,6 +168,32 @@ module Sidereal
     end
 
     private
+
+    # nil → nil; Time → passthrough; DateTime → .to_time; String → ISO8601 parse.
+    def coerce_time(v)
+      case v
+      when nil    then nil
+      when Time   then v
+      when String then Time.parse(v)
+      else
+        return v.to_time if v.respond_to?(:to_time)
+
+        raise ArgumentError, "expected Time, DateTime, or ISO8601 String; got #{v.inspect}"
+      end
+    end
+
+    # When both bounds are present, the cron must fire at least once
+    # inside the window. Open-ended ranges (only one bound or none)
+    # are not validated — they always contain some firing.
+    def validate_window!(cron, cron_expr, from, to)
+      return unless from && to
+
+      next_fire = cron.next_time(from).to_local_time
+      return if next_fire <= to
+
+      raise ArgumentError,
+            "cron #{cron_expr.inspect} never fires inside the window [#{from.iso8601}, #{to.iso8601}]"
+    end
 
     def spawn_tick_fiber(task)
       return if @tick_fiber

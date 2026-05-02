@@ -74,6 +74,70 @@ RSpec.describe Sidereal::Scheduler do
     end
   end
 
+  describe '#schedule with from:/to:' do
+    let(:from_t) { Time.local(2026, 6, 1, 0, 0, 0) }
+    let(:to_t)   { Time.local(2026, 6, 1, 23, 59, 59) }
+
+    it 'accepts Time objects unchanged' do
+      scheduler.schedule('Daily', '5 0 * * *', from: from_t, to: to_t) {}
+      sch = scheduler.schedules.first
+      expect(sch.from).to eq(from_t)
+      expect(sch.to).to eq(to_t)
+    end
+
+    it 'parses ISO8601 strings to Time' do
+      scheduler.schedule('Daily', '5 0 * * *',
+                         from: '2026-02-03T10:00:00Z',
+                         to: '2026-10-01T00:00:00Z') {}
+      sch = scheduler.schedules.first
+      expect(sch.from).to be_a(Time)
+      expect(sch.from).to eq(Time.utc(2026, 2, 3, 10, 0, 0))
+      expect(sch.to).to be_a(Time)
+      expect(sch.to).to eq(Time.utc(2026, 10, 1, 0, 0, 0))
+    end
+
+    it 'normalises DateTime via .to_time' do
+      require 'date'
+      dt = DateTime.new(2026, 6, 1, 12, 0, 0)
+      scheduler.schedule('Daily', '5 0 * * *', from: dt, to: dt + 30) {}
+      expect(scheduler.schedules.first.from).to be_a(Time)
+    end
+
+    it 'raises ArgumentError on a non-Time, non-String, non-DateTime input' do
+      expect {
+        scheduler.schedule('Bad', '5 0 * * *', from: 12345) {}
+      }.to raise_error(ArgumentError, /expected Time, DateTime, or ISO8601 String/)
+    end
+
+    it 'raises when both bounds are given and the cron never fires inside the window' do
+      # Daily at 00:05 with a 30-minute window starting at 12:00 — never fires.
+      expect {
+        scheduler.schedule('Daily', '5 0 * * *',
+                           from: Time.local(2026, 6, 1, 12, 0, 0),
+                           to:   Time.local(2026, 6, 1, 12, 30, 0)) {}
+      }.to raise_error(ArgumentError, /never fires inside the window/)
+    end
+
+    it 'accepts only from: without validation' do
+      expect {
+        scheduler.schedule('Hourly from now', '0 * * * *', from: Time.now) {}
+      }.not_to raise_error
+    end
+
+    it 'accepts only to: without validation' do
+      expect {
+        scheduler.schedule('Hourly until far future', '0 * * * *', to: Time.now + 86400) {}
+      }.not_to raise_error
+    end
+
+    it 'leaves from/to nil when not provided (existing schedules)' do
+      scheduler.schedule('Plain', '5 0 * * *') {}
+      sch = scheduler.schedules.first
+      expect(sch.from).to be_nil
+      expect(sch.to).to be_nil
+    end
+  end
+
   describe '#find' do
     it 'returns the registered schedule by integer id' do
       scheduler.schedule('First', '* * * * *') {}
@@ -157,6 +221,56 @@ RSpec.describe Sidereal::Scheduler do
       advance(120)
       scheduler.tick
       expect(scheduler.schedules.first).to eq(original)
+    end
+  end
+
+  describe '#tick with windowed schedules' do
+    it 'skips a schedule whose from: is still in the future' do
+      scheduler.schedule('Every minute', '* * * * *', from: t0 + 60) {}
+      scheduler.tick           # baseline at t0
+      advance(30)              # now = t0 + 30, before from
+      scheduler.tick
+
+      expect(store.appended).to be_empty
+    end
+
+    it 'fires once from: has passed and a cron boundary fell inside the active window' do
+      scheduler.schedule('Every minute', '* * * * *', from: t0 + 60) {}
+      scheduler.tick           # baseline at t0
+      advance(90)              # now = t0 + 90 — past from + crossed t0+60 minute boundary
+      scheduler.tick
+
+      expect(store.appended.size).to eq(1)
+    end
+
+    it 'fires before to:, skips after to:' do
+      scheduler.schedule('Every minute', '* * * * *', to: t0 + 90) {}
+      scheduler.tick           # baseline at t0
+      advance(60)              # now = t0 + 60 — before to:, boundary crossed
+      scheduler.tick
+      expect(store.appended.size).to eq(1)
+
+      advance(120)             # now = t0 + 180 — past to:
+      scheduler.tick
+      expect(store.appended.size).to eq(1)   # no new fire
+    end
+
+    it 'with both bounds, fires inside the window and skips outside' do
+      scheduler.schedule('Every minute', '* * * * *',
+                         from: t0 + 60, to: t0 + 180) {}
+
+      scheduler.tick           # baseline at t0
+      advance(30)              # before from
+      scheduler.tick
+      expect(store.appended.size).to eq(0)
+
+      advance(60)              # now = t0 + 90 — inside window, boundary at t0+60 crossed
+      scheduler.tick
+      expect(store.appended.size).to eq(1)
+
+      advance(180)             # now = t0 + 270 — past to:
+      scheduler.tick
+      expect(store.appended.size).to eq(1)   # no further fire
     end
   end
 
