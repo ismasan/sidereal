@@ -1,7 +1,11 @@
 # frozen_string_literal: true
 
+require_relative 'scheduling'
+
 module Sidereal
   class Commander
+    extend Scheduling
+
     CMD_METHOD_PREFIX = '__cmd_'
     CMD_HASH = Types::Hash[type: String, payload?: Hash]
     DEFAULT_CMD_HANDLER = ->(*_) {}

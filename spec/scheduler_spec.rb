@@ -2,12 +2,6 @@
 
 require 'spec_helper'
 
-# -- Test messages --
-
-SchedTick = Sidereal::Message.define('test.sched_tick') do
-  attribute :n, Sidereal::Types::Integer
-end
-
 # -- Fake store: records appends without async machinery --
 
 class RecordingStore
@@ -20,18 +14,6 @@ class RecordingStore
   def append(msg)
     @appended << msg
     true
-  end
-end
-
-class FakePubSub
-  attr_reader :published
-
-  def initialize
-    @published = []
-  end
-
-  def publish(channel, message)
-    @published << { channel: channel, message: message }
   end
 end
 
@@ -190,58 +172,6 @@ RSpec.describe Sidereal::Scheduler do
       scheduler.schedule('* * * * *') { record(:no_arg_block) }
       expect { scheduler.find(0).run_in(recorder, fake_cmd) }.not_to raise_error
       expect(recorder.seen).to eq([:no_arg_block])
-    end
-  end
-
-  describe 'integration with App.schedule' do
-    before { Sidereal.reset_scheduler! }
-    after { Sidereal.reset_scheduler! }
-
-    it 'registers on Sidereal.scheduler when called via App.schedule' do
-      Class.new(Sidereal::App) do
-        schedule '*/5 * * * *' do
-        end
-      end
-      expect(Sidereal.scheduler.schedules.size).to eq(1)
-      expect(Sidereal.scheduler.schedules.first.cron_expr).to eq('*/5 * * * *')
-    end
-
-    it 'TriggerSchedule handler runs the schedule block in the Commander instance and yields the cmd' do
-      app_class = Class.new(Sidereal::App) do
-        command SchedTick do |_cmd|
-          # registered so dispatch routes SchedTick to commands, not events
-        end
-        schedule '*/5 * * * *' do |cmd|
-          # Read the producer from the cmd's metadata to prove the cmd is yielded.
-          dispatch SchedTick, n: cmd.metadata[:producer].length
-        end
-      end
-
-      sch = Sidereal.scheduler.schedules.first
-      trigger = Sidereal::System::TriggerSchedule.new(
-        payload: { schedule_id: sch.id },
-        metadata: { producer: sch.name }
-      )
-      result = app_class.commander.handle(trigger, pubsub: FakePubSub.new)
-
-      expect(result.commands.size).to eq(1)
-      dispatched = result.commands.first
-      expect(dispatched).to be_a(SchedTick)
-      expect(dispatched.payload.n).to eq(sch.name.length)
-      # Causation chain: the dispatched command points back at the TriggerSchedule.
-      expect(dispatched.causation_id).to eq(trigger.id)
-      expect(dispatched.correlation_id).to eq(trigger.correlation_id)
-    end
-
-    it 'TriggerSchedule handler is a no-op when the schedule_id is unknown (e.g. removed)' do
-      app_class = Class.new(Sidereal::App) do
-        # No schedule registered.
-      end
-
-      trigger = Sidereal::System::TriggerSchedule.new(payload: { schedule_id: 999 })
-      expect {
-        app_class.commander.handle(trigger, pubsub: FakePubSub.new)
-      }.not_to raise_error
     end
   end
 

@@ -20,6 +20,10 @@ TestNotification = Sidereal::Message.define('test.notification') do
   attribute :text, Sidereal::Types::String
 end
 
+TestSchedTick = Sidereal::Message.define('test.sched_tick') do
+  attribute :n, Sidereal::Types::Integer
+end
+
 # -- Fake pubsub --
 
 class FakePubSub
@@ -74,6 +78,55 @@ RSpec.describe Sidereal::Commander do
 
       cmd = TestAddItem.new(payload: { title: 'test' })
       expect { cmdr_class.handle(cmd, pubsub: pubsub) }.not_to raise_error
+    end
+  end
+
+  describe '.schedule (Scheduling mixin)' do
+    before { Sidereal.reset_scheduler! }
+    after { Sidereal.reset_scheduler! }
+
+    it 'registers the schedule with Sidereal.scheduler' do
+      Class.new(Sidereal::Commander) do
+        schedule '*/5 * * * *' do
+        end
+      end
+
+      expect(Sidereal.scheduler.schedules.size).to eq(1)
+      expect(Sidereal.scheduler.schedules.first.cron_expr).to eq('*/5 * * * *')
+    end
+
+    it 'installs a TriggerSchedule handler that runs the schedule block in the commander instance and yields the cmd' do
+      cmdr_class = Class.new(Sidereal::Commander) do
+        command TestSchedTick do |_cmd|
+          # registered so dispatch routes TestSchedTick to commands, not events
+        end
+        schedule '*/5 * * * *' do |cmd|
+          # Read the producer from the cmd's metadata to prove the cmd is yielded.
+          dispatch TestSchedTick, n: cmd.metadata[:producer].length
+        end
+      end
+
+      sch = Sidereal.scheduler.schedules.first
+      trigger = Sidereal::System::TriggerSchedule.new(
+        payload: { schedule_id: sch.id },
+        metadata: { producer: sch.name }
+      )
+      result = cmdr_class.handle(trigger, pubsub: pubsub)
+
+      expect(result.commands.size).to eq(1)
+      dispatched = result.commands.first
+      expect(dispatched).to be_a(TestSchedTick)
+      expect(dispatched.payload.n).to eq(sch.name.length)
+      # Causation chain: the dispatched command points back at the TriggerSchedule.
+      expect(dispatched.causation_id).to eq(trigger.id)
+      expect(dispatched.correlation_id).to eq(trigger.correlation_id)
+    end
+
+    it 'is a no-op when the schedule_id is unknown (e.g. removed between dispatch and handle)' do
+      cmdr_class = Class.new(Sidereal::Commander)
+
+      trigger = Sidereal::System::TriggerSchedule.new(payload: { schedule_id: 999 })
+      expect { cmdr_class.handle(trigger, pubsub: pubsub) }.not_to raise_error
     end
   end
 

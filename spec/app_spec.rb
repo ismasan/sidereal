@@ -292,3 +292,21 @@ RSpec.describe 'Sidereal::App.handle' do
     end
   end
 end
+
+# Thin App-level test — App.schedule delegates to its commander, which has
+# the Scheduling mixin. Behaviour of the TriggerSchedule handler is covered
+# in commander_spec.rb.
+RSpec.describe 'Sidereal::App.schedule' do
+  before { Sidereal.reset_scheduler! }
+  after { Sidereal.reset_scheduler! }
+
+  it 'delegates to the App.commander and registers with Sidereal.scheduler' do
+    Class.new(Sidereal::App) do
+      schedule '*/5 * * * *' do
+      end
+    end
+
+    expect(Sidereal.scheduler.schedules.size).to eq(1)
+    expect(Sidereal.scheduler.schedules.first.cron_expr).to eq('*/5 * * * *')
+  end
+end
