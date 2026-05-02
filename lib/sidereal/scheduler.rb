@@ -70,12 +70,14 @@ module Sidereal
       end
     end
 
-    def initialize(tick_interval: DEFAULT_TICK_INTERVAL, clock: -> { Time.now }, store: nil)
+    def initialize(tick_interval: DEFAULT_TICK_INTERVAL, clock: -> { Time.now }, store: nil, elector: nil)
       @tick_interval = tick_interval
       @clock = clock
       @store = store
+      @elector = elector            # nil = resolve from Sidereal.elector at start time
       @schedules = []
       @last_tick_at = nil
+      @tick_fiber = nil
     end
 
     # Register a cron-scheduled block. Idempotency on duplicate
@@ -93,15 +95,15 @@ module Sidereal
     # @return [Array<Schedule>] copy of the registered schedules
     def schedules = @schedules.dup
 
-    # Spawn the tick fiber as a child of +task+. Mirrors
-    # {Sidereal::Dispatcher.start} — returns self.
+    # Wire the tick fiber's lifecycle to the elector: spawn when this
+    # process is leader, stop when demoted. With the default
+    # {Elector::AlwaysLeader}, +on_promote+ fires immediately on
+    # registration and the fiber starts straight away — same behaviour
+    # as before electors existed.
     def start(task)
-      task.async do
-        loop do
-          tick
-          sleep @tick_interval
-        end
-      end
+      elector = @elector || Sidereal.elector
+      elector.on_promote { spawn_tick_fiber(task) }
+      elector.on_demote { stop_tick_fiber }
       self
     end
 
@@ -126,6 +128,27 @@ module Sidereal
       run.call
     rescue StandardError => ex
       Console.error(self, 'scheduled block raised', cron: run.cron_expr, exception: ex)
+    end
+
+    def spawn_tick_fiber(task)
+      return if @tick_fiber
+
+      @tick_fiber = task.async do
+        loop do
+          tick
+          sleep @tick_interval
+        end
+      end
+    end
+
+    def stop_tick_fiber
+      f = @tick_fiber
+      @tick_fiber = nil
+      f&.stop
+      # Reset cursor so the next promotion starts a fresh window — without
+      # this, a long demotion would cause a one-shot fire on re-promotion
+      # for any cron whose boundary fell during the demotion.
+      @last_tick_at = nil
     end
   end
 end

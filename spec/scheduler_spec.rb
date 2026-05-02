@@ -225,4 +225,56 @@ RSpec.describe Sidereal::Scheduler do
       expect(fired.size).to be >= 1
     end
   end
+
+  describe 'elector integration' do
+    # Test elector that exposes promote!/demote! for direct manipulation.
+    # Mirrors the helper in spec/elector_spec.rb but redefined here so
+    # the file stays self-contained.
+    let(:test_elector_class) do
+      Class.new do
+        include Sidereal::Elector::Callbacks
+        def initialize = @leader = false
+        def leader? = @leader
+        def start(_task) = self
+        public :promote!, :demote!
+      end
+    end
+
+    let(:elector) { test_elector_class.new }
+
+    it 'does not tick while the elector reports follower' do
+      sched = described_class.new(tick_interval: 0.02, store: store, elector: elector)
+      sched.schedule('* * * * * *') { dispatch SchedTick, n: 1 }
+
+      Sync do |task|
+        sched.start(task)
+        sleep 1.2     # would fire ~1× under AlwaysLeader, but we're follower
+        task.stop
+      end
+
+      expect(store.appended).to be_empty
+    end
+
+    it 'starts ticking on promotion and stops on demotion' do
+      sched = described_class.new(tick_interval: 0.02, store: store, elector: elector)
+      sched.schedule('* * * * * *') { dispatch SchedTick, n: 1 }
+
+      Sync do |task|
+        sched.start(task)
+        sleep 0.1
+        expect(store.appended).to be_empty   # not leader yet
+
+        elector.promote!
+        sleep 1.2                             # leader now: ~1 fire expected
+        expect(store.appended.size).to be >= 1
+
+        elector.demote!
+        before = store.appended.size
+        sleep 1.2                             # demoted: no further fires
+        expect(store.appended.size).to eq(before)
+
+        task.stop
+      end
+    end
+  end
 end

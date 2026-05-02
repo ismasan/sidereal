@@ -10,6 +10,7 @@ module Sidereal
 
   DispatcherInterface = Types::Interface[:start]
   PubsubInterface = Types::Interface[:start, :subscribe, :publish]
+  ElectorInterface = Types::Interface[:start, :on_promote, :on_demote, :leader?]
   # Sidereal apps only append to stores
   # It's up to dispatcher implementations how to use the store to claim commands
   # Ex. Sourced's store has a more sophisticated claim mechanism than Sidereal::Store
@@ -24,13 +25,14 @@ module Sidereal
 
   class Configuration
     attr_accessor :workers
-    attr_reader :store, :pubsub, :dispatcher
+    attr_reader :store, :pubsub, :dispatcher, :elector
 
     def initialize(workers: 25)
       @workers = workers
       @pubsub = PubSub::Memory.instance
       @store = Store::Memory.instance
       @dispatcher = Sidereal::Dispatcher
+      @elector = Elector::AlwaysLeader.new
     end
 
     def store=(s)
@@ -43,6 +45,10 @@ module Sidereal
 
     def dispatcher=(d)
       @dispatcher = DispatcherInterface.parse(d)
+    end
+
+    def elector=(e)
+      @elector = ElectorInterface.parse(e)
     end
   end
 
@@ -79,6 +85,7 @@ module Sidereal
   def self.pubsub = config.pubsub
   def self.store = config.store
   def self.dispatcher = config.dispatcher
+  def self.elector = config.elector
 
   # Build (if needed) and append a command to the configured {.store} from
   # outside the request/handler lifecycle. Use this from CLIs, consoles,
@@ -136,6 +143,7 @@ require_relative 'sidereal/store'
 require_relative 'sidereal/store/memory'
 require_relative 'sidereal/registry'
 require_relative 'sidereal/dispatcher'
+require_relative 'sidereal/elector'
 require_relative 'sidereal/scheduler'
 require_relative 'sidereal/app'
 require_relative 'sidereal/components/command'
