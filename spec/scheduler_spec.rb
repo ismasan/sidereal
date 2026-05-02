@@ -163,16 +163,33 @@ RSpec.describe Sidereal::Scheduler do
   end
 
   describe 'Schedule#run_in' do
-    it 'instance_execs the block on the given context' do
-      recorder = Class.new do
+    let(:recorder) do
+      Class.new do
         attr_reader :seen
         def record(value); (@seen ||= []) << value; end
       end.new
+    end
 
+    let(:fake_cmd) { Object.new }
+
+    it 'instance_execs the block on the given context' do
       scheduler.schedule('* * * * *') { record(:fired) }
-      scheduler.find(0).run_in(recorder)
+      scheduler.find(0).run_in(recorder, fake_cmd)
 
       expect(recorder.seen).to eq([:fired])
+    end
+
+    it 'yields the triggering cmd to the block' do
+      scheduler.schedule('* * * * *') { |cmd| record(cmd) }
+      scheduler.find(0).run_in(recorder, fake_cmd)
+
+      expect(recorder.seen).to eq([fake_cmd])
+    end
+
+    it 'tolerates blocks that do not declare a cmd parameter (proc semantics)' do
+      scheduler.schedule('* * * * *') { record(:no_arg_block) }
+      expect { scheduler.find(0).run_in(recorder, fake_cmd) }.not_to raise_error
+      expect(recorder.seen).to eq([:no_arg_block])
     end
   end
 
@@ -189,24 +206,28 @@ RSpec.describe Sidereal::Scheduler do
       expect(Sidereal.scheduler.schedules.first.cron_expr).to eq('*/5 * * * *')
     end
 
-    it 'TriggerSchedule handler runs the schedule block in the Commander instance' do
+    it 'TriggerSchedule handler runs the schedule block in the Commander instance and yields the cmd' do
       app_class = Class.new(Sidereal::App) do
         command SchedTick do |_cmd|
           # registered so dispatch routes SchedTick to commands, not events
         end
-        schedule '*/5 * * * *' do
-          dispatch SchedTick, n: 42
+        schedule '*/5 * * * *' do |cmd|
+          # Read the producer from the cmd's metadata to prove the cmd is yielded.
+          dispatch SchedTick, n: cmd.metadata[:producer].length
         end
       end
 
       sch = Sidereal.scheduler.schedules.first
-      trigger = Sidereal::System::TriggerSchedule.new(payload: { schedule_id: sch.id })
+      trigger = Sidereal::System::TriggerSchedule.new(
+        payload: { schedule_id: sch.id },
+        metadata: { producer: sch.name }
+      )
       result = app_class.commander.handle(trigger, pubsub: FakePubSub.new)
 
       expect(result.commands.size).to eq(1)
       dispatched = result.commands.first
       expect(dispatched).to be_a(SchedTick)
-      expect(dispatched.payload.n).to eq(42)
+      expect(dispatched.payload.n).to eq(sch.name.length)
       # Causation chain: the dispatched command points back at the TriggerSchedule.
       expect(dispatched.causation_id).to eq(trigger.id)
       expect(dispatched.correlation_id).to eq(trigger.correlation_id)

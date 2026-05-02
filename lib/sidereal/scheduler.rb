@@ -41,8 +41,13 @@ module Sidereal
       # Execute the schedule's block on +context+ via instance_exec, so
       # the block sees +context+'s methods (typically a Commander
       # instance, exposing +dispatch+, +broadcast+, +pubsub+, etc.).
-      def run_in(context)
-        context.instance_exec(&block)
+      # The triggering +cmd+ (the +TriggerSchedule+ being handled) is
+      # yielded as the block's argument, so the block can read its
+      # +metadata+ (e.g. +cmd.metadata[:producer]+) or +id+ for
+      # idempotency keys. Blocks that don't declare a parameter
+      # silently discard +cmd+ (proc semantics).
+      def run_in(context, cmd)
+        context.instance_exec(cmd, &block)
       end
     end
 

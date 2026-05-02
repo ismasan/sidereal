@@ -157,7 +157,7 @@ module Sidereal
           schedule = Sidereal.scheduler.find(cmd.payload.schedule_id)
           return unless schedule
 
-          schedule.run_in(self)
+          schedule.run_in(self, cmd)
         end
         self
       end
