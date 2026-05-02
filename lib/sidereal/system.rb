@@ -49,5 +49,9 @@ module Sidereal
       attribute :error_message, Sidereal::Types::String
       attribute :backtrace, Sidereal::Types::Array.default([].freeze)
     end
+
+    TriggerSchedule = Notification.define('sidereal.system.trigger_schedule') do
+      attribute :schedule_id, Sidereal::Types::Integer
+    end
   end
 end

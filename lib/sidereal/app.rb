@@ -152,6 +152,13 @@ module Sidereal
       # @return [self]
       def schedule(cron_expr, &block)
         Sidereal.scheduler.schedule(cron_expr, &block)
+
+        command Sidereal::System::TriggerSchedule do |cmd|
+          schedule = Sidereal.scheduler.find(cmd.payload.schedule_id)
+          return unless schedule
+
+          schedule.run_in(self)
+        end
         self
       end
 

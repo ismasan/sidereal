@@ -8,8 +8,6 @@ SchedTick = Sidereal::Message.define('test.sched_tick') do
   attribute :n, Sidereal::Types::Integer
 end
 
-SchedNoPayload = Sidereal::Message.define('test.sched_no_payload')
-
 # -- Fake store: records appends without async machinery --
 
 class RecordingStore
@@ -22,6 +20,18 @@ class RecordingStore
   def append(msg)
     @appended << msg
     true
+  end
+end
+
+class FakePubSub
+  attr_reader :published
+
+  def initialize
+    @published = []
+  end
+
+  def publish(channel, message)
+    @published << { channel: channel, message: message }
   end
 end
 
@@ -41,12 +51,26 @@ RSpec.describe Sidereal::Scheduler do
   subject(:scheduler) { described_class.new(clock: clock, store: store) }
 
   describe '#schedule' do
-    it 'parses the cron and adds an immutable Schedule' do
+    it 'parses the cron and adds an immutable Schedule with a monotonic integer id' do
       scheduler.schedule('* * * * *') {}
-      expect(scheduler.schedules.size).to eq(1)
-      sch = scheduler.schedules.first
-      expect(sch).to be_frozen
-      expect(sch.cron_expr).to eq('* * * * *')
+      scheduler.schedule('5 0 * * *') {}
+      scheduler.schedule('*/10 * * * *') {}
+
+      ids = scheduler.schedules.map(&:id)
+      expect(ids).to eq([0, 1, 2])
+
+      first = scheduler.schedules.first
+      expect(first).to be_frozen
+      expect(first.cron_expr).to eq('* * * * *')
+    end
+
+    it 'allows multiple schedules sharing the same cron expression' do
+      scheduler.schedule('5 0 * * *') {}
+      scheduler.schedule('5 0 * * *') {}
+
+      expect(scheduler.schedules.size).to eq(2)
+      expect(scheduler.schedules.map(&:id)).to eq([0, 1])
+      expect(scheduler.schedules.map(&:cron_expr)).to eq(['5 0 * * *', '5 0 * * *'])
     end
 
     it 'raises ArgumentError on a malformed cron expression' do
@@ -54,42 +78,82 @@ RSpec.describe Sidereal::Scheduler do
     end
   end
 
+  describe '#find' do
+    it 'returns the registered schedule by integer id' do
+      scheduler.schedule('* * * * *') {}
+      scheduler.schedule('5 0 * * *') {}
+
+      expect(scheduler.find(0).cron_expr).to eq('* * * * *')
+      expect(scheduler.find(1).cron_expr).to eq('5 0 * * *')
+    end
+
+    it 'returns nil for an unknown id' do
+      expect(scheduler.find(99)).to be_nil
+    end
+  end
+
   describe '#tick' do
     it 'fires nothing on the first tick (window is empty)' do
-      scheduler.schedule('* * * * *') { dispatch SchedTick, n: 1 }
+      scheduler.schedule('* * * * *') {}
       scheduler.tick
       expect(store.appended).to be_empty
     end
 
-    it 'fires a schedule whose next firing falls inside (last_tick_at, now]' do
-      scheduler.schedule('* * * * *') { dispatch SchedTick, n: 1 }
-      scheduler.tick           # baseline = t0; nothing fires
-      advance(60)              # cross one minute boundary
+    it 'dispatches a TriggerSchedule when a schedule fires inside (last_tick_at, now]' do
+      scheduler.schedule('* * * * *') {}
+      scheduler.tick           # baseline
+      advance(60)
       scheduler.tick
+
       expect(store.appended.size).to eq(1)
-      expect(store.appended.first.payload.n).to eq(1)
+      msg = store.appended.first
+      expect(msg).to be_a(Sidereal::System::TriggerSchedule)
+      expect(msg.payload.schedule_id).to eq(0)
+      expect(msg.metadata[:producer]).to eq('* * * * *')
     end
 
-    it 'fires each schedule at most once per tick (no catch-up — matches crond)' do
-      scheduler.schedule('* * * * *') { dispatch SchedTick, n: 1 }
-      scheduler.tick           # baseline tick
-      advance(5 * 60 + 30)     # jump 5.5 minutes — 5 boundaries crossed
-      scheduler.tick
-      expect(store.appended.size).to eq(1)
-    end
-
-    it 'continues running when a scheduled block raises' do
-      scheduler.schedule('* * * * *') { raise 'boom' }
-      scheduler.schedule('* * * * *') { dispatch SchedTick, n: 99 }
+    it 'dispatches one TriggerSchedule per due schedule, even when crons overlap' do
+      scheduler.schedule('* * * * *') {}
+      scheduler.schedule('* * * * *') {}
       scheduler.tick
       advance(60)
       scheduler.tick
+
+      expect(store.appended.size).to eq(2)
+      expect(store.appended.map { |m| m.payload.schedule_id }).to contain_exactly(0, 1)
+    end
+
+    it 'fires each schedule at most once per tick (no catch-up — matches crond)' do
+      scheduler.schedule('* * * * *') {}
+      scheduler.tick
+      advance(5 * 60 + 30)
+      scheduler.tick
+
       expect(store.appended.size).to eq(1)
-      expect(store.appended.first.payload.n).to eq(99)
+    end
+
+    it 'continues running when a store append raises for one schedule' do
+      flaky = Class.new(RecordingStore) do
+        def append(msg)
+          raise 'first one fails' if @appended.empty? && msg.payload.schedule_id.zero?
+          super
+        end
+      end.new
+      sched = described_class.new(clock: clock, store: flaky)
+      sched.schedule('* * * * *') {}
+      sched.schedule('* * * * *') {}
+
+      sched.tick
+      advance(60)
+      sched.tick
+
+      # Second schedule still gets its TriggerSchedule even though the first raised.
+      expect(flaky.appended.size).to eq(1)
+      expect(flaky.appended.first.payload.schedule_id).to eq(1)
     end
 
     it 'does not mutate registered Schedules across ticks' do
-      scheduler.schedule('* * * * *') { dispatch SchedTick, n: 1 }
+      scheduler.schedule('* * * * *') {}
       original = scheduler.schedules.first
       scheduler.tick
       advance(120)
@@ -98,99 +162,17 @@ RSpec.describe Sidereal::Scheduler do
     end
   end
 
-  describe 'Run#dispatch' do
-    it 'stamps metadata[:producer] with the cron expression on Class+Hash form' do
-      scheduler.schedule('5 0 * * *') { dispatch SchedTick, n: 7 }
-      scheduler.tick
-      advance(24 * 3600)
-      scheduler.tick
+  describe 'Schedule#run_in' do
+    it 'instance_execs the block on the given context' do
+      recorder = Class.new do
+        attr_reader :seen
+        def record(value); (@seen ||= []) << value; end
+      end.new
 
-      msg = store.appended.last
-      expect(msg).to be_a(SchedTick)
-      expect(msg.payload.n).to eq(7)
-      expect(msg.metadata[:producer]).to eq('5 0 * * *')
-    end
+      scheduler.schedule('* * * * *') { record(:fired) }
+      scheduler.find(0).run_in(recorder)
 
-    it 'supports the bare Class form (no payload)' do
-      scheduler.schedule('* * * * *') { dispatch SchedNoPayload }
-      scheduler.tick
-      advance(60)
-      scheduler.tick
-
-      msg = store.appended.last
-      expect(msg).to be_a(SchedNoPayload)
-      expect(msg.metadata[:producer]).to eq('* * * * *')
-    end
-
-    it 'merges :producer into a pre-built Message instance' do
-      scheduler.schedule('* * * * *') do
-        msg = SchedTick.new(payload: { n: 42 }, metadata: { extra: 'x' })
-        dispatch msg
-      end
-      scheduler.tick
-      advance(60)
-      scheduler.tick
-
-      msg = store.appended.last
-      expect(msg.payload.n).to eq(42)
-      expect(msg.metadata[:producer]).to eq('* * * * *')
-      expect(msg.metadata[:extra]).to eq('x')
-    end
-
-    # Validation paths — Run#dispatch must refuse to enqueue invalid commands.
-    # The raise is caught by Scheduler#fire (logged), so the schedule itself
-    # keeps running but nothing reaches the store.
-    it 'raises Plumb::ParseError when Class+Hash form has an invalid payload' do
-      raised = nil
-      scheduler.schedule('* * * * *') do
-        begin
-          dispatch SchedTick, n: 'not_an_integer'
-        rescue Plumb::ParseError => ex
-          raised = ex
-        end
-      end
-      scheduler.tick
-      advance(60)
-      scheduler.tick
-
-      expect(raised).to be_a(Plumb::ParseError)
-      expect(raised.message).to include('Integer')
-      expect(store.appended).to be_empty
-    end
-
-    it 'raises Plumb::ParseError when bare Class form omits required payload attrs' do
-      raised = nil
-      scheduler.schedule('* * * * *') do
-        begin
-          dispatch SchedTick   # no :n provided, payload defaults to {}
-        rescue Plumb::ParseError => ex
-          raised = ex
-        end
-      end
-      scheduler.tick
-      advance(60)
-      scheduler.tick
-
-      expect(raised).to be_a(Plumb::ParseError)
-      expect(store.appended).to be_empty
-    end
-
-    it 'raises Plumb::ParseError when given a pre-built invalid Message' do
-      raised = nil
-      scheduler.schedule('* * * * *') do
-        begin
-          bad = SchedTick.new(payload: {})   # invalid: missing :n
-          dispatch bad
-        rescue Plumb::ParseError => ex
-          raised = ex
-        end
-      end
-      scheduler.tick
-      advance(60)
-      scheduler.tick
-
-      expect(raised).to be_a(Plumb::ParseError)
-      expect(store.appended).to be_empty
+      expect(recorder.seen).to eq([:fired])
     end
   end
 
@@ -201,19 +183,51 @@ RSpec.describe Sidereal::Scheduler do
     it 'registers on Sidereal.scheduler when called via App.schedule' do
       Class.new(Sidereal::App) do
         schedule '*/5 * * * *' do
-          dispatch SchedTick, n: 0
         end
       end
       expect(Sidereal.scheduler.schedules.size).to eq(1)
       expect(Sidereal.scheduler.schedules.first.cron_expr).to eq('*/5 * * * *')
     end
+
+    it 'TriggerSchedule handler runs the schedule block in the Commander instance' do
+      app_class = Class.new(Sidereal::App) do
+        command SchedTick do |_cmd|
+          # registered so dispatch routes SchedTick to commands, not events
+        end
+        schedule '*/5 * * * *' do
+          dispatch SchedTick, n: 42
+        end
+      end
+
+      sch = Sidereal.scheduler.schedules.first
+      trigger = Sidereal::System::TriggerSchedule.new(payload: { schedule_id: sch.id })
+      result = app_class.commander.handle(trigger, pubsub: FakePubSub.new)
+
+      expect(result.commands.size).to eq(1)
+      dispatched = result.commands.first
+      expect(dispatched).to be_a(SchedTick)
+      expect(dispatched.payload.n).to eq(42)
+      # Causation chain: the dispatched command points back at the TriggerSchedule.
+      expect(dispatched.causation_id).to eq(trigger.id)
+      expect(dispatched.correlation_id).to eq(trigger.correlation_id)
+    end
+
+    it 'TriggerSchedule handler is a no-op when the schedule_id is unknown (e.g. removed)' do
+      app_class = Class.new(Sidereal::App) do
+        # No schedule registered.
+      end
+
+      trigger = Sidereal::System::TriggerSchedule.new(payload: { schedule_id: 999 })
+      expect {
+        app_class.commander.handle(trigger, pubsub: FakePubSub.new)
+      }.not_to raise_error
+    end
   end
 
   describe 'fiber lifecycle' do
     it 'fires at least once when started under a real Async task with a fast tick interval' do
-      fired = []
       sched = described_class.new(tick_interval: 0.05, store: store)
-      sched.schedule('* * * * * *') { fired << Time.now }
+      sched.schedule('* * * * * *') {}
 
       Sync do |task|
         sched.start(task)
@@ -222,14 +236,12 @@ RSpec.describe Sidereal::Scheduler do
         task.stop
       end
 
-      expect(fired.size).to be >= 1
+      expect(store.appended.size).to be >= 1
+      expect(store.appended.first).to be_a(Sidereal::System::TriggerSchedule)
     end
   end
 
   describe 'elector integration' do
-    # Test elector that exposes promote!/demote! for direct manipulation.
-    # Mirrors the helper in spec/elector_spec.rb but redefined here so
-    # the file stays self-contained.
     let(:test_elector_class) do
       Class.new do
         include Sidereal::Elector::Callbacks
@@ -244,11 +256,11 @@ RSpec.describe Sidereal::Scheduler do
 
     it 'does not tick while the elector reports follower' do
       sched = described_class.new(tick_interval: 0.02, store: store, elector: elector)
-      sched.schedule('* * * * * *') { dispatch SchedTick, n: 1 }
+      sched.schedule('* * * * * *') {}
 
       Sync do |task|
         sched.start(task)
-        sleep 1.2     # would fire ~1× under AlwaysLeader, but we're follower
+        sleep 1.2
         task.stop
       end
 
@@ -257,7 +269,7 @@ RSpec.describe Sidereal::Scheduler do
 
     it 'starts ticking on promotion and stops on demotion' do
       sched = described_class.new(tick_interval: 0.02, store: store, elector: elector)
-      sched.schedule('* * * * * *') { dispatch SchedTick, n: 1 }
+      sched.schedule('* * * * * *') {}
 
       Sync do |task|
         sched.start(task)
@@ -265,12 +277,12 @@ RSpec.describe Sidereal::Scheduler do
         expect(store.appended).to be_empty   # not leader yet
 
         elector.promote!
-        sleep 1.2                             # leader now: ~1 fire expected
+        sleep 1.2
         expect(store.appended.size).to be >= 1
 
         elector.demote!
         before = store.appended.size
-        sleep 1.2                             # demoted: no further fires
+        sleep 1.2
         expect(store.appended.size).to eq(before)
 
         task.stop
