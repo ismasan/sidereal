@@ -36,6 +36,8 @@ module Sidereal
     # in registration order, used by +TriggerSchedule.payload.schedule_id+
     # to look the schedule back up at handle time.
     Schedule = Data.define(:id, :cron_expr, :cron, :block) do
+      def name = "Schedule ##{id} (#{cron_expr})"
+
       # Execute the schedule's block on +context+ via instance_exec, so
       # the block sees +context+'s methods (typically a Commander
       # instance, exposing +dispatch+, +broadcast+, +pubsub+, etc.).
@@ -105,7 +107,7 @@ module Sidereal
           store.append(
             Sidereal::System::TriggerSchedule.new(
               payload: { schedule_id: sch.id },
-              metadata: { producer: sch.cron_expr }
+              metadata: { producer: sch.name }
             )
           )
         rescue StandardError => ex

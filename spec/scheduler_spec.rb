@@ -109,7 +109,7 @@ RSpec.describe Sidereal::Scheduler do
       msg = store.appended.first
       expect(msg).to be_a(Sidereal::System::TriggerSchedule)
       expect(msg.payload.schedule_id).to eq(0)
-      expect(msg.metadata[:producer]).to eq('* * * * *')
+      expect(msg.metadata[:producer]).to eq('Schedule #0 (* * * * *)')
     end
 
     it 'dispatches one TriggerSchedule per due schedule, even when crons overlap' do
