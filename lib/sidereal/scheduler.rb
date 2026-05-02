@@ -51,7 +51,7 @@ module Sidereal
       @clock = clock
       @store = store
       @elector = elector            # nil = resolve from Sidereal.elector at start time
-      @schedules = []
+      @schedules = {}               # id => Schedule, insertion order = registration order
       @last_tick_at = nil
       @tick_fiber = nil
     end
@@ -66,18 +66,16 @@ module Sidereal
     def schedule(cron_expr, &block)
       cron = Fugit.parse_cron(cron_expr) or raise ArgumentError, "invalid cron: #{cron_expr.inspect}"
       id = @schedules.size
-      @schedules << Schedule.new(id:, cron_expr:, cron:, block:)
+      @schedules[id] = Schedule.new(id:, cron_expr:, cron:, block:)
       self
     end
 
-    # @return [Array<Schedule>] copy of the registered schedules
-    def schedules = @schedules.dup
+    # @return [Array<Schedule>] registered schedules in registration order
+    def schedules = @schedules.values
 
-    # Look up a registered schedule by its integer ID.
+    # Look up a registered schedule by its integer ID. O(1) hash lookup.
     # @return [Schedule, nil]
-    def find(id)
-      @schedules.find { |s| s.id == id }
-    end
+    def find(id) = @schedules[id]
 
     # Wire the tick fiber's lifecycle to the elector: spawn when this
     # process is leader, stop when demoted. With the default
@@ -99,7 +97,7 @@ module Sidereal
       baseline = @last_tick_at || now
       store = @store || Sidereal.store
 
-      @schedules.each do |sch|
+      @schedules.each_value do |sch|
         next_at = sch.cron.next_time(baseline).to_local_time
         next if next_at > now
 
@@ -111,7 +109,7 @@ module Sidereal
             )
           )
         rescue StandardError => ex
-          Console.error(self, 'failed to dispatch TriggerSchedule', schedule_id: sch.id, exception: ex)
+          Console.error(self, 'failed to dispatch TriggerSchedule', schedule_name: sch.name, exception: ex)
         end
       end
 
