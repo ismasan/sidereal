@@ -34,9 +34,19 @@ module Sidereal
     # Pure data — never mutated for the life of the process. The +id+
     # is a stable monotonic integer assigned by {Scheduler#schedule}
     # in registration order, used by +TriggerSchedule.payload.schedule_id+
-    # to look the schedule back up at handle time.
-    Schedule = Data.define(:id, :cron_expr, :cron, :block) do
-      def name = "Schedule ##{id} (#{cron_expr})"
+    # to look the schedule back up at handle time. The +name+ is
+    # user-supplied at registration ("Recurring cleanup", etc.) and
+    # surfaced on +TriggerSchedule.payload.schedule_name+ and inside
+    # the +producer+ metadata hash so dispatched commands carry a
+    # readable trail back to the originating schedule.
+    Schedule = Data.define(:id, :name, :cron_expr, :cron, :block) do
+      # Human-readable identifier stamped on +TriggerSchedule.metadata[:producer]+
+      # and inherited by every command dispatched from the schedule
+      # block via +Message#correlate+. Single-line string so it can sit
+      # comfortably in logs, dead-letter sidecars, and chat messages.
+      def producer_label
+        "Schedule ##{id} '#{name}' (#{cron_expr})"
+      end
 
       # Execute the schedule's block on +context+ via instance_exec, so
       # the block sees +context+'s methods (typically a Commander
@@ -66,12 +76,25 @@ module Sidereal
     # cron expression — each gets its own ID and its own
     # +TriggerSchedule+ on every fire.
     #
-    # @param cron_expr [String] cron expression (5 or 6 fields)
+    # Two call shapes:
+    # - +schedule(cron_expr) { ... }+ — auto-named as +"<id> (<cron_expr>)"+
+    # - +schedule(name, cron_expr) { ... }+ — user-supplied name
+    #
     # @return [self]
-    def schedule(cron_expr, &block)
+    def schedule(*args, &block)
+      name, cron_expr = case args
+      in [String => cron_expr]
+        [nil, cron_expr]
+      in [String => name, String => cron_expr]
+        [name, cron_expr]
+      else
+        raise ArgumentError, "schedule takes (cron_expr) or (name, cron_expr); got #{args.inspect}"
+      end
+
       cron = Fugit.parse_cron(cron_expr) or raise ArgumentError, "invalid cron: #{cron_expr.inspect}"
       id = @schedules.size
-      @schedules[id] = Schedule.new(id:, cron_expr:, cron:, block:)
+      name ||= "#{id} (#{cron_expr})"
+      @schedules[id] = Schedule.new(id:, name:, cron_expr:, cron:, block:)
       self
     end
 
@@ -109,8 +132,8 @@ module Sidereal
         begin
           store.append(
             Sidereal::System::TriggerSchedule.new(
-              payload: { schedule_id: sch.id },
-              metadata: { producer: sch.name }
+              payload: { schedule_id: sch.id, schedule_name: sch.name },
+              metadata: { producer: sch.producer_label }
             )
           )
         rescue StandardError => ex

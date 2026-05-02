@@ -87,12 +87,14 @@ RSpec.describe Sidereal::Commander do
 
     it 'registers the schedule with Sidereal.scheduler' do
       Class.new(Sidereal::Commander) do
-        schedule '*/5 * * * *' do
+        schedule 'Every 5 min', '*/5 * * * *' do
         end
       end
 
       expect(Sidereal.scheduler.schedules.size).to eq(1)
-      expect(Sidereal.scheduler.schedules.first.cron_expr).to eq('*/5 * * * *')
+      sch = Sidereal.scheduler.schedules.first
+      expect(sch.name).to eq('Every 5 min')
+      expect(sch.cron_expr).to eq('*/5 * * * *')
     end
 
     it 'installs a TriggerSchedule handler that runs the schedule block in the commander instance and yields the cmd' do
@@ -100,7 +102,7 @@ RSpec.describe Sidereal::Commander do
         command TestSchedTick do |_cmd|
           # registered so dispatch routes TestSchedTick to commands, not events
         end
-        schedule '*/5 * * * *' do |cmd|
+        schedule 'Recurring cleanup', '*/5 * * * *' do |cmd|
           # Read the producer from the cmd's metadata to prove the cmd is yielded.
           dispatch TestSchedTick, n: cmd.metadata[:producer].length
         end
@@ -108,24 +110,28 @@ RSpec.describe Sidereal::Commander do
 
       sch = Sidereal.scheduler.schedules.first
       trigger = Sidereal::System::TriggerSchedule.new(
-        payload: { schedule_id: sch.id },
-        metadata: { producer: sch.name }
+        payload: { schedule_id: sch.id, schedule_name: sch.name },
+        metadata: { producer: sch.producer_label }
       )
       result = cmdr_class.handle(trigger, pubsub: pubsub)
 
       expect(result.commands.size).to eq(1)
       dispatched = result.commands.first
       expect(dispatched).to be_a(TestSchedTick)
-      expect(dispatched.payload.n).to eq(sch.name.length)
+      expect(dispatched.payload.n).to eq(sch.producer_label.length)
       # Causation chain: the dispatched command points back at the TriggerSchedule.
       expect(dispatched.causation_id).to eq(trigger.id)
       expect(dispatched.correlation_id).to eq(trigger.correlation_id)
+      # Producer label propagates to the dispatched command via #correlate.
+      expect(dispatched.metadata[:producer]).to eq("Schedule #0 'Recurring cleanup' (*/5 * * * *)")
     end
 
     it 'is a no-op when the schedule_id is unknown (e.g. removed between dispatch and handle)' do
       cmdr_class = Class.new(Sidereal::Commander)
 
-      trigger = Sidereal::System::TriggerSchedule.new(payload: { schedule_id: 999 })
+      trigger = Sidereal::System::TriggerSchedule.new(
+        payload: { schedule_id: 999, schedule_name: 'gone' }
+      )
       expect { cmdr_class.handle(trigger, pubsub: pubsub) }.not_to raise_error
     end
   end

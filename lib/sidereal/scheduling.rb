@@ -2,21 +2,27 @@
 
 module Sidereal
   # Register a cron-scheduled block. The block runs on every tick of
-  # the cron expression, on a fiber spawned by {Sidereal.scheduler}.
-  # Inside the block, +dispatch(MessageClass, payload)+ enqueues a
-  # command onto {Sidereal.store} stamped with
-  # +metadata: { producer: '<cron expr>' }+.
+  # the cron expression, dispatched as a +TriggerSchedule+ command and
+  # handled by this commander's worker pool. Inside the block,
+  # +dispatch(MessageClass, payload)+ enqueues commands onto
+  # {Sidereal.store} stamped with a +producer+ metadata string
+  # ("Schedule #<id> '<name>' (<cron_expr>)") that propagates via
+  # +Message#correlate+.
   #
-  # @example
-  #   schedule '5 0 * * *' do
+  # Two call shapes — see {Sidereal::Scheduler#schedule}:
+  # @example Auto-named
+  #   schedule '5 0 * * *' do |cmd|
+  #     dispatch Cleanup, foo: 'bar'
+  #   end
+  # @example Named
+  #   schedule 'Recurring cleanup', '5 0 * * *' do |cmd|
   #     dispatch Cleanup, foo: 'bar'
   #   end
   #
-  # @param cron_expr [String] cron expression (5 or 6 fields)
   # @return [self]
   module Scheduling
-    def schedule(cron_expr, &block)
-      Sidereal.scheduler.schedule(cron_expr, &block)
+    def schedule(...)
+      Sidereal.scheduler.schedule(...)
 
       command Sidereal::System::TriggerSchedule do |cmd|
         schedule = Sidereal.scheduler.find(cmd.payload.schedule_id)

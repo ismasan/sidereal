@@ -33,40 +33,54 @@ RSpec.describe Sidereal::Scheduler do
   subject(:scheduler) { described_class.new(clock: clock, store: store) }
 
   describe '#schedule' do
-    it 'parses the cron and adds an immutable Schedule with a monotonic integer id' do
-      scheduler.schedule('* * * * *') {}
-      scheduler.schedule('5 0 * * *') {}
-      scheduler.schedule('*/10 * * * *') {}
+    it 'parses the cron and adds an immutable Schedule with monotonic id and the supplied name' do
+      scheduler.schedule('Every minute', '* * * * *') {}
+      scheduler.schedule('Daily at 00:05', '5 0 * * *') {}
+      scheduler.schedule('Every 10 min', '*/10 * * * *') {}
 
-      ids = scheduler.schedules.map(&:id)
-      expect(ids).to eq([0, 1, 2])
+      expect(scheduler.schedules.map(&:id)).to eq([0, 1, 2])
+      expect(scheduler.schedules.map(&:name)).to eq(['Every minute', 'Daily at 00:05', 'Every 10 min'])
 
       first = scheduler.schedules.first
       expect(first).to be_frozen
       expect(first.cron_expr).to eq('* * * * *')
+      expect(first.name).to eq('Every minute')
     end
 
     it 'allows multiple schedules sharing the same cron expression' do
-      scheduler.schedule('5 0 * * *') {}
-      scheduler.schedule('5 0 * * *') {}
+      scheduler.schedule('A', '5 0 * * *') {}
+      scheduler.schedule('B', '5 0 * * *') {}
 
       expect(scheduler.schedules.size).to eq(2)
       expect(scheduler.schedules.map(&:id)).to eq([0, 1])
+      expect(scheduler.schedules.map(&:name)).to eq(['A', 'B'])
       expect(scheduler.schedules.map(&:cron_expr)).to eq(['5 0 * * *', '5 0 * * *'])
     end
 
     it 'raises ArgumentError on a malformed cron expression' do
-      expect { scheduler.schedule('not a cron') {} }.to raise_error(ArgumentError, /invalid cron/)
+      expect { scheduler.schedule('Bad', 'not a cron') {} }.to raise_error(ArgumentError, /invalid cron/)
+    end
+
+    it 'auto-names the schedule when only a cron_expr is supplied' do
+      scheduler.schedule('5 0 * * *') {}
+      scheduler.schedule('* * * * *') {}
+
+      expect(scheduler.schedules.map(&:name)).to eq(['0 (5 0 * * *)', '1 (* * * * *)'])
+    end
+
+    it 'raises on bad arity' do
+      expect { scheduler.schedule {} }.to raise_error(ArgumentError, /schedule takes/)
+      expect { scheduler.schedule('a', 'b', 'c') {} }.to raise_error(ArgumentError, /schedule takes/)
     end
   end
 
   describe '#find' do
     it 'returns the registered schedule by integer id' do
-      scheduler.schedule('* * * * *') {}
-      scheduler.schedule('5 0 * * *') {}
+      scheduler.schedule('First', '* * * * *') {}
+      scheduler.schedule('Second', '5 0 * * *') {}
 
-      expect(scheduler.find(0).cron_expr).to eq('* * * * *')
-      expect(scheduler.find(1).cron_expr).to eq('5 0 * * *')
+      expect(scheduler.find(0).name).to eq('First')
+      expect(scheduler.find(1).name).to eq('Second')
     end
 
     it 'returns nil for an unknown id' do
@@ -76,13 +90,13 @@ RSpec.describe Sidereal::Scheduler do
 
   describe '#tick' do
     it 'fires nothing on the first tick (window is empty)' do
-      scheduler.schedule('* * * * *') {}
+      scheduler.schedule('Every minute', '* * * * *') {}
       scheduler.tick
       expect(store.appended).to be_empty
     end
 
-    it 'dispatches a TriggerSchedule when a schedule fires inside (last_tick_at, now]' do
-      scheduler.schedule('* * * * *') {}
+    it 'dispatches a TriggerSchedule with schedule_id, schedule_name and producer_label metadata' do
+      scheduler.schedule('Every minute', '* * * * *') {}
       scheduler.tick           # baseline
       advance(60)
       scheduler.tick
@@ -91,22 +105,24 @@ RSpec.describe Sidereal::Scheduler do
       msg = store.appended.first
       expect(msg).to be_a(Sidereal::System::TriggerSchedule)
       expect(msg.payload.schedule_id).to eq(0)
-      expect(msg.metadata[:producer]).to eq('Schedule #0 (* * * * *)')
+      expect(msg.payload.schedule_name).to eq('Every minute')
+      expect(msg.metadata[:producer]).to eq("Schedule #0 'Every minute' (* * * * *)")
     end
 
     it 'dispatches one TriggerSchedule per due schedule, even when crons overlap' do
-      scheduler.schedule('* * * * *') {}
-      scheduler.schedule('* * * * *') {}
+      scheduler.schedule('A', '* * * * *') {}
+      scheduler.schedule('B', '* * * * *') {}
       scheduler.tick
       advance(60)
       scheduler.tick
 
       expect(store.appended.size).to eq(2)
       expect(store.appended.map { |m| m.payload.schedule_id }).to contain_exactly(0, 1)
+      expect(store.appended.map { |m| m.payload.schedule_name }).to contain_exactly('A', 'B')
     end
 
     it 'fires each schedule at most once per tick (no catch-up — matches crond)' do
-      scheduler.schedule('* * * * *') {}
+      scheduler.schedule('Every minute', '* * * * *') {}
       scheduler.tick
       advance(5 * 60 + 30)
       scheduler.tick
@@ -122,8 +138,8 @@ RSpec.describe Sidereal::Scheduler do
         end
       end.new
       sched = described_class.new(clock: clock, store: flaky)
-      sched.schedule('* * * * *') {}
-      sched.schedule('* * * * *') {}
+      sched.schedule('A', '* * * * *') {}
+      sched.schedule('B', '* * * * *') {}
 
       sched.tick
       advance(60)
@@ -135,7 +151,7 @@ RSpec.describe Sidereal::Scheduler do
     end
 
     it 'does not mutate registered Schedules across ticks' do
-      scheduler.schedule('* * * * *') {}
+      scheduler.schedule('Every minute', '* * * * *') {}
       original = scheduler.schedules.first
       scheduler.tick
       advance(120)
@@ -155,21 +171,21 @@ RSpec.describe Sidereal::Scheduler do
     let(:fake_cmd) { Object.new }
 
     it 'instance_execs the block on the given context' do
-      scheduler.schedule('* * * * *') { record(:fired) }
+      scheduler.schedule('Tick', '* * * * *') { record(:fired) }
       scheduler.find(0).run_in(recorder, fake_cmd)
 
       expect(recorder.seen).to eq([:fired])
     end
 
     it 'yields the triggering cmd to the block' do
-      scheduler.schedule('* * * * *') { |cmd| record(cmd) }
+      scheduler.schedule('Tick', '* * * * *') { |cmd| record(cmd) }
       scheduler.find(0).run_in(recorder, fake_cmd)
 
       expect(recorder.seen).to eq([fake_cmd])
     end
 
     it 'tolerates blocks that do not declare a cmd parameter (proc semantics)' do
-      scheduler.schedule('* * * * *') { record(:no_arg_block) }
+      scheduler.schedule('Tick', '* * * * *') { record(:no_arg_block) }
       expect { scheduler.find(0).run_in(recorder, fake_cmd) }.not_to raise_error
       expect(recorder.seen).to eq([:no_arg_block])
     end
@@ -178,7 +194,7 @@ RSpec.describe Sidereal::Scheduler do
   describe 'fiber lifecycle' do
     it 'fires at least once when started under a real Async task with a fast tick interval' do
       sched = described_class.new(tick_interval: 0.05, store: store)
-      sched.schedule('* * * * * *') {}
+      sched.schedule('Every second', '* * * * * *') {}
 
       Sync do |task|
         sched.start(task)
@@ -207,7 +223,7 @@ RSpec.describe Sidereal::Scheduler do
 
     it 'does not tick while the elector reports follower' do
       sched = described_class.new(tick_interval: 0.02, store: store, elector: elector)
-      sched.schedule('* * * * * *') {}
+      sched.schedule('Every second', '* * * * * *') {}
 
       Sync do |task|
         sched.start(task)
@@ -220,7 +236,7 @@ RSpec.describe Sidereal::Scheduler do
 
     it 'starts ticking on promotion and stops on demotion' do
       sched = described_class.new(tick_interval: 0.02, store: store, elector: elector)
-      sched.schedule('* * * * * *') {}
+      sched.schedule('Every second', '* * * * * *') {}
 
       Sync do |task|
         sched.start(task)

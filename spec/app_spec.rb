@@ -302,11 +302,13 @@ RSpec.describe 'Sidereal::App.schedule' do
 
   it 'delegates to the App.commander and registers with Sidereal.scheduler' do
     Class.new(Sidereal::App) do
-      schedule '*/5 * * * *' do
+      schedule 'Every 5 min', '*/5 * * * *' do
       end
     end
 
     expect(Sidereal.scheduler.schedules.size).to eq(1)
-    expect(Sidereal.scheduler.schedules.first.cron_expr).to eq('*/5 * * * *')
+    sch = Sidereal.scheduler.schedules.first
+    expect(sch.name).to eq('Every 5 min')
+    expect(sch.cron_expr).to eq('*/5 * * * *')
   end
 end

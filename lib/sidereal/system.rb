@@ -52,6 +52,7 @@ module Sidereal
 
     TriggerSchedule = Notification.define('sidereal.system.trigger_schedule') do
       attribute :schedule_id, Sidereal::Types::Integer
+      attribute :schedule_name, Sidereal::Types::String.present
     end
   end
 end
