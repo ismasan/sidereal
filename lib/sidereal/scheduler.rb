@@ -251,6 +251,8 @@ module Sidereal
     def schedules = @schedules.dup
 
     def start(task)
+      return self unless @schedules.any?
+
       elector = @elector || Sidereal.elector
       elector.on_promote { spawn_tick_fiber(task) }
       elector.on_demote { stop_tick_fiber }
