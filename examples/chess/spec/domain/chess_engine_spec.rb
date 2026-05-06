@@ -24,6 +24,23 @@ RSpec.describe ChessEngine do
     end
   end
 
+  describe '#legal_destinations' do
+    it 'returns both single- and double-step pawn moves from the initial position' do
+      e = described_class.new(ChessEngine::INITIAL_FEN)
+      expect(e.legal_destinations('e2').sort).to eq(%w[e3 e4])
+    end
+
+    it 'returns the two knight moves from the starting b1' do
+      e = described_class.new(ChessEngine::INITIAL_FEN)
+      expect(e.legal_destinations('b1').sort).to eq(%w[a3 c3])
+    end
+
+    it 'returns [] for an empty square' do
+      e = described_class.new(ChessEngine::INITIAL_FEN)
+      expect(e.legal_destinations('a3')).to eq([])
+    end
+  end
+
   describe '#apply' do
     it 'plays a legal move and returns SAN + new FEN' do
       result = described_class.new(ChessEngine::INITIAL_FEN).apply('e2', 'e4')

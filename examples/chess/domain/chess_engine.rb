@@ -54,6 +54,24 @@ class ChessEngine
     ILLEGAL
   end
 
+  # All coords reachable from `from` as legal destinations in the current
+  # position. Brute-forces the 64-cell space by probing each destination
+  # with a fresh engine — correctness over cleverness, and fast enough
+  # given the chess gem's C extension.
+  def legal_destinations(from)
+    return [] unless piece_at(from)
+    out = []
+    ('a'..'h').each do |file|
+      (1..8).each do |rank|
+        to = "#{file}#{rank}"
+        next if to == from
+        probe = self.class.new(@fen)
+        out << to if probe.apply(from, to).legal
+      end
+    end
+    out
+  end
+
   # Lowercase piece letter at a coord ('p','n','b','r','q','k') or nil.
   # Color is irrelevant for capture tracking — we only need the role.
   def piece_at(coord)

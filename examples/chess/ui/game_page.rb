@@ -15,9 +15,14 @@ class GamePage < Sidereal::Page
     browser.patch_elements GamePage.load(params, context)
   end
 
-  def self.load(params, ctx)
+  def self.load(params, ctx, selected_source: nil)
     state, messages = load_state_with_history(params[:id])
-    new(state: state, messages: messages, viewer_username: ctx.session[:username])
+    new(
+      state: state,
+      messages: messages,
+      viewer_username: ctx.session[:username],
+      selected_source: selected_source
+    )
   end
 
   def self.load_state_with_history(game_id)
@@ -29,17 +34,14 @@ class GamePage < Sidereal::Page
     [view.state, result.messages]
   end
 
-  def initialize(state:, messages:, viewer_username:)
+  def initialize(state:, messages:, viewer_username:, selected_source: nil)
     @state = state
     @messages = messages
     @viewer = viewer_username.to_s
+    @selected_source = selected_source
   end
 
   def channel_name = "games.#{@state.game_id}"
-
-  def page_signals
-    super.merge(from: '')
-  end
 
   def viewer_color
     return 'white' if @state.white_username && @viewer == @state.white_username
@@ -88,7 +90,8 @@ class GamePage < Sidereal::Page
               fen: @state.fen,
               viewer_color: viewer_color,
               interactive: your_turn?,
-              game_id: @state.game_id
+              game_id: @state.game_id,
+              selected_source: @selected_source
             )
           end
         end

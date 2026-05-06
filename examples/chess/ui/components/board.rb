@@ -1,15 +1,18 @@
 # frozen_string_literal: true
 
+require 'set'
 require_relative 'square'
 
 class Board < Sidereal::Components::BaseComponent
   FILES = %w[a b c d e f g h].freeze
 
-  def initialize(fen:, viewer_color:, interactive:, game_id:)
+  def initialize(fen:, viewer_color:, interactive:, game_id:, selected_source: nil)
     @fen = fen
     @viewer_color = viewer_color
     @interactive = interactive
     @game_id = game_id
+    @selected = selected_source
+    @valid_targets = compute_valid_targets
   end
 
   def view_template
@@ -26,6 +29,14 @@ class Board < Sidereal::Components::BaseComponent
   # for white players and spectators; black at the bottom for black.
   def flipped? = @viewer_color == 'black'
 
+  # Precompute legal destinations from the selected source so each Square
+  # can render either as a MakeMove form or as a static cell. Empty when
+  # no source is selected (or when it's not the viewer's turn).
+  def compute_valid_targets
+    return Set.new unless @interactive && @selected
+    ChessEngine.new(@fen).legal_destinations(@selected).to_set
+  end
+
   def render_squares
     ranks = parse_fen_ranks(@fen)
     rank_order = flipped? ? (1..8) : (8.downto(1))
@@ -40,6 +51,9 @@ class Board < Sidereal::Components::BaseComponent
           piece: piece,
           friendly: friendly?(piece),
           interactive: @interactive,
+          is_selected: @selected == coord,
+          is_valid_target: @valid_targets.include?(coord),
+          selected_source_coord: @selected,
           game_id: @game_id
         )
       end

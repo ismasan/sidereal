@@ -1,74 +1,42 @@
 # frozen_string_literal: true
 
-require 'securerandom'
 require_relative 'piece'
 
 class Square < Sidereal::Components::BaseComponent
-  def initialize(coord:, piece:, friendly:, interactive:, game_id:)
+  def initialize(coord:, piece:, friendly:, interactive:,
+                 is_selected:, is_valid_target:, selected_source_coord:, game_id:)
     @coord = coord
     @piece = piece
     @friendly = friendly
     @interactive = interactive
+    @is_selected = is_selected
+    @is_valid_target = is_valid_target
+    @selected_source_coord = selected_source_coord
     @game_id = game_id
   end
 
   def view_template
-    if @interactive && @friendly
-      render_source_button
-    elsif @interactive
-      render_target_form
+    if @is_selected
+      render_selected_source
+    elsif @interactive && @friendly
+      render_friendly
+    elsif @interactive && @is_valid_target
+      render_valid_target
     else
-      render_static_cell
+      render_static
     end
   end
 
   private
 
-  # Friendly cell on viewer's turn: a bare button that writes $from on click.
-  # The selection ring follows reactively via data-class-selected.
-  def render_source_button
-    button(
-      class: classes('square--friendly').join(' '),
-      type: 'button',
-      'aria-label': aria,
-      'data-coord': @coord,
-      data: {
-        'on:click' => "$from = '#{@coord}'",
-        'class-selected' => "$from === '#{@coord}'"
-      }
-    ) do
-      render Piece.new(@piece) if @piece
-    end
-  end
-
-  # Interactive non-friendly cell: a tiny MakeMove form.
-  # Submit handler: copy $from into the hidden input imperatively
-  # (data-attr-value didn't propagate to hidden inputs in Datastar
-  # v1.0.1), then @post; finally reset $from. The if-guard short-circuits
-  # when no source is selected so we don't fire empty submits.
-  def render_target_form
-    cid = "cmd#{SecureRandom.hex(3)}"
-    submit_expr = <<~JS.gsub(/\s+/, ' ').strip
-      if ($from) {
-        el.querySelector('input[name="command[payload][from]"]').value = $from;
-        @post('/commands', {contentType: 'form'});
-        $from = '';
-      }
-    JS
-    form(
-      class: 'square-form',
-      data: {
-        'on:submit' => submit_expr
-      }
-    ) do
-      input(type: 'hidden', name: 'command[type]', value: 'chess.make_move')
-      input(type: 'hidden', name: 'command[_cid]', value: cid)
-      input(type: 'hidden', name: 'command[payload][game_id]', value: @game_id)
-      input(type: 'hidden', name: 'command[payload][to]', value: @coord)
-      input(type: 'hidden', name: 'command[payload][from]', value: '')
+  # Currently-selected friendly piece. Re-submitting SelectSource with
+  # the same coord toggles it off (handled server-side).
+  def render_selected_source
+    command SelectSource, class: 'square-form' do |f|
+      f.payload_fields(game_id: @game_id, coord: @coord)
       button(
-        type: 'submit',
-        class: classes.join(' '),
+        type: :submit,
+        class: classes('square--friendly', 'selected').join(' '),
         'aria-label': aria,
         'data-coord': @coord
       ) do
@@ -77,8 +45,46 @@ class Square < Sidereal::Components::BaseComponent
     end
   end
 
-  # Non-interactive cell: plain div, no handlers.
-  def render_static_cell
+  # Friendly piece on viewer's turn but not currently selected. Clicking
+  # selects it (or switches the source if another was already selected).
+  def render_friendly
+    command SelectSource, class: 'square-form' do |f|
+      f.payload_fields(game_id: @game_id, coord: @coord)
+      button(
+        type: :submit,
+        class: classes('square--friendly').join(' '),
+        'aria-label': aria,
+        'data-coord': @coord
+      ) do
+        render Piece.new(@piece) if @piece
+      end
+    end
+  end
+
+  # Legal destination from the currently-selected source. Submitting
+  # MakeMove posts a fully-formed move (server-stamped from + to).
+  def render_valid_target
+    command Game::MakeMove, class: 'square-form' do |f|
+      f.payload_fields(
+        game_id: @game_id,
+        from: @selected_source_coord.to_s,
+        to: @coord
+      )
+      button(
+        type: :submit,
+        class: classes('square--valid-target').join(' '),
+        'aria-label': aria,
+        'data-coord': @coord
+      ) do
+        render Piece.new(@piece) if @piece
+      end
+    end
+  end
+
+  # No-op cell: spectator, opponent's turn, or an irrelevant square (no
+  # selection or not a legal target). Rendered as a plain div with no
+  # handlers so clicks do nothing.
+  def render_static
     div(
       class: classes.join(' '),
       'aria-label': aria,

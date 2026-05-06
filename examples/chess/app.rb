@@ -4,6 +4,14 @@ require_relative 'ui/layout'
 require_relative 'ui/home_page'
 require_relative 'ui/game_page'
 
+# UI-only message: clicking a friendly piece submits this to mutate
+# per-session selection state and trigger a server-side board re-render
+# via SSE. NOT a Sourced::Command — it never reaches the event store.
+SelectSource = Sidereal::Message.define('chess.select_source') do
+  attribute :game_id, Sidereal::Types::UUID::V4
+  attribute :coord,   Sidereal::Types::String.present
+end
+
 class ChessApp < Sidereal::App
   # Scoped cookie name so this demo's session doesn't collide with the
   # other examples on localhost (each app uses a different secret).
@@ -62,6 +70,20 @@ class ChessApp < Sidereal::App
   handle Game::JoinGame
   handle Game::MakeMove
   handle Game::Resign
+
+  # SelectSource is processed inline (NOT dispatched). It carries the
+  # selected cell coord; the re-rendered GamePage uses it to highlight
+  # the source and show valid destinations. No persistence — the next
+  # SSE re-render (e.g., after MoveMade) drops the selection naturally.
+  # Synthesize `{ id: ... }` for GamePage.load because POST /commands
+  # has no :id segment in the URL.
+  handle SelectSource do |cmd|
+    browser.patch_elements GamePage.load(
+      { id: cmd.payload.game_id },
+      self,
+      selected_source: cmd.payload.coord
+    )
+  end
 
   page HomePage
   page GamePage

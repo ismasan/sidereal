@@ -239,21 +239,45 @@ input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px
 .square--light { background: var(--light-square); }
 .square--dark  { background: var(--dark-square); }
 
-/* Friendly source buttons: pointer + hover ring (highlights piece on hover). */
-button.square--friendly { cursor: pointer; }
+/* Every interactive square (source button or target button) is a
+   submit button. */
+button.square { cursor: pointer; }
+
+/* Friendly source buttons: hover ring to invite a click. */
 button.square--friendly:hover {
   box-shadow: inset 0 0 0 3px rgba(74, 144, 226, 0.5);
 }
 
-/* Target buttons (interactive non-friendly): clickable, no hover ring.
-   The blue ring on the source square is enough visual feedback. */
-button.square { cursor: pointer; }
-
-/* Selected source: persistent blue ring while $from === this coord. */
+/* Currently selected source — server-rendered class, persistent
+   blue ring until the player clicks elsewhere or makes a move. */
 .square.selected { box-shadow: inset 0 0 0 4px var(--selected) !important; }
 
-/* Each target cell is wrapped in a <form>; display:contents makes the
-   form invisible to grid layout so the inner button takes the cell. */
+/* Valid destinations from the selected source — empty squares get a
+   small dot; capture targets (occupied destination) get a red ring. */
+.square--valid-target::after {
+  content: "";
+  position: absolute;
+  width: 28%;
+  aspect-ratio: 1/1;
+  border-radius: 50%;
+  background: rgba(74, 144, 226, 0.45);
+  pointer-events: none;
+}
+.square--valid-target.square--has-piece::after {
+  width: 100%;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: inset 0 0 0 4px rgba(220, 70, 70, 0.55);
+}
+button.square--valid-target:hover::after {
+  background: rgba(74, 144, 226, 0.7);
+}
+button.square--valid-target.square--has-piece:hover::after {
+  box-shadow: inset 0 0 0 4px rgba(220, 70, 70, 0.85);
+}
+
+/* Each cell-form lays out as `display: contents` so the inner button
+   takes the grid cell rather than the form box. */
 .square-form { display: contents; }
 
 .piece { line-height: 1; }
