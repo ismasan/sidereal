@@ -181,31 +181,6 @@ command AddTodo do |cmd|
 end
 ```
 
-### Scheduled commands
-
-Chain `.at(time)` or `.in(seconds)` on a `dispatch` call to defer processing of a command (or event) until a future time:
-
-```ruby
-command PlaceOrder do |cmd|
-  ORDERS[cmd.id] = cmd.payload.to_h
-
-  # Run an hour from now
-  dispatch(SendReminder, order_id: cmd.id).in(3600)
-
-  # Run at a specific time
-  dispatch(ExpireOrder, order_id: cmd.id).at(Time.now + 86400)
-end
-```
-
-The dispatched message lands on the store with its `created_at` set to the scheduled time. Stores that support scheduled delivery hold the message back and only deliver it once that time has passed:
-
-| Store | Scheduled delivery |
-|---|---|
-| `Store::FileSystem` | Honored — future-dated messages are written to a `scheduled/` directory and promoted by a background fiber when due. |
-| `Store::Memory` | Ignored — messages are delivered immediately regardless of `created_at`. Use `FileSystem` when you need scheduling. |
-
-Scheduling does not propagate across correlation: an event dispatched downstream of a scheduled command runs at its own `created_at` (i.e. immediately), not at the source's future time.
-
 ### Broadcast
 
 Use `broadcast` inside a command handler to publish a message immediately to the SSE stream, without waiting for the command to finish processing. Useful for progress indicators.
@@ -570,6 +545,172 @@ end
 ```
 
 A `BasicLayout` with reset CSS and form styling is provided by default if no layout is specified.
+
+## Working with time
+
+### Dynamically scheduled commands
+
+Chain `.at(time)` or `.in(duration)` (aliases) on a `dispatch` call to defer processing of a command (or event) until a future time. Three accepted forms:
+
+| Form                | Example                       | Resolution                                              |
+| ------------------- | ----------------------------- | ------------------------------------------------------- |
+| `Time` / `DateTime` | `.at(Time.now + 86400)`       | Absolute target.                                        |
+| `Integer`           | `.in(3600)`                   | Seconds added to `Time.now`.                            |
+| Duration `String`   | `.at('5m')`, `.in('PT1H30M')` | Parsed via `Fugit.parse_duration`, added to `Time.now`. |
+
+```ruby
+command PlaceOrder do |cmd|
+  ORDERS[cmd.id] = cmd.payload.to_h
+
+  # Run an hour from now — Integer form
+  dispatch(SendReminder, order_id: cmd.id).in(3600)
+
+  # Run 30 minutes from now — Fugit duration String
+  dispatch(NudgeUser, order_id: cmd.id).in('30m')
+
+  # Run at a specific instant — Time form
+  dispatch(ExpireOrder, order_id: cmd.id).at(Time.now + 86400)
+
+  # ISO8601 durations also work
+  dispatch(SendDigest, order_id: cmd.id).in('PT1H')
+end
+```
+
+Resolved targets earlier than the message's `created_at` raise `Sidereal::PastMessageDateError` — including negative integers (`.in(-60)`) and durations that resolve to the past.
+
+The dispatched message is appended to the store with its `created_at` set to the resolved target. Stores that support scheduled delivery hold the message back and only deliver it once that time has passed:
+
+| Store               | Scheduled delivery                                           |
+| ------------------- | ------------------------------------------------------------ |
+| `Store::FileSystem` | Honored — future-dated messages are written to a `scheduled/` directory and promoted by a background fiber when due. |
+| `Store::Memory`     | Ignored — messages are delivered immediately regardless of `created_at`. Use `FileSystem` when you need scheduling. |
+
+Scheduling does not propagate across correlation: an event dispatched downstream of a scheduled command runs at its own `created_at` (i.e. immediately), not at the source's future time.
+
+### Fixed schedules
+
+`App.schedule` registers a sequence of moments in time where commands should fire. The Scheduler is a leader-only fiber that, on each tick, appends commands to the same store the rest of your app uses — so schedule handlers run on the worker pool, in parallel with everything else, with the same retry / dead-letter machinery.
+
+##### The basics — single-step shorthand
+
+```ruby
+class MyApp < Sidereal::App
+  schedule 'Daily cleanup', '5 0 * * *' do |cmd|
+    # Runs every day at 00:05.
+    # `cmd` is the auto-generated command, materialised as
+    # MyApp::Commander::Schedules::SchedDailyCleanup0Step0.
+    dispatch SweepStaleOrders, older_than: '1d'
+  end
+end
+```
+
+The schedule name (`'Daily cleanup'`) is mandatory — it shows up in dead-letter sidecars, dashboards, and `cmd.metadata[:schedule_name]` so handlers and reactions can identify the source.
+
+##### Expressions
+
+A step's expression is anything `Fugit.parse` accepts, plus stdlib `Time` / `DateTime` instances:
+
+| Kind                  | Example                       | Behaviour                                              |
+| --------------------- | ----------------------------- | ------------------------------------------------------ |
+| Specific datetime     | `'2026-12-31T10:00:00'`       | Fires once at that instant.                            |
+| `Time` instance       | `Time.now + 60`               | Fires once at that instant (coerced internally).       |
+| Cron (5- or 6-field)  | `'5 0 * * *'`, `'*/5 * * * *'`| Recurring at every cron match.                         |
+| Natural language      | `'every 3 seconds'`           | Recurring.                                             |
+| Duration              | `'10d'`, `'1h30m'`, `'P12Y12M'`| Fires once at *previous concrete time + duration*.    |
+
+##### Multi-step schedules — sequence of `at` calls
+
+For workflows that don't fit a single step, drop the second positional and use the inner DSL — each `at` call appends a step to the schedule:
+
+```ruby
+schedule 'Flash sale campaign' do
+  at '2026-05-10T10:00:00' do |cmd|
+    # Fires once at this exact moment.
+    dispatch OpenSale, sale_id: 'flash-2026'
+  end
+
+  at 'every day at 9am' do |cmd|
+    # Recurring — fires daily until the next concrete step.
+    dispatch SendDailyReminders
+  end
+
+  at '10d' do |cmd|
+    # Fires once at "previous concrete + 10 days".
+    # This concrete time also closes the recurring step above.
+    dispatch CloseSale, sale_id: 'flash-2026'
+  end
+end
+```
+
+Steps are validated at registration:
+
+- **No time travel.** A specific datetime must be strictly after the previously resolved concrete time.
+- **No back-to-back recurring steps.** A recurring step can't follow another recurring step — the first one would have no end. Insert a specific or duration step between them.
+- **Durations resolve against the last *concrete* step**, not against any intervening recurring step. So in the example above, `'10d'` is "10 days after the `'2026-05-10T10:00:00'` opening step", not "10 days after the recurring started". The resolved time also closes the recurring window.
+- **A trailing recurring step has no upper bound** and runs forever.
+
+##### Bound-only marker steps
+
+Drop the block / class for a specific or duration step to declare a **bound-only marker** — anchors the timeline without dispatching anything. Useful as a starting boundary for a following recurring step, or as a closing boundary for a preceding one:
+
+```ruby
+schedule 'Office hours' do
+  at '2026-05-10T09:00:00'                # marker — opens the window, no command
+  at 'every 5 minutes' do |cmd|
+    dispatch HealthCheck
+  end
+  at '2026-05-10T17:00:00'                # marker — closes the recurring, no command
+end
+```
+
+Block-less markers only work for specific or duration steps. A recurring step without a block would fire nothing on every match — meaningless — so it raises at registration.
+
+##### Explicit command classes (skip auto-generation)
+
+By default, each `at` block generates a per-step command class under `<HostCommander>::Schedules` (e.g. `MyApp::Commander::Schedules::SchedDailyCleanup0Step0` — `Sched<CamelName><ScheduleId>Step<StepIndex>`). For steps that should dispatch a domain command you've already defined elsewhere, pass the class + payload kwargs instead of a block:
+
+```ruby
+# Define explicit commands and handlers
+StartCampaign = Sidereal::Message.define('myapp.start_campaign')
+command StartCampaign do |cmd|
+  # do something here
+end
+
+# Now just define time-based triggers for your own commands
+schedule 'Flash sale campaign' do
+  at '2026-05-10T10:00:00', StartCampaign
+  at 'every day at 9am',    SendEmails, sender: 'acme@company.org'
+  at '10d',                 EndCampaign
+end
+```
+
+In the explicit form the macro generates *no* class and defines *no* handler — it just passes the class and payload through to the Scheduler, which dispatches `SendEmails.parse(payload: { sender: 'acme@company.org' }, metadata: { ... })` on every fire. You're responsible for having a `command SendEmails do |cmd| ... end` registered.
+
+You can mix block and explicit forms freely across steps in the same schedule.
+
+##### Metadata stamped on every fire
+
+The Scheduler stamps these metadata keys on every dispatched command:
+
+```ruby
+{
+  producer:       "Schedule #0 'Flash sale campaign' step #1 (every day at 9am)",
+  schedule_name:  "Flash sale campaign"
+}
+```
+
+The producer label includes the schedule's registration index, name, step index, and the step's own expression — so dead-letter sidecars and dashboards can pinpoint which step fired. Both keys propagate to downstream commands via `Message#correlate`, so anything dispatched from inside a schedule handler carries them automatically.
+
+##### Multi-process: only the leader runs the Scheduler
+
+The Scheduler ticks only on the process that holds `Sidereal.elector`. With the default `Elector::AlwaysLeader` (single-process apps) every process is leader; with `Elector::FileSystem` only one process per host runs the tick fiber. The dispatched commands then flow through the normal store, so any worker fiber on any process can pick them up — schedule handlers are not pinned to the leader.
+
+A few caveats worth knowing:
+
+- **At-most-once per tick.** If a process pauses (GC, debugger) past a cron boundary, only the most recent boundary inside the tick window fires. Matches `crond`'s no-catch-up behaviour.
+- **Boundaries crossed during a leader vacancy are lost.** Step boundaries are point-in-time signals, not state declarations — if no leader is running at the boundary, no command is dispatched.
+- **Within a single leader's lifetime, every step fires exactly once at its instant** (or every cron match, for recurring steps). Steps use the half-open tick window `(@last_tick_at, now]` — once the boundary moves into the past it can't be in any future window.
+- **Implicit baseline = scheduler-construction time.** If your first step is a duration (`at '5m', X`), it resolves to `boot + 5m`. Across a leader handoff each leader has its own boot time, so duration-anchored first steps drift; anchor with a specific datetime if stability matters.
 
 ## Router
 
