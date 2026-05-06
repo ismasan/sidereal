@@ -104,6 +104,60 @@ RSpec.describe Sidereal::Commander do
       end
     end
 
+    describe 'single-step shorthand (name, expression, &block)' do
+      it 'registers a one-step schedule with the block as that step’s handler' do
+        cmdr = named_commander(:CmdrA) do
+          schedule 'Cleanup', '*/5 * * * *' do |_cmd|
+          end
+        end
+
+        expect(cmdr::Schedules.const_defined?(:SchedCleanup0Step0, false)).to be true
+
+        sch = Sidereal.scheduler.schedules.first
+        expect(sch.name).to eq('Cleanup')
+        expect(sch.steps.size).to eq(1)
+        expect(sch.steps.first.expression).to eq('*/5 * * * *')
+        expect(sch.steps.first.klass).to eq(cmdr::Schedules::SchedCleanup0Step0)
+      end
+
+      it 'yields the cmd to the user block (regular command handler)' do
+        named_commander(:CmdrB) do
+          command TestSchedTick do |_cmd| end
+          schedule 'Cleanup', '*/5 * * * *' do |cmd|
+            dispatch TestSchedTick, n: cmd.metadata[:schedule_name].length
+          end
+        end
+
+        run_cmd = CmdrB::Schedules::SchedCleanup0Step0.new(
+          metadata: { schedule_name: 'Cleanup' }
+        )
+        result = CmdrB.handle(run_cmd, pubsub: pubsub)
+
+        expect(result.commands.first).to be_a(TestSchedTick)
+        expect(result.commands.first.payload.n).to eq('Cleanup'.length)
+      end
+
+      it 'accepts a Time instance as the shorthand expression' do
+        target = Time.local(2026, 5, 4, 12, 0, 0)
+        named_commander(:CmdrC) do
+          schedule 'Once', target do |_cmd| end
+        end
+
+        sch = Sidereal.scheduler.schedules.first
+        expect(sch.steps.first.at).to eq(target)
+      end
+
+      it 'raises if the shorthand block has the wrong arity' do
+        expect {
+          named_commander(:CmdrD) do
+            schedule 'Bad', '*/5 * * * *' do
+              # arity 0 with an expression — invalid for shorthand
+            end
+          end
+        }.to raise_error(ArgumentError, /requires a block of arity 1/)
+      end
+    end
+
     describe 'block form (auto-generated step classes)' do
       it 'generates one class per step under <Host>::Schedules and registers each with Sidereal.scheduler' do
         cmdr = named_commander(:CmdrA) do

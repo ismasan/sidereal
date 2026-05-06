@@ -62,10 +62,9 @@ module Sidereal
       # schedule name begins with a digit.
       SCHEDULE_CLASS_PREFIX = 'Sched'
 
-      # Register a schedule. The block is +instance_eval+'d on a
-      # {ScheduleBuilder}; declare one or more +at+ steps inside.
+      # Register a schedule. Two call shapes:
       #
-      # @example Specific datetime + recurring + duration
+      # @example Multi-step (inner DSL) — block arity 0
       #   schedule 'Tick campaign' do
       #     at '2026-05-06T15:00:00' do |cmd|
       #       # fires once at the boundary
@@ -78,26 +77,46 @@ module Sidereal
       #     end
       #   end
       #
-      # @example Explicit command classes
+      # @example Single-step shorthand — block arity 1, expression as 2nd positional
+      #   schedule 'Cleanup', '*/5 * * * *' do |cmd|
+      #     # equivalent to:
+      #     #   schedule 'Cleanup' do
+      #     #     at '*/5 * * * *' do |cmd| ... end
+      #     #   end
+      #   end
+      #
+      # @example Explicit command classes (multi-step form)
       #   schedule 'Flash sale' do
       #     at '2026-05-10T10:00:00', StartCampaign
-      #     at '5/* * * *', LookupResults
-      #     at '10h', EndCampaign
+      #     at '*/5 * * * *',         LookupResults
+      #     at '10h',                 EndCampaign
       #   end
-      def schedule(name, &block)
+      def schedule(name, expression = nil, &block)
         raise ArgumentError, 'schedule requires a block' unless block
         raise ArgumentError, 'schedule name is required' if name.nil? || name.to_s.empty?
 
-        unless block.arity.zero?
-          raise ArgumentError,
-                "schedule #{name.inspect}: block must take no arguments; use the inner DSL (at(...))"
-        end
+        builder_block = if expression
+                          unless block.arity == 1
+                            raise ArgumentError,
+                                  "schedule #{name.inspect}: shorthand 'schedule(name, expression)' " \
+                                  'requires a block of arity 1 (the cmd argument)'
+                          end
+
+                          handler = block
+                          proc { at(expression, &handler) }
+                        else
+                          unless block.arity.zero?
+                            raise ArgumentError,
+                                  "schedule #{name.inspect}: block must take no arguments; use the inner DSL (at(...))"
+                          end
+                          block
+                        end
 
         id = (@__schedule_counter ||= -1) + 1
         @__schedule_counter = id
 
         builder = ScheduleBuilder.new
-        builder.instance_eval(&block)
+        builder.instance_eval(&builder_block)
         if builder.entries.empty?
           raise ArgumentError, "schedule #{name.inspect}: block must declare at least one at(...)"
         end
