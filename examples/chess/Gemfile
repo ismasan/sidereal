@@ -1,0 +1,17 @@
+# frozen_string_literal: true
+
+source "https://rubygems.org"
+
+gem "sidereal", path: "../.."
+gem "falcon"
+gem 'sourced', github: 'ismasan/sourced', branch: 'ccc'
+gem 'sourced-ui', github: 'ismasan/sourced-ui', branch: 'ccc'
+gem 'sequel'
+gem 'sqlite3'
+gem 'chess', '~> 0.5'
+gem 'rake'
+gem 'irb'
+
+group :test do
+  gem 'rspec'
+end

@@ -1,0 +1,3 @@
+storage/*.db
+storage/*.db-*
+Gemfile.lock
