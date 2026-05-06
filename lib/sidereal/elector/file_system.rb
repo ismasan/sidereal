@@ -14,9 +14,6 @@ module Sidereal
     # poll +retry_interval+ seconds to detect a vacancy. flock is
     # auto-released by the kernel on process death — no stale-lock
     # cleanup required.
-    #
-    # Topologically equivalent to the embedded election used by
-    # {Sidereal::PubSub::Unix}, but standalone and reusable.
     class FileSystem
       include Callbacks
 
