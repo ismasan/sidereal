@@ -232,6 +232,10 @@ module Sidereal
       @store = store
       @elector = elector
       @schedules = []
+      # Frozen +{ producer:, schedule_name: }+ hash precomputed per
+      # step at registration. Identity-keyed because two Data records
+      # with identical fields would otherwise collide on +eql?+.
+      @step_metadata = {}.compare_by_identity
       @last_tick_at = nil
       @tick_fiber = nil
     end
@@ -247,7 +251,9 @@ module Sidereal
             end
       yield(sch) if block_given?
       sch.finalize!(baseline: @baseline)
+      schedule_id = @schedules.size
       @schedules << sch
+      cache_step_metadata!(sch, schedule_id)
       self
     end
 
@@ -267,12 +273,11 @@ module Sidereal
       baseline = @last_tick_at || now
       store = @store || Sidereal.store
 
-      @schedules.each_with_index do |sch, schedule_id|
+      @schedules.each do |sch|
         sch.steps.each do |step|
           next unless step.fires_in?(baseline, now)
 
-          metadata = build_metadata(sch, schedule_id, step)
-          dispatch(store, step, metadata)
+          dispatch(store, step, @step_metadata[step])
         end
       end
 
@@ -281,11 +286,13 @@ module Sidereal
 
     private
 
-    def build_metadata(sch, schedule_id, step)
-      {
-        producer: producer_label(schedule_id, sch, step),
-        schedule_name: sch.name
-      }
+    def cache_step_metadata!(sch, schedule_id)
+      sch.steps.each do |step|
+        @step_metadata[step] = {
+          producer: producer_label(schedule_id, sch, step),
+          schedule_name: sch.name
+        }.freeze
+      end
     end
 
     def producer_label(schedule_id, sch, step)
