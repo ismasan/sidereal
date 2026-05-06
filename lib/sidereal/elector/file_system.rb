@@ -35,9 +35,7 @@ module Sidereal
       # fiber polls for the lock until acquired, then sleeps holding
       # it. Cancellation (parent task ending or {#stop}) releases the
       # lock and fires +on_demote+ callbacks via the +ensure+ block.
-      # Idempotent — safe to call multiple times (e.g. once from
-      # {Falcon::Environment::Service} and once from
-      # {PubSub::Unix#start}).
+      # Idempotent.
       def start(task)
         return self if @election_task
 

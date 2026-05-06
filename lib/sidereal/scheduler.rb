@@ -22,9 +22,6 @@ module Sidereal
     DEFAULT_TICK_INTERVAL = 1.0
 
     class Schedule
-      NO_ARG = Object.new.freeze
-      private_constant :NO_ARG
-
       module Step
         # A specific instant to fire +klass+ once. +klass+ may be
         # +nil+, in which case the step is a bound-only marker (anchors
@@ -108,41 +105,38 @@ module Sidereal
 
         raise ArgumentError, "schedule #{@name.inspect}: must declare at least one at(...)" if @raw_steps.empty?
 
-        resolved = []
-        last_concrete = baseline
-        pending_recurring_idx = nil
+        walk = Walk.new(baseline: baseline, last_concrete: baseline)
+        @raw_steps.each_with_index { |raw, i| resolve_step(raw, i, walk) }
 
-        @raw_steps.each_with_index do |raw, i|
-          step, last_concrete, pending_recurring_idx =
-            resolve_step(raw, i, baseline, last_concrete, pending_recurring_idx, resolved)
-          resolved << step
-        end
-
-        @steps = resolved.freeze
-        @baseline_used = baseline
+        @steps = walk.resolved.freeze
+        @raw_steps = nil   # release the registration buffer for GC
         freeze
         self
       end
 
       private
 
-      # @return [Array(Step, last_concrete, pending_recurring_idx)] the
-      #   resolved step plus updated walk state.
-      def resolve_step(raw, idx, baseline, last_concrete, pending_recurring_idx, resolved)
+      # Mutable state threaded through the resolution walk.
+      Walk = Struct.new(:baseline, :last_concrete, :pending_recurring_idx, :resolved, keyword_init: true) do
+        def initialize(**kwargs)
+          super
+          self.resolved ||= []
+        end
+      end
+      private_constant :Walk
+
+      def resolve_step(raw, idx, walk)
         parsed = parse_expression(raw[:expression], idx)
 
         case parsed
         when Fugit::Duration
-          t = parsed.add_to_time(last_concrete).to_local_time
-          if t <= last_concrete
+          t = parsed.add_to_time(walk.last_concrete).to_local_time
+          if t <= walk.last_concrete
             raise ArgumentError,
                   "schedule #{@name.inspect}: step ##{idx} (#{raw[:expression].inspect}) resolves to " \
-                  "#{t.iso8601}, not after the previous concrete time #{last_concrete.iso8601}"
+                  "#{t.iso8601}, not after the previous concrete time #{walk.last_concrete.iso8601}"
           end
-          close_pending_recurring!(resolved, pending_recurring_idx, t)
-          step = Step::Specific.new(index: idx, expression: raw[:expression], at: t,
-                                    klass: raw[:klass], payload: raw[:payload])
-          [step, t, nil]
+          add_concrete_step!(walk, idx, raw, t)
 
         when EtOrbi::EoTime
           t = parsed.to_local_time
@@ -150,15 +144,12 @@ module Sidereal
           # actually advanced last_concrete past baseline. The very
           # first user step is allowed to be in the past — it simply
           # never fires.
-          if last_concrete > baseline && t <= last_concrete
+          if walk.last_concrete > walk.baseline && t <= walk.last_concrete
             raise ArgumentError,
                   "schedule #{@name.inspect}: specific time at step ##{idx} (#{t.iso8601}) " \
-                  "must be after the previous concrete time (#{last_concrete.iso8601})"
+                  "must be after the previous concrete time (#{walk.last_concrete.iso8601})"
           end
-          close_pending_recurring!(resolved, pending_recurring_idx, t)
-          step = Step::Specific.new(index: idx, expression: raw[:expression], at: t,
-                                    klass: raw[:klass], payload: raw[:payload])
-          [step, t, nil]
+          add_concrete_step!(walk, idx, raw, t)
 
         else
           unless parsed.respond_to?(:next_time)
@@ -171,17 +162,32 @@ module Sidereal
                   "schedule #{@name.inspect}: recurring step ##{idx} (#{raw[:expression].inspect}) " \
                   'requires a command class — bound-only markers are only meaningful for specific or duration steps'
           end
-          if pending_recurring_idx
+          if walk.pending_recurring_idx
             raise ArgumentError,
                   "schedule #{@name.inspect}: step ##{idx} (#{raw[:expression].inspect}) is recurring " \
-                  "but the previous step (##{pending_recurring_idx}) is also recurring with no closing bound. " \
+                  "but the previous step (##{walk.pending_recurring_idx}) is also recurring with no closing bound. " \
                   'A concrete (specific or duration) step must separate two recurring steps.'
           end
-          step = Step::Recurring.new(index: idx, expression: raw[:expression], cron: parsed,
-                                     from: last_concrete, to: nil,
-                                     klass: raw[:klass], payload: raw[:payload])
-          [step, last_concrete, idx]
+          walk.resolved << Step::Recurring.new(
+            index: idx, expression: raw[:expression], cron: parsed,
+            from: walk.last_concrete, to: nil,
+            klass: raw[:klass], payload: raw[:payload]
+          )
+          walk.pending_recurring_idx = idx
         end
+      end
+
+      # Append a concrete (specific or duration-resolved) step,
+      # closing any pending recurring step at the same instant and
+      # advancing the +last_concrete+ cursor.
+      def add_concrete_step!(walk, idx, raw, t)
+        close_pending_recurring!(walk, t)
+        walk.resolved << Step::Specific.new(
+          index: idx, expression: raw[:expression], at: t,
+          klass: raw[:klass], payload: raw[:payload]
+        )
+        walk.last_concrete = t
+        walk.pending_recurring_idx = nil
       end
 
       # Coerce the user-supplied expression into something the
@@ -208,15 +214,12 @@ module Sidereal
       end
 
       # Close the pending recurring step (if any) by replacing it in
-      # +resolved+ with a copy whose +to+ is set to +t+.
-      def close_pending_recurring!(resolved, pending_recurring_idx, t)
-        return if pending_recurring_idx.nil?
+      # +walk.resolved+ with a copy whose +to+ is set to +t+.
+      def close_pending_recurring!(walk, t)
+        idx = walk.pending_recurring_idx
+        return if idx.nil?
 
-        prev = resolved[pending_recurring_idx]
-        resolved[pending_recurring_idx] = Step::Recurring.new(
-          index: prev.index, expression: prev.expression, cron: prev.cron,
-          from: prev.from, to: t, klass: prev.klass, payload: prev.payload
-        )
+        walk.resolved[idx] = walk.resolved[idx].with(to: t)
       end
     end
 

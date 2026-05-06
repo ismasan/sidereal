@@ -89,10 +89,7 @@ module Sidereal
         elector = @elector || Sidereal.elector
         elector.on_promote { setup_broker(task) }
         elector.on_demote { teardown_broker }
-        # Idempotent — when wired through Falcon::Service the elector
-        # is already started before pubsub.start runs; this call is a
-        # no-op in that path. For tests / standalone use, this is
-        # what kicks the election off.
+        # Idempotent.
         elector.start(task)
 
         task.async(transient: true) { run_client(task) }
