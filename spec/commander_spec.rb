@@ -20,12 +20,6 @@ TestNotification = Sidereal::Message.define('test.notification') do
   attribute :text, Sidereal::Types::String
 end
 
-TestSchedTick = Sidereal::Message.define('test.sched_tick') do
-  attribute :n, Sidereal::Types::Integer
-end
-
-TestSchedExit = Sidereal::Message.define('test.sched_exit')
-
 # -- Fake pubsub --
 
 class FakePubSub
@@ -84,248 +78,32 @@ RSpec.describe Sidereal::Commander do
   end
 
   describe '.schedule (Scheduling mixin)' do
+    # Heavy DSL coverage lives in spec/scheduling_spec.rb against a
+    # minimal stand-in host. These tests only verify the Commander's
+    # wiring to the mixin: it's included, and a registered schedule
+    # makes it onto +Sidereal.scheduler+ with the right shape.
     before { Sidereal.reset_scheduler! }
-    after { Sidereal.reset_scheduler! }
+    after  { Sidereal.reset_scheduler! }
 
-    # Give each anonymous Commander a distinct toplevel name so the
-    # auto-generated type strings don't collide across examples.
-    # The constant is set BEFORE the body runs so +self.name+ is
-    # already populated when +schedule+ derives type strings.
-    def named_commander(const_name, &body)
-      cls = Class.new(Sidereal::Commander)
-      Object.const_set(const_name, cls)
-      cls.class_eval(&body) if body
-      cls
+    it 'is included in Sidereal::Commander' do
+      expect(Sidereal::Commander.included_modules).to include(Sidereal::Scheduling)
     end
 
-    after do
-      %i[CmdrA CmdrB CmdrC CmdrD CmdrE CmdrF].each do |c|
-        Object.send(:remove_const, c) if Object.const_defined?(c, false)
-      end
-    end
-
-    describe 'single-step shorthand (name, expression, &block)' do
-      it 'registers a one-step schedule with the block as that step’s handler' do
-        cmdr = named_commander(:CmdrA) do
-          schedule 'Cleanup', '*/5 * * * *' do |_cmd|
-          end
-        end
-
-        expect(cmdr::Schedules.const_defined?(:SchedCleanup0Step0, false)).to be true
-
-        sch = Sidereal.scheduler.schedules.first
-        expect(sch.name).to eq('Cleanup')
-        expect(sch.steps.size).to eq(1)
-        expect(sch.steps.first.expression).to eq('*/5 * * * *')
-        expect(sch.steps.first.klass).to eq(cmdr::Schedules::SchedCleanup0Step0)
-      end
-
-      it 'yields the cmd to the user block (regular command handler)' do
-        named_commander(:CmdrB) do
-          command TestSchedTick do |_cmd| end
-          schedule 'Cleanup', '*/5 * * * *' do |cmd|
-            dispatch TestSchedTick, n: cmd.metadata[:schedule_name].length
-          end
-        end
-
-        run_cmd = CmdrB::Schedules::SchedCleanup0Step0.new(
-          metadata: { schedule_name: 'Cleanup' }
-        )
-        result = CmdrB.handle(run_cmd, pubsub: pubsub)
-
-        expect(result.commands.first).to be_a(TestSchedTick)
-        expect(result.commands.first.payload.n).to eq('Cleanup'.length)
-      end
-
-      it 'accepts a Time instance as the shorthand expression' do
-        target = Time.local(2026, 5, 4, 12, 0, 0)
-        named_commander(:CmdrC) do
-          schedule 'Once', target do |_cmd| end
-        end
-
-        sch = Sidereal.scheduler.schedules.first
-        expect(sch.steps.first.at).to eq(target)
-      end
-
-      it 'raises if the shorthand block has the wrong arity' do
-        expect {
-          named_commander(:CmdrD) do
-            schedule 'Bad', '*/5 * * * *' do
-              # arity 0 with an expression — invalid for shorthand
-            end
-          end
-        }.to raise_error(ArgumentError, /requires a block of arity 1/)
-      end
-    end
-
-    describe 'block form (auto-generated step classes)' do
-      it 'generates one class per step under <Host>::Schedules and registers each with Sidereal.scheduler' do
-        cmdr = named_commander(:CmdrA) do
-          schedule 'Tick campaign' do
-            at '2026-05-06T15:00:00' do |_cmd| end
-            at 'every 3 seconds'    do |_cmd| end
-            at '30s'                do |_cmd| end
-          end
-        end
-
-        expect(cmdr::Schedules.const_defined?(:SchedTickCampaign0Step0, false)).to be true
-        expect(cmdr::Schedules.const_defined?(:SchedTickCampaign0Step1, false)).to be true
-        expect(cmdr::Schedules.const_defined?(:SchedTickCampaign0Step2, false)).to be true
-
-        step0 = cmdr::Schedules::SchedTickCampaign0Step0
-        expect(step0.type).to eq('cmdr_a.schedules.tick_campaign_0_step_0')
-
-        sch = Sidereal.scheduler.schedules.first
-        expect(sch.name).to eq('Tick campaign')
-        expect(sch.steps.map(&:klass)).to eq([
-          cmdr::Schedules::SchedTickCampaign0Step0,
-          cmdr::Schedules::SchedTickCampaign0Step1,
-          cmdr::Schedules::SchedTickCampaign0Step2
-        ])
-      end
-
-      it 'wires the user block as the handler for the generated step class and propagates schedule_name via metadata' do
-        named_commander(:CmdrB) do
-          command TestSchedTick do |_cmd| end
-          schedule 'Cleanup' do
-            at '*/5 * * * *' do |cmd|
-              dispatch TestSchedTick, n: cmd.metadata[:schedule_name].length
-            end
-          end
-        end
-
-        step_cmd = CmdrB::Schedules::SchedCleanup0Step0.new(
-          metadata: { schedule_name: 'Cleanup', producer: "Schedule #0 'Cleanup' step #0 (*/5 * * * *)" }
-        )
-        result = CmdrB.handle(step_cmd, pubsub: pubsub)
-
-        expect(result.commands.size).to eq(1)
-        dispatched = result.commands.first
-        expect(dispatched).to be_a(TestSchedTick)
-        expect(dispatched.payload.n).to eq('Cleanup'.length)
-        expect(dispatched.causation_id).to eq(step_cmd.id)
-        expect(dispatched.metadata[:schedule_name]).to eq('Cleanup')
-      end
-    end
-
-    describe 'explicit-class form (klass + payload, no block)' do
-      it 'passes the user-supplied class through to the Scheduler without generating a class or handler' do
-        cmdr = named_commander(:CmdrA) do
-          schedule 'Flash sale campaign' do
-            at '2026-05-10T10:00:00', TestSchedTick, n: 1
-            at 'every day at 9am',    TestSchedTick, n: 2
-            at '10d',                 TestSchedExit
-          end
-        end
-
-        expect(cmdr::Schedules.constants).to be_empty
-
-        sch = Sidereal.scheduler.schedules.first
-        expect(sch.name).to eq('Flash sale campaign')
-        expect(sch.steps.size).to eq(3)
-        expect(sch.steps[0].klass).to eq(TestSchedTick)
-        expect(sch.steps[0].payload).to eq(n: 1)
-        expect(sch.steps[2].klass).to eq(TestSchedExit)
-        expect(sch.steps[2].payload).to eq({})
-      end
-
-      it 'allows mixing block and explicit forms across steps' do
-        cmdr = named_commander(:CmdrB) do
-          command TestSchedExit do |_cmd| end
-          schedule 'Mixed' do
-            at '2026-05-10T10:00:00' do |_cmd| end                # generated
-            at 'every minute', TestSchedTick, n: 1                # explicit
-            at '1h', TestSchedExit                                # explicit
-          end
-        end
-
-        expect(cmdr::Schedules.const_defined?(:SchedMixed0Step0, false)).to be true
-        expect(cmdr::Schedules.const_defined?(:SchedMixed0Step1, false)).to be false
-        expect(cmdr::Schedules.const_defined?(:SchedMixed0Step2, false)).to be false
-
-        sch = Sidereal.scheduler.schedules.first
-        expect(sch.steps[1].klass).to eq(TestSchedTick)
-        expect(sch.steps[2].klass).to eq(TestSchedExit)
-      end
-
-      it 'raises when both a block and a class are supplied to the same at' do
-        expect {
-          named_commander(:CmdrC) do
-            schedule 'Both' do
-              at 'every minute', TestSchedTick, n: 1 do |_cmd| end
-            end
-          end
-        }.to raise_error(ArgumentError, /pass either a block or a command class, not both/)
-      end
-
-      it 'a recurring step with neither a block nor a class raises (bound-only recurring is meaningless)' do
-        expect {
-          named_commander(:CmdrD) do
-            schedule 'BadMarker' do
-              at 'every minute'
-            end
-          end
-        }.to raise_error(ArgumentError, /recurring step.*requires a command class/)
-      end
-
-      it 'a specific or duration step with no class is a bound-only marker (anchors the timeline, never dispatches)' do
-        cmdr = named_commander(:CmdrA) do
-          schedule 'Campaign' do
-            at '2026-05-04T10:00:00'                       # marker — no class
-            at '*/5 * * * *', TestSchedTick, n: 1          # recurring anchored to the marker
-          end
-        end
-
-        # No class generated for the marker; only the recurring step
-        # uses an explicit class so nothing under Schedules.
-        expect(cmdr::Schedules.constants).to be_empty
-
-        sch = Sidereal.scheduler.schedules.first
-        expect(sch.steps[0].klass).to be_nil
-        expect(sch.steps[0].at).to eq(Time.parse('2026-05-04T10:00:00'))
-        expect(sch.steps[1].klass).to eq(TestSchedTick)
-        expect(sch.steps[1].from).to eq(Time.parse('2026-05-04T10:00:00'))
-      end
-    end
-
-    it 'raises if the schedule block has no at calls' do
-      expect {
-        named_commander(:CmdrA) do
-          schedule 'Empty' do
-            # no at(...) calls
-          end
-        end
-      }.to raise_error(ArgumentError, /must declare at least one at/)
-    end
-
-    it 'raises if the schedule block takes arguments (must use the inner DSL)' do
-      expect {
-        named_commander(:CmdrE) do
-          schedule 'Bad' do |_cmd|
-          end
-        end
-      }.to raise_error(ArgumentError, /block must take no arguments/)
-    end
-
-    it 'each subclass of Commander gets its own Schedules namespace' do
-      a = named_commander(:CmdrA) {}
-      b = named_commander(:CmdrB) {}
-
-      expect(a::Schedules).not_to equal(b::Schedules)
-      expect(a::Schedules).not_to equal(Sidereal::Commander::Schedules)
-    end
-
-    it 'survives a schedule name that starts with a digit (Sched prefix keeps the constant valid)' do
-      Object.const_set(:CmdrF, Class.new(Sidereal::Commander))
-      CmdrF.class_eval do
-        schedule '5 minute' do
-          at '*/5 * * * *' do |_cmd| end
+    it 'registers a schedule on Sidereal.scheduler with the configured data' do
+      Object.const_set(:CmdrSchedTest, Class.new(Sidereal::Commander))
+      CmdrSchedTest.class_eval do
+        schedule 'My sched', '*/5 * * * *' do |_cmd|
         end
       end
 
-      expect(CmdrF::Schedules.const_defined?(:Sched5Minute0Step0, false)).to be true
+      expect(Sidereal.scheduler.schedules.size).to eq(1)
+      sch = Sidereal.scheduler.schedules.first
+      expect(sch.name).to eq('My sched')
+      expect(sch.steps.size).to eq(1)
+      expect(sch.steps.first.expression).to eq('*/5 * * * *')
+      expect(sch.steps.first.klass).to eq(CmdrSchedTest::Schedules::SchedMySched0Step0)
     ensure
-      Object.send(:remove_const, :CmdrF) if Object.const_defined?(:CmdrF, false)
+      Object.send(:remove_const, :CmdrSchedTest) if Object.const_defined?(:CmdrSchedTest, false)
     end
   end
 
