@@ -301,14 +301,19 @@ RSpec.describe 'Sidereal::App.schedule' do
   after { Sidereal.reset_scheduler! }
 
   it 'delegates to the App.commander and registers with Sidereal.scheduler' do
-    Class.new(Sidereal::App) do
-      schedule 'Every 5 min', '*/5 * * * *' do
+    Object.const_set(:AppSchedTestApp, Class.new(Sidereal::App))
+    AppSchedTestApp.class_eval do
+      schedule 'Every 5 min' do
+        run_at '*/5 * * * *' do |_cmd|
+        end
       end
     end
 
     expect(Sidereal.scheduler.schedules.size).to eq(1)
     sch = Sidereal.scheduler.schedules.first
-    expect(sch.name).to eq('Every 5 min')
-    expect(sch.cron_expr).to eq('*/5 * * * *')
+    expect(sch.expression).to eq('*/5 * * * *')
+    expect(AppSchedTestApp.commander::Schedules.const_defined?(:SchedEvery5Min0Run, false)).to be true
+  ensure
+    Object.send(:remove_const, :AppSchedTestApp) if Object.const_defined?(:AppSchedTestApp, false)
   end
 end

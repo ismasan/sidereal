@@ -3,6 +3,7 @@
 require 'async'
 require_relative 'sidereal/version'
 require_relative 'sidereal/types'
+require_relative 'sidereal/utils'
 
 module Sidereal
   class Error < StandardError; end
