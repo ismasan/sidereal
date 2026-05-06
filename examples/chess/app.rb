@@ -61,6 +61,26 @@ class ChessApp < Sidereal::App
 
   # ---- Game lifecycle ----
 
+  # Frozen-snapshot view: renders GamePage with state replayed up to the
+  # Nth message of this game's stream. Static — no SSE subscription.
+  # Step links in the EventList sidebar point here.
+  get '/games/:id/:step' do |id:, step:|
+    step_int = Integer(step, 10) rescue nil
+    halt 404, 'Not found' unless step_int && step_int > 0
+
+    state, messages = GamePage.load_state_with_history(id, upto: step_int)
+    halt 404, 'Not found' if messages.length < step_int
+
+    component self.class.layout.new(
+      GamePage.new(
+        state: state,
+        messages: messages,
+        viewer_username: session[:username],
+        current_step: step_int
+      )
+    )
+  end
+
   handle Game::CreateGame do |cmd|
     halt 401, 'login required' if session[:username].to_s.empty?
     dispatch cmd

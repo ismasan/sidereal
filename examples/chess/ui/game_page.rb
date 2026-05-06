@@ -2,6 +2,7 @@
 
 require_relative 'components/board'
 require_relative 'components/move_list'
+require_relative 'components/event_list'
 require_relative 'components/score'
 require_relative 'components/status_banner'
 require_relative 'components/seat_panel'
@@ -15,33 +16,52 @@ class GamePage < Sidereal::Page
     browser.patch_elements GamePage.load(params, context)
   end
 
-  def self.load(params, ctx, selected_source: nil)
-    state, messages = load_state_with_history(params[:id])
+  def self.load(params, ctx, selected_source: nil, current_step: nil)
+    state, messages = load_state_with_history(params[:id], upto: current_step)
     new(
       state: state,
       messages: messages,
       viewer_username: ctx.session[:username],
-      selected_source: selected_source
+      selected_source: selected_source,
+      current_step: current_step
     )
   end
 
-  def self.load_state_with_history(game_id)
-    view, _ = Sourced.load(GameView, game_id: game_id)
+  # Reads all messages for a game, replays them through GameView. With
+  # +upto+, only the first N messages contribute to the projected state —
+  # the full message list is still returned for the sidebar.
+  def self.load_state_with_history(game_id, upto: nil)
     result = Sourced.store.read_partition(
       { game_id: game_id },
       handled_types: Game.display_types
     )
-    [view.state, result.messages]
+    messages = result.messages
+
+    if upto
+      view = GameView.new({ game_id: game_id })
+      view.evolve(messages.first(upto))
+      [view.state, messages]
+    else
+      view, _ = Sourced.load(GameView, game_id: game_id)
+      [view.state, messages]
+    end
   end
 
-  def initialize(state:, messages:, viewer_username:, selected_source: nil)
+  def initialize(state:, messages:, viewer_username:, selected_source: nil, current_step: nil)
     @state = state
     @messages = messages
     @viewer = viewer_username.to_s
     @selected_source = selected_source
+    @current_step = current_step
   end
 
-  def channel_name = "games.#{@state.game_id}"
+  # Historic snapshots use a static channel so live SSE events don't
+  # override the frozen view.
+  def channel_name = @current_step ? 'static' : "games.#{@state.game_id}"
+
+  # Suppress page_key on historic snapshots so Page.subscribe early-returns
+  # and doesn't re-render the page from current state on SSE connect.
+  def page_signals = @current_step ? {} : super
 
   def viewer_color
     return 'white' if @state.white_username && @viewer == @state.white_username
@@ -54,7 +74,10 @@ class GamePage < Sidereal::Page
     @state.fen.split(' ')[1] == 'w' ? 'white' : 'black'
   end
 
+  def historic? = !!@current_step
+
   def your_turn?
+    return false if historic?
     return false unless @state.status == 'in_progress'
     side_to_move == viewer_color
   end
@@ -72,19 +95,28 @@ class GamePage < Sidereal::Page
         end
       end
 
+      if historic?
+        div(class: 'historic-banner') do
+          plain "Viewing step #{@current_step} of #{@messages.length} — "
+          a(href: "/games/#{@state.game_id}") { 'back to live' }
+        end
+      end
+
       div(class: 'game-layout') do
         div(class: 'game-layout__main') do
-          render StatusBanner.new(
-            state: @state,
-            viewer_color: viewer_color,
-            side_to_move: side_to_move,
-            your_turn: your_turn?
-          )
-          render SeatPanel.new(
-            state: @state,
-            viewer_color: viewer_color,
-            viewer_username: @viewer
-          )
+          unless historic?
+            render StatusBanner.new(
+              state: @state,
+              viewer_color: viewer_color,
+              side_to_move: side_to_move,
+              your_turn: your_turn?
+            )
+            render SeatPanel.new(
+              state: @state,
+              viewer_color: viewer_color,
+              viewer_username: @viewer
+            )
+          end
           if @state.fen
             render Board.new(
               fen: @state.fen,
@@ -99,7 +131,12 @@ class GamePage < Sidereal::Page
         aside(class: 'sidebar') do
           render Score.new(@state.captured)
           render MoveList.new(move_messages)
-          render_actions
+          render EventList.new(
+            messages: @messages,
+            game_id: @state.game_id,
+            current_step: @current_step
+          )
+          render_actions unless historic?
         end
       end
     end

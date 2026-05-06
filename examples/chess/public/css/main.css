@@ -322,6 +322,98 @@ button.square--valid-target.square--has-piece:hover::after {
 }
 .moves__white, .moves__black { color: var(--ink); }
 
+/* ---- Event list (full chronological history with time travel) ---- */
+
+.event-list__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.event-list__header h3 { margin: 0; }
+
+.event-list__pagination {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.event-list__seq { font-variant-numeric: tabular-nums; padding: 0 4px; }
+.event-list__live {
+  margin-left: 4px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--soft);
+  color: var(--accent-strong);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.pager-button {
+  display: inline-grid;
+  place-items: center;
+  width: 22px; height: 22px;
+  border-radius: 4px;
+  background: var(--soft);
+  color: var(--ink);
+  text-decoration: none;
+  font-size: 13px;
+  line-height: 1;
+}
+.pager-button:hover { background: var(--accent); color: white; }
+.pager-button--disabled { background: transparent; color: var(--line); cursor: not-allowed; }
+
+.event-list__items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 13px;
+  max-height: 320px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.event-list__empty { color: var(--muted); font-size: 13px; margin: 0; }
+
+.event-card {
+  display: grid;
+  grid-template-columns: 28px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 4px;
+}
+.event-card.highlighted { background: var(--soft); }
+.event-card__step {
+  display: inline-grid;
+  place-items: center;
+  width: 24px; height: 22px;
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  background: var(--bg);
+  border-radius: 4px;
+  color: var(--muted);
+  text-decoration: none;
+}
+.event-card__step:hover { background: var(--accent); color: white; }
+.event-card.highlighted .event-card__step { background: var(--accent); color: white; }
+.event-card__type { color: var(--ink); }
+.event-card__time { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+
+/* ---- Historic-snapshot banner ---- */
+
+.historic-banner {
+  background: #fff4e0;
+  color: var(--warning);
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 14px;
+}
+.historic-banner a { color: var(--accent-strong); font-weight: 600; }
+
 @media (max-width: 800px) {
   .header { flex-direction: column; align-items: flex-start; }
   .seat-panel { grid-template-columns: 1fr; }
