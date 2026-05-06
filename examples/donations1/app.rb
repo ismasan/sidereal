@@ -3,15 +3,14 @@
 require 'sidereal'
 require 'sidereal/store/file_system'
 require 'sidereal/pubsub/unix'
+require 'sidereal/elector/file_system'
 require 'pstore'
 require 'securerandom'
 
 Sidereal.configure do |c|
+  c.elector = Sidereal::Elector::FileSystem.new(lock_path: 'storage/sidereal-leader.lock')
   c.store = Sidereal::Store::FileSystem.new(root: 'storage/store')
-  c.pubsub = Sidereal::PubSub::Unix.new(
-    socket_path: 'storage/sidereal-pubsub.sock',
-    lock_path: 'storage/sidereal-pubsub.lock'
-  )
+  c.pubsub = Sidereal::PubSub::Unix.new(socket_path: 'storage/sidereal-pubsub.sock')
 end
 
 # -- Messages --
