@@ -304,15 +304,15 @@ RSpec.describe 'Sidereal::App.schedule' do
     Object.const_set(:AppSchedTestApp, Class.new(Sidereal::App))
     AppSchedTestApp.class_eval do
       schedule 'Every 5 min' do
-        run_at '*/5 * * * *' do |_cmd|
+        at '*/5 * * * *' do |_cmd|
         end
       end
     end
 
     expect(Sidereal.scheduler.schedules.size).to eq(1)
     sch = Sidereal.scheduler.schedules.first
-    expect(sch.expression).to eq('*/5 * * * *')
-    expect(AppSchedTestApp.commander::Schedules.const_defined?(:SchedEvery5Min0Run, false)).to be true
+    expect(sch.steps.first.expression).to eq('*/5 * * * *')
+    expect(AppSchedTestApp.commander::Schedules.const_defined?(:SchedEvery5Min0Step0, false)).to be true
   ensure
     Object.send(:remove_const, :AppSchedTestApp) if Object.const_defined?(:AppSchedTestApp, false)
   end
