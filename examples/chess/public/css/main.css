@@ -403,6 +403,74 @@ button.square--valid-target.square--has-piece:hover::after {
 .event-card__type { color: var(--ink); }
 .event-card__time { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
 
+/* ---- Lobby (home page) ---- */
+
+.lobby {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.games-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.games-list__item {
+  border-radius: 8px;
+  background: var(--bg);
+  transition: background 0.12s ease;
+}
+.games-list__item:hover { background: var(--soft); }
+
+.games-list__link {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  color: var(--ink);
+  text-decoration: none;
+}
+.games-list__link:hover { text-decoration: none; }
+
+.games-list__title {
+  font-weight: 600;
+}
+.games-list__meta {
+  color: var(--muted);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.games-list__pill {
+  display: inline-grid;
+  place-items: center;
+  min-width: 52px;
+  padding: 2px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 999px;
+  letter-spacing: 0.4px;
+}
+.games-list__pill--white { background: var(--light-square); color: var(--ink); }
+.games-list__pill--black { background: var(--dark-square); color: white; }
+
+.games-list__item--ended .games-list__title,
+.games-list__item--ended .games-list__pill {
+  opacity: 0.7;
+}
+
+.games-list__empty {
+  color: var(--muted);
+  font-size: 14px;
+  margin: 0;
+}
+
 /* ---- Historic-snapshot banner ---- */
 
 .historic-banner {

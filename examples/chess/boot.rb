@@ -12,6 +12,7 @@ FileUtils.mkdir_p(File.dirname(DB_PATH))
 require_relative 'domain/chess_engine'
 require_relative 'domain/game'
 require_relative 'domain/game_view'
+require_relative 'domain/games_projector'
 
 # Wire everything inside Sourced.configure so it is re-run after Falcon forks
 # (SQLite connections are not fork-safe).
@@ -36,4 +37,5 @@ Sourced.configure do |config|
   end
 
   Sourced.register(Game)
+  Sourced.register(GamesProjector)
 end

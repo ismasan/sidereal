@@ -1,20 +1,36 @@
 # frozen_string_literal: true
 
 require 'securerandom'
+require_relative 'components/games_list'
 
 class HomePage < Sidereal::Page
   path '/'
 
+  # Re-render the lobby whenever any game projector commits — that's the
+  # synthetic event the GamesProjector publishes after each upsert.
+  on GamesProjector::GameProjected do |_evt|
+    browser.patch_elements load(params)
+  end
+
   def self.load(_params, ctx)
-    new(username: ctx.session[:username])
+    username = ctx.session[:username]
+    new(
+      username: username,
+      open_games: GamesProjector.open_games,
+      your_games: username ? GamesProjector.games_for(username) : []
+    )
   end
 
-  def initialize(username: nil)
+  def initialize(username: nil, open_games: [], your_games: [])
     @username = username
+    @open_games = open_games
+    @your_games = your_games
   end
 
-  # No live updates on the home page.
-  def channel_name = 'static'
+  # Glob subscription: catches every game's events (per-game channels are
+  # named `games.<id>`) plus the synthetic GameProjected. Sidereal page
+  # reactions only fire on declared `on` events, so the glob is safe.
+  def channel_name = 'games.>'
 
   def view_template
     div(id: 'home-page') do
@@ -30,11 +46,25 @@ class HomePage < Sidereal::Page
         end
       end
 
-      main(class: 'panel') do
-        if @username.to_s.empty?
-          render LoginForm.new
-        else
-          render NewGameForm.new(@username)
+      main(class: 'lobby') do
+        section(class: 'panel') do
+          if @username.to_s.empty?
+            render LoginForm.new
+          else
+            render NewGameForm.new(@username)
+          end
+        end
+
+        section(class: 'panel') do
+          h2 { 'Open games' }
+          render GamesList.new(@open_games, viewer_username: @username, kind: :open)
+        end
+
+        unless @username.to_s.empty?
+          section(class: 'panel') do
+            h2 { 'Your games' }
+            render GamesList.new(@your_games, viewer_username: @username, kind: :yours)
+          end
         end
       end
     end
@@ -59,7 +89,7 @@ class HomePage < Sidereal::Page
 
     def view_template
       h2 { "Hello, #{@username}" }
-      p(class: 'lede') { 'Start a new game and share the URL with your opponent. You play white.' }
+      p(class: 'lede') { 'Start a new game and share the URL with your opponent. You play White.' }
 
       command Game::CreateGame, class: 'new-game-form' do |f|
         f.payload_fields(game_id: SecureRandom.uuid)
