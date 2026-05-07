@@ -5,6 +5,7 @@ PATH
       async
       brotli
       datastar (~> 1.0.4)
+      fugit
       phlex
       plumb (~> 0.0.17)
       rack (~> 3)
@@ -56,6 +57,8 @@ GEM
       rack (>= 3.2)
     date (3.5.1)
     erb (6.0.4)
+    et-orbi (1.4.0)
+      tzinfo
     falcon (0.55.2)
       async
       async-container (~> 0.20)
@@ -73,6 +76,9 @@ GEM
     fiber-local (1.1.0)
       fiber-storage
     fiber-storage (1.0.1)
+    fugit (1.12.1)
+      et-orbi (~> 1.4)
+      raabro (~> 1.4)
     io-console (0.8.2)
     io-endpoint (0.17.2)
     io-event (1.14.4)
@@ -114,6 +120,7 @@ GEM
     psych (5.3.1)
       date
       stringio
+    raabro (1.4.0)
     rack (3.2.5)
     rack-session (2.1.1)
       base64 (>= 0.1.0)
@@ -134,6 +141,8 @@ GEM
     stringio (3.2.0)
     traces (0.18.2)
     tsort (0.2.0)
+    tzinfo (2.0.6)
+      concurrent-ruby (~> 1.0)
     zeitwerk (2.7.5)
 
 PLATFORMS
@@ -162,10 +171,12 @@ CHECKSUMS
   datastar (1.0.4) sha256=46ac43193e2018f16bd3596531dbee5c59427b7797f03c17792bbc9ebdbb92eb
   date (3.5.1) sha256=750d06384d7b9c15d562c76291407d89e368dda4d4fff957eb94962d325a0dc0
   erb (6.0.4) sha256=38e3803694be357fe2bfe312487c74beaf9fb4e5beb3e22498952fe1645b95d9
+  et-orbi (1.4.0)
   falcon (0.55.2) sha256=dfcdd8e4c3a18827a5ca7e346df67ebdaf873ac61a5f7d20ad4923c4d6b180cb
   fiber-annotation (0.2.0) sha256=7abfadf1d119f508867d4103bf231c0354d019cc39a5738945dec2edadaf6c03
   fiber-local (1.1.0) sha256=c885f94f210fb9b05737de65d511136ea602e00c5105953748aa0f8793489f06
   fiber-storage (1.0.1) sha256=f48e5b6d8b0be96dac486332b55cee82240057065dc761c1ea692b2e719240e1
+  fugit (1.12.1)
   io-console (0.8.2) sha256=d6e3ae7a7cc7574f4b8893b4fca2162e57a825b223a177b7afa236c5ef9814cc
   io-endpoint (0.17.2) sha256=3feaf766c116b35839c11fac68b6aaadc47887bb488902a57bf8e1d288fb3338
   io-event (1.14.4) sha256=455a9e4fb4613d12867b90461c297af6993b400a521bf62046f83b27f9c6aa3d
@@ -190,6 +201,7 @@ CHECKSUMS
   protocol-url (0.4.0) sha256=64d4c03b6b51ad815ac6fdaf77a1d91e5baf9220d26becb846c5459dacdea9e1
   pstore (0.2.1) sha256=03904d0f2c66579e96d1e6704cdabc0c88df7ea8ed8782d9f3569f6f6c702c1a
   psych (5.3.1) sha256=eb7a57cef10c9d70173ff74e739d843ac3b2c019a003de48447b2963d81b1974
+  raabro (1.4.0)
   rack (3.2.5) sha256=4cbd0974c0b79f7a139b4812004a62e4c60b145cba76422e288ee670601ed6d3
   rack-session (2.1.1) sha256=0b6dc07dea7e4b583f58a48e8b806d4c9f1c6c9214ebc202ec94562cbea2e4e9
   rdoc (7.2.0) sha256=8650f76cd4009c3b54955eb5d7e3a075c60a57276766ebf36f9085e8c9f23192
@@ -201,6 +213,7 @@ CHECKSUMS
   stringio (3.2.0) sha256=c37cb2e58b4ffbd33fe5cd948c05934af997b36e0b6ca6fdf43afa234cf222e1
   traces (0.18.2) sha256=80f1649cb4daace1d7174b81f3b3b7427af0b93047759ba349960cb8f315e214
   tsort (0.2.0) sha256=9650a793f6859a43b6641671278f79cfead60ac714148aabe4e3f0060480089f
+  tzinfo (2.0.6)
   zeitwerk (2.7.5) sha256=d8da92128c09ea6ec62c949011b00ed4a20242b255293dd66bf41545398f73dd
 
 BUNDLED WITH
