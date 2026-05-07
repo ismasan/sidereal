@@ -77,6 +77,18 @@ module Sidereal
     @scheduler = nil
   end
 
+  # Process-global channel-name registry. System notifications
+  # ({Sidereal::System::NotifyRetry} / {NotifyFailure}) are pre-routed
+  # via the +:source_channel+ metadata that the dispatcher stamps —
+  # this keeps user-supplied resolvers free of system-message branches.
+  def self.channels
+    @channels ||= Channels.with_system_defaults
+  end
+
+  def self.reset_channels!
+    @channels = nil
+  end
+
   def self.register(commander)
     commander.handled_commands.each do |cmd_class|
       registry[cmd_class] = commander
@@ -136,6 +148,7 @@ end
 
 require_relative 'sidereal/message'
 require_relative 'sidereal/system'
+require_relative 'sidereal/channels'
 require_relative 'sidereal/router'
 require_relative 'sidereal/components/layout'
 require_relative 'sidereal/page'

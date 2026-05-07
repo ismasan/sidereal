@@ -403,11 +403,17 @@ class DonationPage < Sidereal::Page
 end
 ```
 
-For events to actually reach that channel, declare how the App derives a channel name from each message. Use `channel_name` on the `App` — either a static string or a block that receives the message and returns a channel:
+For events to actually reach that channel, declare how the App derives a channel name from each message. The `channel_name` macro registers a resolver on the process-global `Sidereal.channels` registry. Pass message classes positionally to scope the resolver, or no arguments to register a catch-all:
 
 ```ruby
 class DonationsApp < Sidereal::App
+  # Catch-all: every message goes through this block
   channel_name do |msg|
+    "donations.#{msg.payload.donation_id}"
+  end
+
+  # Or scope to specific message classes:
+  channel_name SelectAmount, EnterDonorDetails do |msg|
     "donations.#{msg.payload.donation_id}"
   end
 
@@ -415,7 +421,9 @@ class DonationsApp < Sidereal::App
 end
 ```
 
-The block runs for every message the App's commander publishes — both the incoming command and the events it emits — so there's no per-command wiring. Downstream commands and events dispatched in response are routed by the same rule.
+The block runs for every message the dispatcher publishes — both the incoming command and the events it emits. Resolution is O(1) per message: typed registrations win first, then the catch-all, then a fallback to the literal `'system'` channel (so an app that registers nothing still publishes successfully). System notifications (`Sidereal::System::NotifyRetry`/`NotifyFailure`) are pre-routed via the `:source_channel` metadata that the dispatcher stamps; user-supplied resolvers never see them.
+
+Channel routing also works outside the App class — call `Sidereal.channels.channel_name(...)` from anywhere (e.g. a dedicated routes file) for apps where the registrations grow large enough to warrant their own home.
 
 #### Channel name syntax
 
@@ -967,7 +975,7 @@ For each `Retry` or `Fail` decision, the dispatcher also appends a system comman
 
 Both inherit from `Sidereal::System::Notification` (a marker base). Code that needs system-wide handling can check `msg.is_a?(Sidereal::System::Notification)` rather than enumerating concrete classes.
 
-These flow through the normal command pipeline: every `Sidereal::Commander` subclass auto-registers no-op handlers for them on inheritance, so they get handled, published via pubsub, and routed to the same channel the source command would have been published to (the dispatcher stamps `metadata[:source_channel]` so user-supplied `channel_name` blocks don't have to know about system messages).
+These flow through the normal command pipeline: every `Sidereal::Commander` subclass auto-registers no-op handlers for them on inheritance, so they get handled, published via pubsub, and routed to the same channel the source command would have been published to. The dispatcher stamps `metadata[:source_channel]` on each notification, and `Sidereal.channels` ships with pre-installed handlers for `NotifyRetry`/`NotifyFailure` that read it back — so user-supplied `channel_name` blocks never see system messages.
 
 Override either side — handler or page reaction — to react to failures:
 
@@ -1008,7 +1016,11 @@ module Sidereal
 end
 ```
 
-Defining via `Notification.define(...)` registers it under the `Notification` registry. The dispatcher's loop prevention, `App.channel_name`'s bypass, and Commander's no-op auto-registration all key off `is_a?(Notification)` and the registry, so they pick up the new class automatically. You'll still need to add the corresponding `Page.on(...)` reaction and (optionally) a UI component to render it.
+Defining via `Notification.define(...)` registers it under the `Notification` registry. The dispatcher's loop prevention and Commander's no-op auto-registration both key off `is_a?(Notification)` and pick up the new class automatically. You'll still need to:
+
+- register a `:source_channel`-bypass route for it on `Sidereal.channels` (mirroring the bypass installed for `NotifyRetry`/`NotifyFailure`) so it reaches the originating page's SSE channel;
+- add the corresponding `Page.on(...)` reaction;
+- optionally, add a UI component to render it.
 
 ## How it works
 
@@ -1098,7 +1110,7 @@ class TodoDecider < Sourced::Decider
   # Publish events to Sidereal's PubSub for SSE streaming
   after_sync do |state:, events:|
     events.each do |evt|
-      Sidereal.pubsub.publish(TodoApp.commander.channel_name(evt), evt)
+      Sidereal.pubsub.publish(Sidereal.channels.for(evt), evt)
     end
   end
 end
@@ -1106,7 +1118,7 @@ end
 Sourced.register(TodoDecider)
 ```
 
-The `after_sync` block runs after the store transaction commits and pushes events into Sidereal's PubSub, where Page reactions pick them up and stream DOM updates via SSE. Sourced's dispatcher doesn't auto-publish to PubSub the way Sidereal's does, so the channel is resolved by calling the App's `channel_name` block directly.
+The `after_sync` block runs after the store transaction commits and pushes events into Sidereal's PubSub, where Page reactions pick them up and stream DOM updates via SSE. Sourced's dispatcher doesn't auto-publish to PubSub the way Sidereal's does, so the channel is resolved by looking up `Sidereal.channels.for(evt)` against whatever the App registered with the `channel_name` macro.
 
 ### Pages and App
 
@@ -1147,7 +1159,7 @@ You can also process a command synchronously during the HTTP request using `Sour
 ```ruby
 handle AddTodo do |cmd|
   _cmd, _decider, events = Sourced.handle!(TodoDecider, cmd)
-  events.each { |evt| pubsub.publish(self.class.commander.channel_name(evt), evt) }
+  events.each { |evt| pubsub.publish(Sidereal.channels.for(evt), evt) }
   browser.patch_elements TodoList.new(TODOS.values)
 end
 ```

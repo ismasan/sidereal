@@ -279,22 +279,6 @@ RSpec.describe Sidereal::Commander do
     end
   end
 
-  describe '.channel_name' do
-    it "defaults to 'system'" do
-      msg = TestAddItem.new(payload: { title: 'x' })
-      expect(Sidereal::Commander.channel_name(msg)).to eq('system')
-    end
-
-    it 'is overridable on a subclass' do
-      cmdr = Class.new(Sidereal::Commander) do
-        def self.channel_name(msg) = "items.#{msg.payload.title}"
-      end
-
-      msg = TestAddItem.new(payload: { title: '42' })
-      expect(cmdr.channel_name(msg)).to eq('items.42')
-    end
-  end
-
   describe '.on_error' do
     let(:msg) { TestAddItem.new(payload: { name: 'x' }) }
 
@@ -366,13 +350,15 @@ RSpec.describe Sidereal::Commander do
   end
 
   describe '#broadcast' do
-    it 'publishes to the channel returned by self.class.channel_name' do
+    before { Sidereal.reset_channels! }
+
+    it 'publishes to the channel resolved by Sidereal.channels.for' do
+      Sidereal.channels.channel_name(TestNotification) { |_| 'test-ch' }
+
       cmdr_class = Class.new(Sidereal::Commander) do
         command TestAddItem do |cmd|
           broadcast TestNotification, text: 'hello'
         end
-
-        def self.channel_name(_) = 'test-ch'
       end
 
       cmd = TestAddItem.new(payload: { title: 'x' })
