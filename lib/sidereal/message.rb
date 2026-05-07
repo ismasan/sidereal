@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require 'fugit'
+
 module Sidereal
   UnknownMessageError = Class.new(ArgumentError)
   PastMessageDateError = Class.new(ArgumentError)
@@ -152,13 +154,39 @@ module Sidereal
       self.class.new(hash)
     end
 
-    def at(datetime)
-      if datetime < created_at
+    # Return a copy with +created_at+ set to a future instant. Three
+    # accepted forms:
+    #
+    # - +Time+ / +DateTime+ / anything with +<+ — used as the absolute
+    #   target.
+    # - +Integer+ — interpreted as seconds; added to +Time.now+.
+    # - +String+ — parsed via +Fugit.parse+ as a duration (e.g.
+    #   +'5m'+, +'1h30m'+, +'PT5M'+) and added to +Time.now+.
+    #
+    # Raises +PastMessageDateError+ when the resolved target is
+    # before +created_at+.
+    def at(value)
+      target = case value
+               when Integer
+                 Time.now + value
+               when String
+                 parsed = Fugit.parse_duration(value) or
+                   raise ArgumentError,
+                         "Message#at: String argument must be an ISO8601 / Fugit duration " \
+                         "(e.g. '5m', 'PT1H30M'); got #{value.inspect}"
+                 parsed.add_to_time(Time.now).to_local_time
+               else
+                 value
+               end
+
+      if target < created_at
         raise PastMessageDateError, "Message #{type} can't be delayed to a date in the past"
       end
 
-      with(created_at: datetime)
+      with(created_at: target)
     end
+
+    alias in at
 
     # Set causation and correlation IDs on another message, establishing
     # a causal link from this message to +message+. Merges metadata.

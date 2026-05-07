@@ -292,3 +292,28 @@ RSpec.describe 'Sidereal::App.handle' do
     end
   end
 end
+
+# Thin App-level test — App.schedule delegates to its commander, which has
+# the Scheduling mixin. Behaviour of the TriggerSchedule handler is covered
+# in commander_spec.rb.
+RSpec.describe 'Sidereal::App.schedule' do
+  before { Sidereal.reset_scheduler! }
+  after { Sidereal.reset_scheduler! }
+
+  it 'delegates to the App.commander and registers with Sidereal.scheduler' do
+    Object.const_set(:AppSchedTestApp, Class.new(Sidereal::App))
+    AppSchedTestApp.class_eval do
+      schedule 'Every 5 min' do
+        at '*/5 * * * *' do |_cmd|
+        end
+      end
+    end
+
+    expect(Sidereal.scheduler.schedules.size).to eq(1)
+    sch = Sidereal.scheduler.schedules.first
+    expect(sch.steps.first.expression).to eq('*/5 * * * *')
+    expect(AppSchedTestApp.commander::Schedules.const_defined?(:SchedEvery5Min0Step0, false)).to be true
+  ensure
+    Object.send(:remove_const, :AppSchedTestApp) if Object.const_defined?(:AppSchedTestApp, false)
+  end
+end

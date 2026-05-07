@@ -171,6 +171,42 @@ RSpec.describe Sidereal::Message do
       msg = bare_class.new
       expect { msg.at(Time.now - 60) }.to raise_error(Sidereal::PastMessageDateError)
     end
+
+    it 'accepts an Integer as seconds added to Time.now' do
+      msg = bare_class.new
+      before = Time.now
+      delayed = msg.at(60)
+      after = Time.now
+
+      expect(delayed.created_at).to be_within(1).of(before + 60)
+      expect(delayed.created_at).to be <= after + 60
+    end
+
+    it 'raises when given a negative Integer that resolves before created_at' do
+      msg = bare_class.new
+      expect { msg.at(-3600) }.to raise_error(Sidereal::PastMessageDateError)
+    end
+
+    it 'accepts a Fugit duration String added to Time.now' do
+      msg = bare_class.new
+      before = Time.now
+      delayed = msg.at('5m')
+      expect(delayed.created_at).to be_within(1).of(before + 5 * 60)
+    end
+
+    it 'accepts an ISO8601 duration String' do
+      msg = bare_class.new
+      before = Time.now
+      delayed = msg.at('PT1H30M')
+      expect(delayed.created_at).to be_within(1).of(before + 90 * 60)
+    end
+
+    it 'raises ArgumentError when the String is not a duration (e.g. a date)' do
+      msg = bare_class.new
+      expect {
+        msg.at('2026-12-31T10:00:00')
+      }.to raise_error(ArgumentError, /must be an ISO8601 \/ Fugit duration/)
+    end
   end
 
   describe '.from' do

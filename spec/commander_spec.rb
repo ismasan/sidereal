@@ -77,6 +77,36 @@ RSpec.describe Sidereal::Commander do
     end
   end
 
+  describe '.schedule (Scheduling mixin)' do
+    # Heavy DSL coverage lives in spec/scheduling_spec.rb against a
+    # minimal stand-in host. These tests only verify the Commander's
+    # wiring to the mixin: it's included, and a registered schedule
+    # makes it onto +Sidereal.scheduler+ with the right shape.
+    before { Sidereal.reset_scheduler! }
+    after  { Sidereal.reset_scheduler! }
+
+    it 'is included in Sidereal::Commander' do
+      expect(Sidereal::Commander.included_modules).to include(Sidereal::Scheduling)
+    end
+
+    it 'registers a schedule on Sidereal.scheduler with the configured data' do
+      Object.const_set(:CmdrSchedTest, Class.new(Sidereal::Commander))
+      CmdrSchedTest.class_eval do
+        schedule 'My sched', '*/5 * * * *' do |_cmd|
+        end
+      end
+
+      expect(Sidereal.scheduler.schedules.size).to eq(1)
+      sch = Sidereal.scheduler.schedules.first
+      expect(sch.name).to eq('My sched')
+      expect(sch.steps.size).to eq(1)
+      expect(sch.steps.first.expression).to eq('*/5 * * * *')
+      expect(sch.steps.first.klass).to eq(CmdrSchedTest::Schedules::SchedMySched0Step0)
+    ensure
+      Object.send(:remove_const, :CmdrSchedTest) if Object.const_defined?(:CmdrSchedTest, false)
+    end
+  end
+
   describe '.from' do
     let(:cmdr_class) do
       Class.new(Sidereal::Commander) do

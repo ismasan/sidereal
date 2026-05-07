@@ -137,6 +137,12 @@ module Sidereal
         self
       end
 
+      def schedule(...)
+        commander.schedule(...)
+        Sidereal.register(commander)
+        self
+      end
+
       # Expose a command to the web (+POST /commands+) and register a
       # handler that runs synchronously during the HTTP request.
       #

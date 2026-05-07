@@ -5,6 +5,7 @@ require 'async'
 require 'tmpdir'
 require 'json'
 require 'sidereal/pubsub/unix'
+require 'sidereal/elector/file_system'
 
 UnixFailoverMsg = Sidereal::Message.define('unix_failover_spec.event') do
   attribute :tag, Sidereal::Types::String
@@ -26,9 +27,12 @@ RSpec.describe 'Sidereal::PubSub::Unix cross-process' do
   def build_pubsub
     Sidereal::PubSub::Unix.new(
       socket_path: socket_path,
-      lock_path: lock_path,
       reconnect_min: 0.02,
-      reconnect_max: 0.05
+      reconnect_max: 0.05,
+      # Each forked process gets its own elector instance, racing on
+      # the shared lock_path — same topology as the old embedded
+      # election, just delegated.
+      elector: Sidereal::Elector::FileSystem.new(lock_path: lock_path, retry_interval: 0.05)
     )
   end
 
@@ -193,10 +197,7 @@ RSpec.describe 'Sidereal::PubSub::Unix cross-process' do
       # so the pubsub is never started and @client_socket is nil — the same
       # state a publisher would briefly observe between EOF and reconnect
       # during a failover. publish must tolerate it.
-      pubsub = Sidereal::PubSub::Unix.new(
-        socket_path: socket_path,
-        lock_path: lock_path
-      )
+      pubsub = Sidereal::PubSub::Unix.new(socket_path: socket_path)
       expect do
         pubsub.publish('any.thing', UnixFailoverMsg.new(payload: { tag: 'lost' }))
       end.not_to raise_error
