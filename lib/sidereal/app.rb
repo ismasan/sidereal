@@ -209,7 +209,7 @@ module Sidereal
         Console.info 'server disconnect'
         channel.stop
       end.on_error do |ex|
-        Console.info "ERROR #{ex}"
+        Console.error(self, 'SSE stream error', exception: ex)
         channel.stop
       end
 
