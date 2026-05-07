@@ -24,6 +24,16 @@ RSpec.describe Sidereal::Dispatcher do
   let(:store) { Sidereal::Store::Memory.new }
   let(:pubsub) { Sidereal::PubSub::Memory.new }
 
+  # Inject a per-spec channel registry rather than mutating
+  # +Sidereal.channels+. Pre-loaded with the System notification
+  # bypass + a catch-all that routes every domain message to 'ch1'
+  # (the channel most tests subscribe to).
+  let(:channels) do
+    Sidereal::Channels.with_system_defaults.tap do |c|
+      c.channel_name { |_| 'ch1' }
+    end
+  end
+
   def registry_for(*commanders)
     Sidereal::Registry.new.tap do |r|
       commanders.each do |c|
@@ -35,7 +45,7 @@ RSpec.describe Sidereal::Dispatcher do
   # Run the dispatcher, subscribe to a channel, and collect published messages.
   # Yields a block where the caller can append commands to the store.
   # Returns the list of messages received on the channel.
-  def run_and_collect(channel_name, store:, registry:, pubsub:, &block)
+  def run_and_collect(channel_name, store:, registry:, pubsub:, channels: self.channels, &block)
     received = []
 
     Sync do |task|
@@ -52,7 +62,8 @@ RSpec.describe Sidereal::Dispatcher do
         worker_count: 1,
         store: store,
         registry: registry,
-        pubsub: pubsub
+        pubsub: pubsub,
+        channels: channels
       ).start(task)
 
       task.async do
@@ -172,20 +183,17 @@ RSpec.describe Sidereal::Dispatcher do
     expect(titles).to eq(%w[first second third])
   end
 
-  it 'routes via the commander, computing the channel from each message' do
-    routed = { 'a' => [], 'b' => [] }
-
+  it 'resolves the channel via the injected Channels for each published message' do
     routing_commander = Class.new(Sidereal::Commander) do
       command DispatchCmd do |cmd|
         dispatch DispatchEvt, title: cmd.payload.title
       end
-
-      define_singleton_method(:channel_name) do |msg|
-        # Use payload to choose channel — exercises that channel_name
-        # receives the message and can switch on it.
-        msg.is_a?(DispatchEvt) ? "evt-#{msg.payload.title}" : 'cmds'
-      end
     end
+
+    # Per-class registrations override the catch-all baked into the
+    # +channels+ let.
+    channels.channel_name(DispatchCmd) { |_| 'cmds' }
+    channels.channel_name(DispatchEvt) { |msg| "evt-#{msg.payload.title}" }
 
     store.append(DispatchCmd.new(payload: { title: 'a' }))
 
@@ -201,7 +209,7 @@ RSpec.describe Sidereal::Dispatcher do
       task.async { evt.start { |m, _| received_evt << m } }
 
       Sidereal::Dispatcher.new(
-        worker_count: 1, store: store, registry: registry_for(routing_commander), pubsub: pubsub
+        worker_count: 1, store: store, registry: registry_for(routing_commander), pubsub: pubsub, channels: channels
       ).start(task)
 
       task.async do
@@ -410,7 +418,7 @@ RSpec.describe Sidereal::Dispatcher do
 
       store.append(DispatchCmd.new(payload: { title: 'orphan' }))
 
-      received = run_and_collect('ch1', store: store, registry: registry, pubsub: pubsub) {}
+      received = run_and_collect('ch1', store: store, registry: registry, pubsub: pubsub, channels: channels) {}
 
       # No NotifyFailure should appear in the channel — dispatcher
       # detected no handler and skipped the dispatch.
@@ -432,15 +440,13 @@ RSpec.describe Sidereal::Dispatcher do
         end
       end
 
-      # Apply the App.channel_name-style wrapper directly to the
-      # commander so we exercise the bypass logic.
-      user_fn = ->(msg) { "ch.#{msg.payload.fetch(:title)}" }
-      cmdr.define_singleton_method(:channel_name) do |msg|
-        if msg.is_a?(Sidereal::System::Notification)
-          msg.metadata[:source_channel] || 'system'
-        else
-          user_fn.call(msg)
-        end
+      # Register a domain-specific resolver on the injected registry —
+      # this is what was previously installed via App.channel_name.
+      # System notifications continue to route via the pre-installed
+      # source_channel bypass (Channels.with_system_defaults), so the
+      # resolver below never sees them.
+      channels.channel_name(DispatchCmd) do |msg|
+        "ch.#{msg.payload.fetch(:title)}"
       end
 
       store.append(DispatchCmd.new(payload: { title: 'doomed' }))

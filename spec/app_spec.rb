@@ -145,26 +145,30 @@ RSpec.describe 'Sidereal::App.handle' do
   end
 
   describe '.channel_name macro' do
-    it 'defines a static channel name on the App\'s commander' do
-      app = Class.new(Sidereal::App) do
-        session secret: 'a' * 64
-        channel_name 'custom'
-        command HandleTestCmd
-      end
+    before { Sidereal.reset_channels! }
 
-      msg = HandleTestCmd.new(payload: { title: 'x' })
-      expect(app.commander.channel_name(msg)).to eq('custom')
-    end
-
-    it 'defines a dynamic channel name from a block' do
-      app = Class.new(Sidereal::App) do
+    it 'registers a catch-all resolver via Sidereal.channels' do
+      Class.new(Sidereal::App) do
         session secret: 'a' * 64
         channel_name { |msg| "items.#{msg.payload.title}" }
         command HandleTestCmd
       end
 
       msg = HandleTestCmd.new(payload: { title: '42' })
-      expect(app.commander.channel_name(msg)).to eq('items.42')
+      expect(Sidereal.channels.for(msg)).to eq('items.42')
+    end
+
+    it 'registers a typed resolver scoped to a message class' do
+      Class.new(Sidereal::App) do
+        session secret: 'a' * 64
+        channel_name HandleTestCmd do |msg|
+          "things.#{msg.payload.title}"
+        end
+        command HandleTestCmd
+      end
+
+      msg = HandleTestCmd.new(payload: { title: '99' })
+      expect(Sidereal.channels.for(msg)).to eq('things.99')
     end
   end
 

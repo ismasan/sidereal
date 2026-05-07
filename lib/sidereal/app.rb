@@ -81,33 +81,31 @@ module Sidereal
         self
       end
 
-      # Define the channel name used by this App's commander to publish
-      # processed messages. Accepts either a static string or a block
-      # that receives the message and returns a channel name.
+      # Register a channel-name resolver. Sugar for
+      # {Sidereal.channels.channel_name}.
+      #
+      # @example Catch-all (any message type)
+      #   channel_name { |cmd| "todos.#{cmd.payload.list_id}" }
+      #
+      # @example Typed registration
+      #   channel_name SomeCmd do |cmd|
+      #     "things.#{cmd.payload.thing_id}"
+      #   end
+      #
+      # @example Multiple types sharing one resolver
+      #   channel_name CmdA, CmdB do |cmd|
+      #     "..."
+      #   end
       #
       # System notifications ({Sidereal::System::NotifyRetry} and
-      # {NotifyFailure}) bypass the user-supplied resolver and instead
-      # use the +:source_channel+ stamped into the notification's
-      # +metadata+ by the dispatcher. This prevents user resolvers that
-      # access domain-specific payload keys (e.g.
-      # +msg.payload.fetch(:donation_id)+) from crashing on system
-      # messages whose payload has a different shape.
+      # {NotifyFailure}) are pre-routed at the {Sidereal.channels} level
+      # via +:source_channel+ metadata stamped by the dispatcher; user
+      # resolvers don't need to handle them.
       #
-      # @example Static channel
-      #   channel_name 'todos'
-      # @example Dynamic channel
-      #   channel_name { |msg| "todos.#{msg.payload.list_id}" }
-      #
+      # @param message_classes [Array<Class>] zero or more message classes
       # @return [self]
-      def channel_name(static_value = nil, &block)
-        user_fn = block || ->(_msg) { static_value }
-        commander.define_singleton_method(:channel_name) do |msg|
-          if msg.is_a?(Sidereal::System::Notification)
-            msg.metadata[:source_channel] || 'system'
-          else
-            user_fn.call(msg)
-          end
-        end
+      def channel_name(*message_classes, &block)
+        Sidereal.channels.channel_name(*message_classes, &block)
         self
       end
 

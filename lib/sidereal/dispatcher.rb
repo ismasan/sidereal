@@ -17,12 +17,14 @@ module Sidereal
       worker_count: Sidereal.config.workers,
       store: Sidereal.store,
       registry: Sidereal.registry,
-      pubsub: Sidereal.pubsub
+      pubsub: Sidereal.pubsub,
+      channels: Sidereal.channels
     )
       @worker_count = worker_count
       @store = store
       @registry = registry
       @pubsub = pubsub
+      @channels = channels
     end
 
     def start(task)
@@ -36,7 +38,7 @@ module Sidereal
 
             begin
               result = commander.handle(msg, pubsub: @pubsub)
-              publish(commander, result)
+              publish(result)
               Sidereal::Store::Result::Ack
             rescue StandardError => ex
               policy_result = begin
@@ -47,7 +49,7 @@ module Sidereal
                 Sidereal::Store::Result::Fail.new(error: ex)
               end
               log_failure(commander, msg, meta, ex, policy_result)
-              dispatch_notification(commander, msg, meta, ex, policy_result)
+              dispatch_notification(msg, meta, ex, policy_result)
               policy_result
             end
           end
@@ -97,19 +99,18 @@ module Sidereal
     #
     # All errors during dispatch are logged and swallowed — a failure
     # to notify must never crash the worker loop.
-    def dispatch_notification(commander, msg, meta, exception, policy_result)
+    def dispatch_notification(msg, meta, exception, policy_result)
       return if system_notification?(msg)
 
       notify = build_notification(msg, meta, exception, policy_result)
       return if notify.nil?
       return if @registry[notify.class].nil?
 
-      # Stamp the source command's resolved channel so the user's
-      # +channel_name+ resolver doesn't have to handle system messages
-      # (whose payload shape differs from domain commands). The base
-      # App.channel_name wrapper reads this from metadata for system
-      # notifications and falls back to 'system' if not stamped.
-      source_channel = commander.channel_name(msg)
+      # Stamp the source command's resolved channel so the System
+      # notification routes can look it up via +:source_channel+ in
+      # metadata (registered in {Sidereal.channels}) without having to
+      # know the failed command's payload shape.
+      source_channel = @channels.for(msg)
       stamped = notify.with_metadata(source_channel: source_channel)
 
       @store.append(msg.correlate(stamped))
@@ -152,10 +153,10 @@ module Sidereal
 
     # Publish failures are logged but do not trigger retry. Handle has
     # already mutated state by this point — retrying would double-apply.
-    def publish(commander, result)
-      @pubsub.publish commander.channel_name(result.msg), result.msg
+    def publish(result)
+      @pubsub.publish @channels.for(result.msg), result.msg
       result.events.each do |e|
-        @pubsub.publish commander.channel_name(e), e
+        @pubsub.publish @channels.for(e), e
       end
       result.commands.each do |e|
         @store.append e
