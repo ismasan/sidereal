@@ -19,6 +19,9 @@ module Sidereal
   class Channels
     DEFAULT_CHANNEL = 'system'
 
+    # Raised when {#channel_name} is called after {#lock!}.
+    LockedError = Class.new(StandardError)
+
     # Build a Channels with the framework-internal source-channel bypass
     # pre-installed for {Sidereal::System::NotifyRetry} and
     # {NotifyFailure}. Use this anywhere a fresh registry needs to
@@ -46,9 +49,11 @@ module Sidereal
     # @param message_classes [Array<Class>] zero or more message classes
     # @yieldparam msg [Sidereal::Message] the message being routed
     # @yieldreturn [String] the channel name
+    # @raise [LockedError] if called after {#lock!}
     # @return [self]
     def channel_name(*message_classes, &block)
       raise ArgumentError, 'block required' unless block
+      raise LockedError, 'channels registry is locked; register routes during boot, before Sidereal.channels.lock!' if @locked
 
       if message_classes.empty?
         @catch_all = block
@@ -71,11 +76,30 @@ module Sidereal
       handler ? handler.call(msg) : DEFAULT_CHANNEL
     end
 
-    # Clear all registrations. For test isolation.
+    # Close the registry. Any subsequent {#channel_name} call raises
+    # {LockedError}. The internal routes hash is also frozen so
+    # accidental low-level mutation surfaces too. Reads ({#for}) keep
+    # working unchanged.
+    #
+    # Called automatically by Sidereal::Falcon::Environment::Service
+    # after class loading and before workers start. Idempotent.
+    #
+    # @return [self]
+    def lock!
+      @routes.freeze
+      @locked = true
+      self
+    end
+
+    # @return [Boolean]
+    def locked? = @locked
+
+    # Clear all registrations and unlock. For test isolation.
     # @return [self]
     def reset!
       @routes = {}
       @catch_all = nil
+      @locked = false
       self
     end
   end

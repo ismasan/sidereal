@@ -425,6 +425,8 @@ The block runs for every message the dispatcher publishes — both the incoming 
 
 Channel routing also works outside the App class — call `Sidereal.channels.channel_name(...)` from anywhere (e.g. a dedicated routes file) for apps where the registrations grow large enough to warrant their own home.
 
+The registry locks itself once boot is over: `Sidereal::Falcon::Environment::Service` calls `Sidereal.channels.lock!` after class-loading and pubsub startup, before workers start consuming. Subsequent `channel_name(...)` calls raise `Sidereal::Channels::LockedError` — register routes during boot only.
+
 #### Channel name syntax
 
 Channel names are dot-separated tokens (e.g. `campaigns.abc-123.donations.xyz-999`). Subscribers can use two NATS-style wildcards to receive events across multiple concrete channels:

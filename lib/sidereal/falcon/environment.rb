@@ -49,6 +49,14 @@ module Sidereal
             # pubsub's background fibers.
             Sidereal.elector.start(task)
             Sidereal.pubsub.start(task)
+
+            # Boot is over: classes have loaded, channel routes are
+            # registered. Lock the channels registry so any further
+            # +Sidereal.channels.channel_name(...)+ call raises loudly
+            # instead of silently racing the worker fibers about to
+            # start consuming.
+            Sidereal.channels.lock!
+
             @dispatcher = Sidereal.dispatcher.start(task)
             Sidereal.scheduler.start(task)
 

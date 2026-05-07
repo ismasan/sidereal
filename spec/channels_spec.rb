@@ -71,6 +71,47 @@ RSpec.describe Sidereal::Channels do
 
       expect(channels.for(msg_a_class.new)).to eq('system')
     end
+
+    it 'unlocks a locked registry' do
+      channels.lock!
+      channels.reset!
+
+      expect(channels.locked?).to be(false)
+      expect { channels.channel_name { |_| 'x' } }.not_to raise_error
+    end
+  end
+
+  describe '#lock!' do
+    it 'is idempotent and reports state via #locked?' do
+      expect(channels.locked?).to be(false)
+      channels.lock!
+      expect(channels.locked?).to be(true)
+      expect { channels.lock! }.not_to raise_error
+    end
+
+    it 'raises LockedError on subsequent typed registration' do
+      channels.channel_name(msg_a_class) { |_| 'a' }
+      channels.lock!
+
+      expect {
+        channels.channel_name(msg_b_class) { |_| 'b' }
+      }.to raise_error(Sidereal::Channels::LockedError, /locked/)
+    end
+
+    it 'raises LockedError on subsequent catch-all registration' do
+      channels.lock!
+
+      expect {
+        channels.channel_name { |_| 'late' }
+      }.to raise_error(Sidereal::Channels::LockedError)
+    end
+
+    it 'still resolves via #for after lock' do
+      channels.channel_name(msg_a_class) { |_| 'a-channel' }
+      channels.lock!
+
+      expect(channels.for(msg_a_class.new)).to eq('a-channel')
+    end
   end
 
   describe 'Sidereal.channels (process-global)' do
