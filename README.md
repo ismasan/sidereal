@@ -13,7 +13,7 @@ I talked about the motivation and techniques [here](https://www.youtube.com/watc
 
 Built on [Datastar](https://data-star.dev/) (SSE streaming, HTML morphing), [Phlex](https://www.phlex.fun/) (HTML rendering), [Plumb](https://github.com/ismasan/plumb) (typed data), [Async](https://github.com/socketry/async) (fiber concurrency). Designed to run on [Falcon](https://github.com/socketry/falcon).
 
-See the `./examples` directory for demos.
+See the [examples](https://github.com/ismasan/sidereal/tree/main/examples) directory for demos.
 
 ## Installation
 
