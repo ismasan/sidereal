@@ -1,8 +1,18 @@
 # Sidereal
 
-A Ruby gem for building server-driven reactive web applications. Sidereal combines a Rack-compatible trie-based router with an event-driven architecture using typed messages, commands, pages, and pub/sub. The server pushes HTML updates to the browser via SSE -- no client-side JS framework needed.
+A Ruby gem for building server-driven, reactive web applications. Sidereal combines a Rack-compatible router with an event-driven architecture using typed messages, commands, pages, SSE, and pub/sub.
 
-Built on [Datastar](https://data-star.dev/) (SSE streaming), [Phlex](https://www.phlex.fun/) (HTML rendering), [Plumb](https://github.com/ismasan/plumb) (typed data), [Async](https://github.com/socketry/async) (fiber concurrency). Designed to run on [Falcon](https://github.com/socketry/falcon).
+* All commands are handled by an asynchronous runtime. No distinction between "controllers" and "background jobs".
+* Async command handlers automatically notify completion to pub/sub interface.
+* Long-lived SSE connection can subscribe to pub/sub and push server-rendered templates back to browser.
+
+Only one way to reason about business logic handling and UI updates, whether one-off or long-running, re-tryable tasks.
+
+I talked about the motivation and techniques [here](https://www.youtube.com/watch?v=Q6owchf4WEo).
+
+Built on [Datastar](https://data-star.dev/) (SSE streaming, HTML morphing), [Phlex](https://www.phlex.fun/) (HTML rendering), [Plumb](https://github.com/ismasan/plumb) (typed data), [Async](https://github.com/socketry/async) (fiber concurrency). Designed to run on [Falcon](https://github.com/socketry/falcon).
+
+See the `./examples` directory for demos.
 
 ## Installation
 
