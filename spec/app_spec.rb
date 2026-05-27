@@ -49,19 +49,19 @@ RSpec.describe 'Sidereal::App#component' do
   include Rack::Test::Methods
 
   let(:component_app) do
-    test_component = Class.new do
-      def call(context:)
-        "hello from component, method:#{context.request.request_method}"
+    test_page = Class.new(Sidereal::Page) do
+      view_template do
+        p { "hello from component, method:#{context.request.request_method}" }
       end
     end
 
     Class.new(Sidereal::App) do
       get '/with-component' do
-        component test_component.new
+        component test_page.new
       end
 
       get '/with-status' do
-        component test_component.new, status: 201
+        component test_page.new, status: 201
       end
     end
   end
@@ -70,16 +70,34 @@ RSpec.describe 'Sidereal::App#component' do
     component_app
   end
 
-  it 'renders the component with the app as context' do
+  it 'renders the component wrapped in the app layout, with the app as context' do
     get '/with-component'
     expect(last_response.status).to eq(200)
-    expect(last_response.body).to eq('hello from component, method:GET')
+    expect(last_response.body).to include('<p>hello from component, method:GET</p>')
+    expect(last_response.body).to include('<!doctype html>')
   end
 
   it 'accepts a custom status' do
     get '/with-status'
     expect(last_response.status).to eq(201)
-    expect(last_response.body).to eq('hello from component, method:GET')
+    expect(last_response.body).to include('<p>hello from component, method:GET</p>')
+  end
+
+  it 'raises when the component is not a Sidereal::Page' do
+    not_a_page = Class.new do
+      def call(context:)
+        'plain'
+      end
+    end
+
+    app_class = Class.new(Sidereal::App) do
+      get '/raw' do
+        component not_a_page.new
+      end
+    end
+
+    expect { Rack::MockRequest.new(app_class).get('/raw') }
+      .to raise_error(ArgumentError, /expected Sidereal::Page/)
   end
 end
 

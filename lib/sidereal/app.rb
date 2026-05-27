@@ -42,7 +42,7 @@ module Sidereal
 
       def layout(ly = nil)
         @layout = ly if ly
-        @layout || BasicLayout
+        @layout || Components::BasicLayout
       end
 
       def page(pg, layout: nil, &block)
@@ -61,7 +61,7 @@ module Sidereal
 
         Sidereal::Page.register(page_class)
         get(page_class.path) do
-          component layout.new(page_class.load(params, self))
+          component page_class.load(params, self), layout:
         end
 
         self
@@ -267,13 +267,16 @@ module Sidereal
     #
     # @param cmp [#call] component responding to +#call(context:)+
     # @param status [Integer] HTTP status code (default: 200)
+    # @param layout [Class<Sidereal::Components::Layout>, nil] layout class to wrap +cmp+ in;
+    #   defaults to the app's configured layout. Pass +nil+ to render without a layout.
     #
     # @example
     #   get '/dashboard' do
     #     component DashboardPage.new(current_user)
     #   end
-    def component(cmp, status: 200)
+    def component(cmp, status: 200, layout: self.class.layout)
       self.status status
+      cmp = layout.new(cmp) if layout
       body cmp.call(context: self)
     end
 

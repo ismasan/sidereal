@@ -6,6 +6,8 @@ module Sidereal
   module Components
     class Layout < BaseComponent
       def initialize(page)
+        raise ArgumentError, "expected Sidereal::Page, but got #{page.inspect}" unless page.is_a?(Sidereal::Page)
+
         @page = page
       end
 
