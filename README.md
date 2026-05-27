@@ -5,6 +5,7 @@ A Ruby gem for building server-driven, reactive web applications. Sidereal combi
 * All commands are handled by an asynchronous runtime. No distinction between "controllers" and "background jobs".
 * Async command handlers automatically notify completion to pub/sub interface.
 * Long-lived SSE connection can subscribe to pub/sub and push server-rendered templates back to browser.
+* Swappable backends for (optional) Event Sourcing support.
 
 Only one way to reason about business logic handling and UI updates, whether one-off or long-running, re-tryable tasks.
 
