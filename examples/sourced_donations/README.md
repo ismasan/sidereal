@@ -2,6 +2,8 @@
 
 The same donation flow as `examples/donations1`, but persisted as an event log via [Sourced](https://github.com/ismasan/sourced). State is rebuilt from past events on every page load; "automations" in the model become Sourced reactions.
 
+https://github.com/user-attachments/assets/ca84eb86-3af7-41b5-96fe-e01ae6c5faa6
+
 Based on the same Event Lanes model: [Sidereal example: donations kiosk flow](https://eventlanes.app/models/42e651db-ee09-4a7d-9c1d-2dd14d6383ea).
 
 ## Run
