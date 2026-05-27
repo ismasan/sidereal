@@ -13,4 +13,6 @@ gem "rspec", "~> 3.0"
 gem "rack-test", "~> 2.2"
 gem 'debug'
 
-gem 'docco', github: 'ismasan/docco'
+group :development do
+  gem 'docco', github: 'ismasan/docco'
+end

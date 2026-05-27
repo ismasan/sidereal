@@ -1,8 +1,8 @@
 GIT
   remote: https://github.com/ismasan/docco.git
-  revision: 032150bac85215da8470ca302003a63cc39632b2
+  revision: 70d501ce2814b19b8cbfd1529635a3251fe75c85
   specs:
-    docco (0.1.0)
+    docco (0.1.1)
       kramdown
       kramdown-parser-gfm
 
@@ -144,7 +144,7 @@ CHECKSUMS
   date (3.5.1) sha256=750d06384d7b9c15d562c76291407d89e368dda4d4fff957eb94962d325a0dc0
   debug (1.11.1) sha256=2e0b0ac6119f2207a6f8ac7d4a73ca8eb4e440f64da0a3136c30343146e952b6
   diff-lcs (1.6.2) sha256=9ae0d2cba7d4df3075fe8cd8602a8604993efc0dfa934cff568969efb1909962
-  docco (0.1.0)
+  docco (0.1.1)
   erb (6.0.2) sha256=9fe6264d44f79422c87490a1558479bd0e7dad4dd0e317656e67ea3077b5242b
   et-orbi (1.4.0) sha256=6c7e3c90779821f9e3b324c5e96fda9767f72995d6ae435b96678a4f3e2de8bc
   fiber-annotation (0.2.0) sha256=7abfadf1d119f508867d4103bf231c0354d019cc39a5738945dec2edadaf6c03
