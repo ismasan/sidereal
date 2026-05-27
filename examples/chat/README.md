@@ -4,6 +4,8 @@ A multi-process chat room demo for Sidereal. Messages stream live between every 
 
 The chat log is appended to `chat_messages.jsonl` — one JSON message per line — so history survives restarts.
 
+https://github.com/user-attachments/assets/9c4d8da1-665a-4b9d-a285-d883470ac794
+
 ## What it demonstrates
 
 - **Cross-process store + pubsub.** `Sidereal::Store::FileSystem` and `Sidereal::PubSub::Unix` let several Falcon master processes share the same command queue and event bus on one machine. Run two terminals on different ports and they behave like one app.
@@ -13,6 +15,10 @@ The chat log is appended to `chat_messages.jsonl` — one JSON message per line 
 - **Activity sidebar.** Every `SendMessage` also dispatches a `ChatNotify` event; the page's `on ChatNotify` reaction appends a line to a separate activity feed.
 - **Session-based identity.** A `Login` command stores the username in the session; `before_command` stamps every subsequent command with that username so handlers never trust client input for the author.
 - **Markdown rendering** of message bodies via Kramdown.
+
+### Schedule demo
+
+https://github.com/user-attachments/assets/22a9952d-dce0-4cc2-9369-101b38762821
 
 ## Setup
 
