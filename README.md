@@ -11,7 +11,7 @@ Only one way to reason about business logic handling and UI updates, whether one
 
 I talked about the motivation and techniques [here](https://www.youtube.com/watch?v=Q6owchf4WEo).
 
-https://github.com/user-attachments/assets/ebc2dd68-52e7-4386-b129-692f5e8f2423
+<video src="https://github.com/user-attachments/assets/ebc2dd68-52e7-4386-b129-692f5e8f2423" controls muted style="width: 100%; max-width: 100%;"></video>
 
 Built on [Datastar](https://data-star.dev/) (SSE streaming, HTML morphing), [Phlex](https://www.phlex.fun/) (HTML rendering), [Plumb](https://github.com/ismasan/plumb) (typed data), [Async](https://github.com/socketry/async) (fiber concurrency). Designed to run on [Falcon](https://github.com/socketry/falcon).
 
