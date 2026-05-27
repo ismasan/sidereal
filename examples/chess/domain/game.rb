@@ -219,7 +219,7 @@ class Game < Sourced::Decider
 
   after_sync do |state:, events:, **|
     events.each do |evt|
-      ch = ChessApp.commander.channel_name(evt)
+      ch = Sidereal.channels.for(evt)
       Console.info("[chess] publishing #{evt.type} → #{ch}")
       Sidereal.pubsub.publish(ch, evt)
     end
