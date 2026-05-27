@@ -16,7 +16,7 @@ Two-player event-sourced chess board with real-time SSE updates.
 bundle install
 bundle exec rake db:sourced_migration
 bundle exec rake db:migrate
-bundle exec falcon serve
+bundle exec falcon host
 ```
 
 Then open http://localhost:9296 in two browser windows (one private), log in as different users, and play.

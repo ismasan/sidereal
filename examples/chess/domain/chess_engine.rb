@@ -18,11 +18,9 @@ require 'chess'
 class ChessEngine
   INITIAL_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
 
-  Result = Data.define(:legal, :san, :fen_after, :captured_piece,
-                       :check, :checkmate, :stalemate)
+  Result = Data.define(:legal, :san, :fen_after, :captured_piece, :check, :checkmate, :stalemate)
 
-  ILLEGAL = Result.new(legal: false, san: nil, fen_after: nil, captured_piece: nil,
-                       check: false, checkmate: false, stalemate: false).freeze
+  ILLEGAL = Result.new(legal: false, san: nil, fen_after: nil, captured_piece: nil, check: false, checkmate: false, stalemate: false).freeze
 
   def initialize(fen)
     @fen = fen
@@ -60,6 +58,7 @@ class ChessEngine
   # given the chess gem's C extension.
   def legal_destinations(from)
     return [] unless piece_at(from)
+
     out = []
     ('a'..'h').each do |file|
       (1..8).each do |rank|
