@@ -2,6 +2,8 @@
 
 Two-player event-sourced chess board with real-time SSE updates.
 
+https://github.com/user-attachments/assets/478b86ed-56ef-43df-98bd-261b10a600f8
+
 ## What it demonstrates
 
 - A `Sourced::Decider` (`Game`) handling commands, validating chess rules, emitting events.
