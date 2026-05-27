@@ -33,7 +33,7 @@ class GamePage < Sidereal::Page
   def self.load_state_with_history(game_id, upto: nil)
     result = Sourced.store.read_partition(
       { game_id: game_id },
-      handled_types: Game.display_types
+      handled_types: Game.handled_messages_for_evolve.map(&:type)
     )
     messages = result.messages
 

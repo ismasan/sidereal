@@ -78,11 +78,6 @@ class Game < Sourced::Decider
     attribute? :winner, Sourced::Types::String
   end
 
-  # Message types displayed in the GamePage sidebar (move list + status events).
-  def self.display_types
-    [GameCreated.type, PlayerJoined.type, MoveMade.type, GameEnded.type]
-  end
-
   # ---- State ----
 
   State = Struct.new(
