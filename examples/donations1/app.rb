@@ -278,7 +278,7 @@ class DonationsApp < Sidereal::App
   end
 
   get '/' do
-    component self.class.layout.new(DonationPage.new)
+    component DonationPage.new
   end
 
   page DonationPage
