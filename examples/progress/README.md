@@ -1,6 +1,8 @@
-# Progress
+## Progress
 
 A Sidereal port of the Datastar [progress demo](https://github.com/starfederation/datastar/tree/main/examples/ruby/progress).
+
+https://github.com/user-attachments/assets/175fb71a-af6c-4e5e-b73e-fd9ed0069221
 
 Clicking **Start** posts a single `StartProgress` command, which is picked up by a worker fiber running the `command StartProgress` handler. From there the handler uses `broadcast` to publish a stream of events — `ProgressStarted`, `ProgressTicked`, `ActivityLogged`, `ProgressCompleted` — onto the `'system'` pubsub channel.
 
