@@ -265,18 +265,28 @@ module Sidereal
     # Calls the component with the app instance as context,
     # and sets the response body to the return value.
     #
+    # If +cmp+ is a {Sidereal::Page} it is wrapped in the app's layout
+    # (or the +layout:+ override). Any other +#call+-compatible component
+    # is rendered directly — layouts are page-only.
+    #
     # @param cmp [#call] component responding to +#call(context:)+
     # @param status [Integer] HTTP status code (default: 200)
-    # @param layout [Class<Sidereal::Components::Layout>, nil] layout class to wrap +cmp+ in;
-    #   defaults to the app's configured layout. Pass +nil+ to render without a layout.
+    # @param layout [Class<Sidereal::Components::Layout>, nil] layout class to wrap a page in;
+    #   defaults to the app's configured layout. Pass +nil+ to render a page without a layout.
+    #   Ignored when +cmp+ is not a {Sidereal::Page}.
     #
-    # @example
+    # @example Render a page (auto-wrapped in the app's layout)
     #   get '/dashboard' do
     #     component DashboardPage.new(current_user)
     #   end
+    #
+    # @example Render a non-page component directly
+    #   get '/healthz' do
+    #     component HealthCheck.new
+    #   end
     def component(cmp, status: 200, layout: self.class.layout)
       self.status status
-      cmp = layout.new(cmp) if layout
+      cmp = layout.new(cmp) if layout && cmp.is_a?(Sidereal::Page)
       body cmp.call(context: self)
     end
 

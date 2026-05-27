@@ -83,21 +83,22 @@ RSpec.describe 'Sidereal::App#component' do
     expect(last_response.body).to include('<p>hello from component, method:GET</p>')
   end
 
-  it 'raises when the component is not a Sidereal::Page' do
-    not_a_page = Class.new do
+  it 'renders a non-Page component directly, bypassing the layout' do
+    bare_component = Class.new do
       def call(context:)
-        'plain'
+        "bare, method:#{context.request.request_method}"
       end
     end
 
     app_class = Class.new(Sidereal::App) do
       get '/raw' do
-        component not_a_page.new
+        component bare_component.new
       end
     end
 
-    expect { Rack::MockRequest.new(app_class).get('/raw') }
-      .to raise_error(ArgumentError, /expected Sidereal::Page/)
+    response = Rack::MockRequest.new(app_class).get('/raw')
+    expect(response.status).to eq(200)
+    expect(response.body).to eq('bare, method:GET')
   end
 end
 
