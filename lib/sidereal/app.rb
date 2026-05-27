@@ -260,6 +260,23 @@ module Sidereal
       store.append(cmd)
     end
 
+    # Render a component that responds to +#call(context:)+.
+    #
+    # Calls the component with the app instance as context,
+    # and sets the response body to the return value.
+    #
+    # @param cmp [#call] component responding to +#call(context:)+
+    # @param status [Integer] HTTP status code (default: 200)
+    #
+    # @example
+    #   get '/dashboard' do
+    #     component DashboardPage.new(current_user)
+    #   end
+    def component(cmp, status: 200)
+      self.status status
+      body cmp.call(context: self)
+    end
+
     def params
       @params ||= request.env.fetch('router.params', EMPTY_PARAMS)
     end

@@ -45,6 +45,44 @@ RSpec.describe 'Sidereal::App.commander' do
   end
 end
 
+RSpec.describe 'Sidereal::App#component' do
+  include Rack::Test::Methods
+
+  let(:component_app) do
+    test_component = Class.new do
+      def call(context:)
+        "hello from component, method:#{context.request.request_method}"
+      end
+    end
+
+    Class.new(Sidereal::App) do
+      get '/with-component' do
+        component test_component.new
+      end
+
+      get '/with-status' do
+        component test_component.new, status: 201
+      end
+    end
+  end
+
+  def app
+    component_app
+  end
+
+  it 'renders the component with the app as context' do
+    get '/with-component'
+    expect(last_response.status).to eq(200)
+    expect(last_response.body).to eq('hello from component, method:GET')
+  end
+
+  it 'accepts a custom status' do
+    get '/with-status'
+    expect(last_response.status).to eq(201)
+    expect(last_response.body).to eq('hello from component, method:GET')
+  end
+end
+
 RSpec.describe 'Sidereal::App.handle' do
   include Rack::Test::Methods
 
