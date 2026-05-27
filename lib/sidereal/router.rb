@@ -548,23 +548,6 @@ module Sidereal
       throw :halt, response.finish
     end
 
-    # Render a component that responds to +#call(context:)+.
-    #
-    # Calls the component with the router instance as context,
-    # and sets the response body to the return value.
-    #
-    # @param cmp [#call] component responding to +#call(context:)+
-    # @param status [Integer] HTTP status code (default: 200)
-    #
-    # @example
-    #   get '/dashboard' do
-    #     component DashboardPage.new(current_user)
-    #   end
-    def component(cmp, status: 200)
-      self.status status
-      body cmp.call(context: self)
-    end
-
     # Set the HTTP status code on the response.
     #
     # @param st [Integer, Symbol] status code or Rack symbol (e.g. +:ok+, +:not_found+)

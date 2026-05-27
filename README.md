@@ -314,6 +314,22 @@ handle PlaceOrder do |cmd|
 end
 ```
 
+### Rendering components
+
+The `component` helper renders any object responding to `#call(context:)`, passing the app instance as context. This is how Sidereal pages and layouts are rendered under the hood, and it's available inside any route block defined on an App subclass.
+
+```ruby
+class MyApp < Sidereal::App
+  get '/dashboard' do
+    component DashboardPage.new(current_user)
+  end
+
+  get '/error' do
+    component ErrorPage.new, status: 422
+  end
+end
+```
+
 ## Pages
 
 Pages are reactive [Phlex](https://www.phlex.fun/) components that re-render parts of the UI in response to events via SSE.
@@ -783,22 +799,6 @@ class MyRouter < Sidereal::Router
 
   get '/dashboard' do
     body 'welcome'
-  end
-end
-```
-
-### Rendering components
-
-The `component` helper renders any object responding to `#call(context:)`, passing the router instance as context. This is how Sidereal pages and layouts are rendered under the hood.
-
-```ruby
-class MyRouter < Sidereal::Router
-  get '/dashboard' do
-    component DashboardPage.new(current_user)
-  end
-
-  get '/error' do
-    component ErrorPage.new, status: 422
   end
 end
 ```

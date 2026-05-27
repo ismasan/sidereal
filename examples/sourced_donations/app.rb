@@ -32,9 +32,7 @@ class DonationsApp < Sidereal::App
     )
     halt 404, 'Not found' if messages.length < step_int
 
-    component self.class.layout.new(
-      DonationPage.new(donation: state, messages: messages, current_step: step_int)
-    )
+    component DonationPage.new(donation: state, messages: messages, current_step: step_int)
   end
 
   get '/:campaign_id/:donation_id/verify/:token' do |campaign_id:, donation_id:, token:|
