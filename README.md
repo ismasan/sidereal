@@ -657,7 +657,7 @@ A step's expression is anything `Fugit.parse` accepts, plus stdlib `Time` / `Dat
 | Natural language      | `'every 3 seconds'`           | Recurring.                                             |
 | Duration              | `'10d'`, `'1h30m'`, `'P12Y12M'`| Fires once at *previous concrete time + duration*.    |
 
-##### Multi-step schedules — sequence of `at` calls
+#### Multi-step schedules — sequence of `at` calls
 
 For workflows that don't fit a single step, drop the second positional and use the inner DSL — each `at` call appends a step to the schedule:
 
@@ -688,7 +688,7 @@ Steps are validated at registration:
 - **Durations resolve against the last *concrete* step**, not against any intervening recurring step. So in the example above, `'10d'` is "10 days after the `'2026-05-10T10:00:00'` opening step", not "10 days after the recurring started". The resolved time also closes the recurring window.
 - **A trailing recurring step has no upper bound** and runs forever.
 
-##### Bound-only marker steps
+#### Bound-only marker steps
 
 Drop the block / class for a specific or duration step to declare a **bound-only marker** — anchors the timeline without dispatching anything. Useful as a starting boundary for a following recurring step, or as a closing boundary for a preceding one:
 
@@ -704,7 +704,7 @@ end
 
 Block-less markers only work for specific or duration steps. A recurring step without a block would fire nothing on every match — meaningless — so it raises at registration.
 
-##### Explicit command classes (skip auto-generation)
+#### Explicit command classes (skip auto-generation)
 
 By default, each `at` block generates a per-step command class under `<HostCommander>::Schedules` (e.g. `MyApp::Commander::Schedules::SchedDailyCleanup0Step0` — `Sched<CamelName><ScheduleId>Step<StepIndex>`). For steps that should dispatch a domain command you've already defined elsewhere, pass the class + payload kwargs instead of a block:
 
@@ -727,7 +727,7 @@ In the explicit form the macro generates *no* class and defines *no* handler —
 
 You can mix block and explicit forms freely across steps in the same schedule.
 
-##### Metadata stamped on every fire
+#### Metadata stamped on every fire
 
 The Scheduler stamps these metadata keys on every dispatched command:
 
@@ -740,7 +740,7 @@ The Scheduler stamps these metadata keys on every dispatched command:
 
 The producer label includes the schedule's registration index, name, step index, and the step's own expression — so dead-letter sidecars and dashboards can pinpoint which step fired. Both keys propagate to downstream commands via `Message#correlate`, so anything dispatched from inside a schedule handler carries them automatically.
 
-##### Multi-process: only the leader runs the Scheduler
+#### Multi-process: only the leader runs the Scheduler
 
 The Scheduler ticks only on the process that holds `Sidereal.elector`. With the default `Elector::AlwaysLeader` (single-process apps) every process is leader; with `Elector::FileSystem` only one process per host runs the tick fiber. The dispatched commands then flow through the normal store, so any worker fiber on any process can pick them up — schedule handlers are not pinned to the leader.
 
