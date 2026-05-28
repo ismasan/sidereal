@@ -630,7 +630,7 @@ Scheduling does not propagate across correlation: an event dispatched downstream
 
 `App.schedule` registers a sequence of moments in time where commands should fire. The Scheduler is a leader-only fiber that, on each tick, appends commands to the same store the rest of your app uses — so schedule handlers run on the worker pool, in parallel with everything else, with the same retry / dead-letter machinery.
 
-##### The basics — single-step shorthand
+#### The basics — single-step shorthand
 
 ```ruby
 class MyApp < Sidereal::App
@@ -645,7 +645,7 @@ end
 
 The schedule name (`'Daily cleanup'`) is mandatory — it shows up in dead-letter sidecars, dashboards, and `cmd.metadata[:schedule_name]` so handlers and reactions can identify the source.
 
-##### Expressions
+#### Expressions
 
 A step's expression is anything `Fugit.parse` accepts, plus stdlib `Time` / `DateTime` instances:
 
