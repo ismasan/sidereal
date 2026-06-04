@@ -18,13 +18,15 @@ module Sidereal
       store: Sidereal.store,
       registry: Sidereal.registry,
       pubsub: Sidereal.pubsub,
-      channels: Sidereal.channels
+      channels: Sidereal.channels,
+      exceptions: Sidereal.exceptions
     )
       @worker_count = worker_count
       @store = store
       @registry = registry
       @pubsub = pubsub
       @channels = channels
+      @exceptions = exceptions
     end
 
     def start(task)
@@ -72,83 +74,46 @@ module Sidereal
       in Sidereal::Store::Result::Retry(at:)
         Console.warn(commander, "command failed, will retry",
                      command: msg.class.name,
-                     attempt: meta.attempt,
+                     retry_count: meta.retry_count,
                      retry_at: at,
                      exception: exception)
       in Sidereal::Store::Result::Fail(error:)
         Console.error(commander, "command failed permanently",
                       command: msg.class.name,
-                      attempt: meta.attempt,
+                      retry_count: meta.retry_count,
                       exception: error)
       else
         # Ack (commander swallowed) or malformed return — no log here.
       end
     end
 
-    # Append a System::NotifyRetry / NotifyFailure command for the
-    # benefit of any handler/page that wants to react to failures.
-    # Skipped when:
+    # Hand the failure off to {Sidereal::Exceptions}, which fans out to
+    # every registered subscriber (the default UI-toast publisher, plus
+    # any APM / logger / custom hooks). Skips when the failing message
+    # is itself a System::Notification — guards against a buggy
+    # subscriber's exception cascading into another report-and-fan-out
+    # loop.
     #
-    # * The failing message is itself a system notification (loop
-    #   prevention — a raising NotifyFailure handler should not produce
-    #   yet another NotifyFailure for the dropped one).
-    # * No commander is registered for the notification class. This is
-    #   the test/standalone path: without an App.commander installing
-    #   no-op handlers, dispatching would just add orphans to the store
-    #   that get silently acked.
-    #
-    # All errors during dispatch are logged and swallowed — a failure
+    # All errors during the report are logged and swallowed; a failure
     # to notify must never crash the worker loop.
     def dispatch_notification(msg, meta, exception, policy_result)
-      return if system_notification?(msg)
+      return if msg.is_a?(Sidereal::System::Notification)
 
-      notify = build_notification(msg, meta, exception, policy_result)
-      return if notify.nil?
-      return if @registry[notify.class].nil?
-
-      # Stamp the source command's resolved channel so the System
-      # notification routes can look it up via +:source_channel+ in
-      # metadata (registered in {Sidereal.channels}) without having to
-      # know the failed command's payload shape.
-      source_channel = @channels.for(msg)
-      stamped = notify.with_metadata(source_channel: source_channel)
-
-      @store.append(msg.correlate(stamped))
-    rescue StandardError => ex
-      Console.error(self, "Failed to dispatch system notification",
-                    command: msg.class.name, exception: ex)
-    end
-
-    def system_notification?(msg)
-      msg.is_a?(Sidereal::System::Notification)
-    end
-
-    def build_notification(msg, meta, exception, policy_result)
       case policy_result
       in Sidereal::Store::Result::Retry(at:)
-        Sidereal::System::NotifyRetry.new(
-          payload: notification_payload(msg, meta, exception)
-                     .merge(retry_at: at.iso8601(6))
+        @exceptions.report_retry(
+          exception:, message: msg, retry_count: meta.retry_count, retry_at: at
         )
       in Sidereal::Store::Result::Fail(error:)
-        Sidereal::System::NotifyFailure.new(
-          payload: notification_payload(msg, meta, error)
+        @exceptions.report_failure(
+          exception: error, message: msg, retry_count: meta.retry_count
         )
       else
         nil
       end
-    end
-
-    def notification_payload(msg, meta, exception)
-      {
-        command_type: msg.class.type,
-        command_id: msg.id,
-        command_payload: msg.payload&.to_h || {},
-        attempt: meta.attempt,
-        error_class: exception.class.name,
-        error_message: exception.message,
-        backtrace: exception.backtrace || []
-      }
+    rescue StandardError => ex
+      Console.error(self, 'Failed to report exception',
+                    command: msg.class.name, exception: ex)
     end
 
     # Publish failures are logged but do not trigger retry. Handle has

@@ -105,7 +105,7 @@ RSpec.describe Sidereal::Store::Memory do
   end
 
   describe '#claim_next meta' do
-    it 'yields meta.attempt == 1 on first claim' do
+    it 'yields meta.retry_count == 1 on first claim' do
       store.append(MsgA.new)
 
       meta = nil
@@ -125,7 +125,7 @@ RSpec.describe Sidereal::Store::Memory do
         end.wait
       end
 
-      expect(meta.attempt).to eq(1)
+      expect(meta.retry_count).to eq(1)
     end
 
     it 'yields meta.first_appended_at set to the time of #append' do

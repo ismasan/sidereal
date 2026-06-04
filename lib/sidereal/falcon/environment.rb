@@ -50,12 +50,13 @@ module Sidereal
             Sidereal.elector.start(task)
             Sidereal.pubsub.start(task)
 
-            # Boot is over: classes have loaded, channel routes are
-            # registered. Lock the channels registry so any further
-            # +Sidereal.channels.channel_name(...)+ call raises loudly
-            # instead of silently racing the worker fibers about to
-            # start consuming.
+            # Boot is over: classes have loaded, channel routes and
+            # exception subscribers are registered. Lock both registries
+            # so any further +channel_name(...)+ / +on_retry+ /
+            # +on_failure+ call raises loudly instead of silently racing
+            # the worker fibers about to start consuming.
             Sidereal.channels.lock!
+            Sidereal.exceptions.lock!
 
             @dispatcher = Sidereal.dispatcher.start(task)
             Sidereal.scheduler.start(task)

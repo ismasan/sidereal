@@ -89,6 +89,19 @@ module Sidereal
     @channels = nil
   end
 
+  # Process-global exception-subscriber registry. Backends call
+  # +report_retry+ / +report_failure+ when their retry/fail policy
+  # fires; pre-installed default publishers turn each report into
+  # a {Sidereal::System::Notify*} message broadcast on the failed
+  # command's channel.
+  def self.exceptions
+    @exceptions ||= Exceptions.with_default_publisher
+  end
+
+  def self.reset_exceptions!
+    @exceptions = nil
+  end
+
   def self.register(commander)
     commander.handled_commands.each do |cmd_class|
       registry[cmd_class] = commander
@@ -149,6 +162,7 @@ end
 require_relative 'sidereal/message'
 require_relative 'sidereal/system'
 require_relative 'sidereal/channels'
+require_relative 'sidereal/exceptions'
 require_relative 'sidereal/router'
 require_relative 'sidereal/components/layout'
 require_relative 'sidereal/page'

@@ -126,7 +126,11 @@ module Sidereal
 
       def kind = 'retry'
       def icon = '⟳'
-      def title = "#{@payload.command_type} failed (attempt #{@payload.attempt}, retrying)"
+      # +retry_count+ here is the number of the retry being scheduled
+      # (1-indexed): the initial run failing schedules retry 1, and so
+      # on. Phrased as "retries" to match the +retry(times:)+ config —
+      # +times: 3+ produces "retry 1/2/3 scheduled", no off-by-one.
+      def title = "#{@payload.command_type} failed — retry #{@payload.retry_count} scheduled"
 
       def extra_meta
         div(class: 'sidereal-sysnotify__meta') do
@@ -146,8 +150,16 @@ module Sidereal
 
       def extra_meta
         div(class: 'sidereal-sysnotify__meta') do
-          plain "after #{@payload.attempt} attempt(s)"
+          plain "gave up after #{retries_label}"
         end
+      end
+
+      # At failure time +retry_count+ is the total attempt count (initial
+      # + retries), so retries exhausted is one less. Matches the config:
+      # +retry(times: 3)+ → "gave up after 3 retries".
+      def retries_label
+        n = @payload.retry_count - 1
+        "#{n} #{n == 1 ? 'retry' : 'retries'}"
       end
     end
   end

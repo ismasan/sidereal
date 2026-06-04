@@ -12,24 +12,6 @@ module Sidereal
     DEFAULT_MAX_ATTEMPTS = 5
 
     class << self
-      # Every Commander subclass auto-registers no-op handlers for the
-      # framework's system notifications. Apps (or custom commander
-      # subclasses) can override any of them via the +command+ DSL
-      # with a block to react to retries/failures. Iterates
-      # +Sidereal::System::Notification.registry+ so new system
-      # message classes (defined via +Notification.define(...)+) are
-      # picked up automatically without touching this hook.
-      #
-      # Registering at the base class level (rather than only in
-      # App.commander) is important because users can also wire a
-      # custom Commander subclass via +App.commands(MyCommander)+ —
-      # that path bypasses +App.commander+'s lazy initialization but
-      # still inherits from Commander, so this hook covers it.
-      def inherited(subclass)
-        super
-        Sidereal::System::Notification.registry.all { |klass| subclass.command(klass) }
-      end
-
       def commander = self
 
       def command_registry
@@ -79,11 +61,11 @@ module Sidereal
       #
       # @param exception [StandardError]
       # @param message [Sidereal::Message] the command being processed
-      # @param meta [Sidereal::Store::Meta] attempt number and origin time
+      # @param meta [Sidereal::Store::Meta] retry_count and origin time
       # @return [Sidereal::Store::Result]
       def on_error(exception, _message, meta)
-        if meta.attempt < DEFAULT_MAX_ATTEMPTS
-          Sidereal::Store::Result::Retry.new(at: Time.now + (2**meta.attempt))
+        if meta.retry_count < DEFAULT_MAX_ATTEMPTS
+          Sidereal::Store::Result::Retry.new(at: Time.now + (2**meta.retry_count))
         else
           Sidereal::Store::Result::Fail.new(error: exception)
         end

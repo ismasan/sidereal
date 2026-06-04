@@ -32,7 +32,7 @@ module Sidereal
       attribute :command_type, Sidereal::Types::String
       attribute :command_id, Sidereal::Types::String
       attribute :command_payload, Sidereal::Types::Hash.default(Plumb::BLANK_HASH)
-      attribute :attempt, Sidereal::Types::Integer
+      attribute :retry_count, Sidereal::Types::Integer
       attribute :retry_at, Sidereal::Types::String # ISO8601
       attribute :error_class, Sidereal::Types::String
       attribute :error_message, Sidereal::Types::String
@@ -44,7 +44,7 @@ module Sidereal
       attribute :command_type, Sidereal::Types::String
       attribute :command_id, Sidereal::Types::String
       attribute :command_payload, Sidereal::Types::Hash.default(Plumb::BLANK_HASH)
-      attribute :attempt, Sidereal::Types::Integer
+      attribute :retry_count, Sidereal::Types::Integer
       attribute :error_class, Sidereal::Types::String
       attribute :error_message, Sidereal::Types::String
       attribute :backtrace, Sidereal::Types::Array.default([].freeze)

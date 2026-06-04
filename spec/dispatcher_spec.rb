@@ -34,6 +34,12 @@ RSpec.describe Sidereal::Dispatcher do
     end
   end
 
+  # Inject a per-spec exceptions registry. Default = clean (no
+  # subscribers, no default publisher), so the success-path tests
+  # don't get extra noise. The +system notifications+ block below
+  # overrides with capturing subscribers.
+  let(:exceptions) { Sidereal::Exceptions.new }
+
   def registry_for(*commanders)
     Sidereal::Registry.new.tap do |r|
       commanders.each do |c|
@@ -45,7 +51,7 @@ RSpec.describe Sidereal::Dispatcher do
   # Run the dispatcher, subscribe to a channel, and collect published messages.
   # Yields a block where the caller can append commands to the store.
   # Returns the list of messages received on the channel.
-  def run_and_collect(channel_name, store:, registry:, pubsub:, channels: self.channels, &block)
+  def run_and_collect(channel_name, store:, registry:, pubsub:, channels: self.channels, exceptions: self.exceptions, &block)
     received = []
 
     Sync do |task|
@@ -63,7 +69,8 @@ RSpec.describe Sidereal::Dispatcher do
         store: store,
         registry: registry,
         pubsub: pubsub,
-        channels: channels
+        channels: channels,
+        exceptions: exceptions
       ).start(task)
 
       task.async do
@@ -209,7 +216,8 @@ RSpec.describe Sidereal::Dispatcher do
       task.async { evt.start { |m, _| received_evt << m } }
 
       Sidereal::Dispatcher.new(
-        worker_count: 1, store: store, registry: registry_for(routing_commander), pubsub: pubsub, channels: channels
+        worker_count: 1, store: store, registry: registry_for(routing_commander),
+        pubsub: pubsub, channels: channels, exceptions: exceptions
       ).start(task)
 
       task.async do
@@ -250,7 +258,7 @@ RSpec.describe Sidereal::Dispatcher do
     expect(msg).to be_a(DispatchCmd)
     expect(msg.payload.title).to eq('bad')
     expect(meta).to be_a(Sidereal::Store::Meta)
-    expect(meta.attempt).to eq(1)
+    expect(meta.retry_count).to eq(1)
 
     # Only the 'good' command's msg + event were published; the failed one was not broadcast.
     expect(received.map(&:class)).to eq([DispatchCmd, DispatchEvt])
@@ -268,20 +276,29 @@ RSpec.describe Sidereal::Dispatcher do
       def self.channel_name(_) = 'ch1'
     end
 
+    failure_reports = []
+    capturing_exceptions = Sidereal::Exceptions.new.tap do |e|
+      e.on_failure { |r| failure_reports << r }
+    end
+
     store.append(DispatchCmd.new(payload: { title: 'bad' }))
     store.append(DispatchCmd.new(payload: { title: 'good' }))
 
-    received = run_and_collect('ch1', store: store, registry: registry_for(raising_commander), pubsub: pubsub) {}
+    received = run_and_collect('ch1',
+      store: store, registry: registry_for(raising_commander),
+      pubsub: pubsub, exceptions: capturing_exceptions
+    ) {}
 
     # The 'bad' message was logged + dropped (Memory store can't dead-letter).
-    # The worker survives and processes the next message. A NotifyFailure
-    # is also emitted for 'bad' (auto-handled at no-op via Commander's
-    # inherited hook); filter it out for the user-command assertions.
-    user_received = received.reject { |m| m.is_a?(Sidereal::System::NotifyFailure) }
-    expect(user_received.map(&:class)).to eq([DispatchCmd, DispatchEvt])
-    expect(user_received[0].payload.title).to eq('good')
-    # And confirm the NotifyFailure for the 'bad' command did flow through.
-    expect(received.map(&:class)).to include(Sidereal::System::NotifyFailure)
+    # The worker survives and processes the next message.
+    expect(received.map(&:class)).to eq([DispatchCmd, DispatchEvt])
+    expect(received[0].payload.title).to eq('good')
+
+    # When on_error raises, the dispatcher falls back to Result::Fail
+    # with the original exception — confirm a failure report fired.
+    expect(failure_reports.size).to eq(1)
+    expect(failure_reports.first.exception.message).to eq('boom')
+    expect(failure_reports.first.message.payload.title).to eq('bad')
   end
 
   it 'swallows publish errors and continues processing' do
@@ -316,31 +333,30 @@ RSpec.describe Sidereal::Dispatcher do
   end
 
   describe 'system notifications' do
-    # Build a commander that raises on a configurable cmd class, plus
-    # no-op handlers for the system notifications so they flow through
-    # the normal pipeline (handle → publish).
-    def build_commander(failing_cmd_class:, on_error_result:, channel: 'ch1', notify_calls: nil)
-      Class.new(Sidereal::Commander) do
-        command(failing_cmd_class) { |_cmd| raise 'boom' }
-        command(Sidereal::System::NotifyRetry) do |cmd|
-          notify_calls << cmd if notify_calls
-        end
-        command(Sidereal::System::NotifyFailure) do |cmd|
-          notify_calls << cmd if notify_calls
-        end
-
-        define_singleton_method(:on_error) { |_ex, _msg, _meta| on_error_result }
-        define_singleton_method(:channel_name) { |_msg| channel }
+    # Override the outer +exceptions+ let with one that captures
+    # reports for assertion. No default publisher — we're testing
+    # the dispatcher's contract with the registry, not the publisher.
+    let(:retry_reports)   { [] }
+    let(:failure_reports) { [] }
+    let(:exceptions) do
+      Sidereal::Exceptions.new.tap do |e|
+        e.on_retry   { |report| retry_reports   << report }
+        e.on_failure { |report| failure_reports << report }
       end
     end
 
-    it 'dispatches NotifyRetry with full payload after handler raises' do
+    def build_commander(failing_cmd_class:, on_error_result:)
+      Class.new(Sidereal::Commander) do
+        command(failing_cmd_class) { |_cmd| raise 'boom' }
+        define_singleton_method(:on_error) { |_ex, _msg, _meta| on_error_result }
+      end
+    end
+
+    it 'reports a retry to Sidereal.exceptions when policy is Retry' do
       retry_at = Time.now + 60
-      notify_calls = []
       cmdr = build_commander(
         failing_cmd_class: DispatchCmd,
-        on_error_result: Sidereal::Store::Result::Retry.new(at: retry_at),
-        notify_calls: notify_calls
+        on_error_result: Sidereal::Store::Result::Retry.new(at: retry_at)
       )
 
       cmd = DispatchCmd.new(payload: { title: 'doomed' })
@@ -348,28 +364,22 @@ RSpec.describe Sidereal::Dispatcher do
 
       run_and_collect('ch1', store: store, registry: registry_for(cmdr), pubsub: pubsub) {}
 
-      retries = notify_calls.select { |c| c.is_a?(Sidereal::System::NotifyRetry) }
-      expect(retries.size).to eq(1)
-      r = retries.first
-      expect(r.payload.command_type).to eq(DispatchCmd.type)
-      expect(r.payload.command_id).to eq(cmd.id)
-      expect(r.payload.command_payload).to eq(title: 'doomed')
-      expect(r.payload.attempt).to eq(1)
-      expect(r.payload.error_class).to eq('RuntimeError')
-      expect(r.payload.error_message).to eq('boom')
-      expect(r.payload.backtrace).not_to be_empty
-      expect(Time.parse(r.payload.retry_at)).to be_within(0.001).of(retry_at)
-      # Correlated to the source command
-      expect(r.causation_id).to eq(cmd.id)
-      expect(r.correlation_id).to eq(cmd.correlation_id)
+      expect(retry_reports.size).to eq(1)
+      r = retry_reports.first
+      expect(r).to be_a(Sidereal::ExceptionReport)
+      expect(r).to be_retry
+      expect(r.message).to eq(cmd)
+      expect(r.exception).to be_a(RuntimeError)
+      expect(r.exception.message).to eq('boom')
+      expect(r.retry_count).to eq(1)
+      expect(r.retry_at).to be_within(0.001).of(retry_at)
+      expect(failure_reports).to be_empty
     end
 
-    it 'dispatches NotifyFailure with full payload when policy is Fail' do
-      notify_calls = []
+    it 'reports a failure to Sidereal.exceptions when policy is Fail' do
       cmdr = build_commander(
         failing_cmd_class: DispatchCmd,
-        on_error_result: Sidereal::Store::Result::Fail.new(error: RuntimeError.new('boom')),
-        notify_calls: notify_calls
+        on_error_result: Sidereal::Store::Result::Fail.new(error: RuntimeError.new('boom'))
       )
 
       cmd = DispatchCmd.new(payload: { title: 'doomed' })
@@ -377,112 +387,49 @@ RSpec.describe Sidereal::Dispatcher do
 
       run_and_collect('ch1', store: store, registry: registry_for(cmdr), pubsub: pubsub) {}
 
-      failures = notify_calls.select { |c| c.is_a?(Sidereal::System::NotifyFailure) }
-      expect(failures.size).to eq(1)
-      f = failures.first
-      expect(f.payload.command_type).to eq(DispatchCmd.type)
-      expect(f.payload.command_id).to eq(cmd.id)
-      expect(f.payload.error_message).to eq('boom')
+      expect(failure_reports.size).to eq(1)
+      f = failure_reports.first
+      expect(f).to be_failure
+      expect(f.message).to eq(cmd)
+      expect(f.exception).to be_a(RuntimeError)
+      expect(f.exception.message).to eq('boom')
+      expect(f.retry_count).to eq(1)
+      expect(f.retry_at).to be_nil
+      expect(retry_reports).to be_empty
     end
 
-    it 'does NOT dispatch a notification when policy is Ack' do
-      notify_calls = []
+    it 'does NOT report when policy is Ack' do
       cmdr = build_commander(
         failing_cmd_class: DispatchCmd,
-        on_error_result: Sidereal::Store::Result::Ack,
-        notify_calls: notify_calls
+        on_error_result: Sidereal::Store::Result::Ack
       )
 
       store.append(DispatchCmd.new(payload: { title: 'swallowed' }))
 
       run_and_collect('ch1', store: store, registry: registry_for(cmdr), pubsub: pubsub) {}
 
-      expect(notify_calls).to be_empty
+      expect(retry_reports).to be_empty
+      expect(failure_reports).to be_empty
     end
 
-    it 'does NOT dispatch when no handler is registered for the notification' do
-      # Commander auto-handles system notifications via Commander.inherited,
-      # but build a registry that deliberately omits them — simulates the
-      # case where the wiring didn't include system handlers.
+    it 'breaks the loop: a failing System::Notification does not trigger another report' do
+      # The dispatcher's report-call site short-circuits when the
+      # failing message is itself a System::Notification, so a
+      # buggy on_failure subscriber's eventual death (or any other
+      # path that lands a system message back in the store) does
+      # not cascade into another report-and-fan-out.
       cmdr = Class.new(Sidereal::Commander) do
-        command(DispatchCmd) { |_cmd| raise 'boom' }
-        define_singleton_method(:on_error) do |_ex, _msg, _meta|
-          Sidereal::Store::Result::Fail.new(error: RuntimeError.new('boom'))
-        end
-        def self.channel_name(_) = 'ch1'
-      end
-
-      registry = Sidereal::Registry.new
-      registry[DispatchCmd] = cmdr
-      # Deliberately do NOT register NotifyRetry/NotifyFailure.
-
-      store.append(DispatchCmd.new(payload: { title: 'orphan' }))
-
-      received = run_and_collect('ch1', store: store, registry: registry, pubsub: pubsub, channels: channels) {}
-
-      # No NotifyFailure should appear in the channel — dispatcher
-      # detected no handler and skipped the dispatch.
-      expect(received.map(&:class)).not_to include(Sidereal::System::NotifyFailure)
-    end
-
-    it 'a domain-specific channel_name resolver does not crash on system notifications' do
-      # Mirrors the donations1 demo: channel_name block reads a payload
-      # key that exists on the user command but NOT on system messages.
-      # Without the App.channel_name wrapper this would raise KeyError
-      # the moment a NotifyFailure flows through publish.
-      cmdr = Class.new(Sidereal::Commander) do
-        command(DispatchCmd) { |_cmd| raise 'boom' }
-        command(Sidereal::System::NotifyRetry)
-        command(Sidereal::System::NotifyFailure)
-
+        command(Sidereal::System::NotifyFailure) { |_cmd| raise 'NotifyFailure handler broken' }
         define_singleton_method(:on_error) do |_ex, _msg, _meta|
           Sidereal::Store::Result::Fail.new(error: RuntimeError.new('boom'))
         end
       end
 
-      # Register a domain-specific resolver on the injected registry —
-      # this is what was previously installed via App.channel_name.
-      # System notifications continue to route via the pre-installed
-      # source_channel bypass (Channels.with_system_defaults), so the
-      # resolver below never sees them.
-      channels.channel_name(DispatchCmd) do |msg|
-        "ch.#{msg.payload.fetch(:title)}"
-      end
-
-      store.append(DispatchCmd.new(payload: { title: 'doomed' }))
-
-      received = run_and_collect('ch.doomed', store: store, registry: registry_for(cmdr), pubsub: pubsub) {}
-
-      # NotifyFailure landed on the same channel the user resolver
-      # would have computed for the source command, via the stamped
-      # source_channel metadata — and crucially, no KeyError crashed
-      # the worker on its way through publish.
-      expect(received.map(&:class)).to include(Sidereal::System::NotifyFailure)
-    end
-
-    it 'breaks the loop: NotifyFailure handler raising does not produce another NotifyFailure' do
-      notify_calls = []
-      cmdr = Class.new(Sidereal::Commander) do
-        # NotifyFailure handler always raises — would loop without the guard
-        command(Sidereal::System::NotifyFailure) do |cmd|
-          notify_calls << cmd
-          raise 'NotifyFailure handler also broken'
-        end
-        command(Sidereal::System::NotifyRetry)
-
-        define_singleton_method(:on_error) do |_ex, _msg, _meta|
-          Sidereal::Store::Result::Fail.new(error: RuntimeError.new('boom'))
-        end
-        def self.channel_name(_) = 'ch1'
-      end
-
-      # Append a NotifyFailure directly — simulates the case where one
-      # was dispatched for an upstream command and now also fails.
       store.append(Sidereal::System::NotifyFailure.new(
         payload: {
           command_type: 'foo',
           command_id: SecureRandom.uuid,
-          attempt: 1,
+          retry_count: 1,
           error_class: 'RuntimeError',
           error_message: 'upstream',
           backtrace: []
@@ -491,9 +438,8 @@ RSpec.describe Sidereal::Dispatcher do
 
       run_and_collect('ch1', store: store, registry: registry_for(cmdr), pubsub: pubsub) {}
 
-      # The handler ran exactly once (and raised). Without loop prevention
-      # it would re-trigger another NotifyFailure for itself.
-      expect(notify_calls.size).to eq(1)
+      expect(retry_reports).to be_empty
+      expect(failure_reports).to be_empty
     end
   end
 end

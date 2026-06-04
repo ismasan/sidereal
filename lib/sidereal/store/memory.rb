@@ -37,7 +37,7 @@ module Sidereal
       #   Result::Retry.new(at:)  — unsupported in Memory; logs WARN, acks
       #   Result::Fail.new(error:) — unsupported in Memory; logs WARN, drops
       #
-      # +meta.attempt+ is always 1 (Memory does not track retries).
+      # +meta.retry_count+ is always 1 (Memory does not track retries).
       # +meta.first_appended_at+ is the time of the originating {#append}.
       #
       # Blocks the current fiber between messages. Only one consumer
@@ -50,7 +50,7 @@ module Sidereal
       def claim_next
         loop do
           msg, first_appended_at = @queue.pop
-          meta = Meta.new(attempt: 1, first_appended_at: first_appended_at)
+          meta = Meta.new(retry_count: 1, first_appended_at: first_appended_at)
           result = yield msg, meta
           handle_result(result, msg)
         end

@@ -119,7 +119,7 @@ RSpec.describe Sidereal::Channels do
 
     it 'pre-registers the System::NotifyRetry source-channel bypass' do
       retry_msg = Sidereal::System::NotifyRetry.new(
-        payload: { command_type: 'x', command_id: 'id', attempt: 1, retry_at: Time.now.iso8601, error_class: 'E', error_message: 'boom' },
+        payload: { command_type: 'x', command_id: 'id', retry_count: 1, retry_at: Time.now.iso8601, error_class: 'E', error_message: 'boom' },
         metadata: { source_channel: 'campaigns.42' }
       )
 
@@ -128,7 +128,7 @@ RSpec.describe Sidereal::Channels do
 
     it 'pre-registers the System::NotifyFailure source-channel bypass' do
       fail_msg = Sidereal::System::NotifyFailure.new(
-        payload: { command_type: 'x', command_id: 'id', attempt: 1, error_class: 'E', error_message: 'boom' },
+        payload: { command_type: 'x', command_id: 'id', retry_count: 1, error_class: 'E', error_message: 'boom' },
         metadata: { source_channel: 'campaigns.42' }
       )
 
@@ -137,7 +137,7 @@ RSpec.describe Sidereal::Channels do
 
     it "falls back to 'system' when source_channel is not stamped" do
       retry_msg = Sidereal::System::NotifyRetry.new(
-        payload: { command_type: 'x', command_id: 'id', attempt: 1, retry_at: Time.now.iso8601, error_class: 'E', error_message: 'boom' }
+        payload: { command_type: 'x', command_id: 'id', retry_count: 1, retry_at: Time.now.iso8601, error_class: 'E', error_message: 'boom' }
       )
 
       expect(Sidereal.channels.for(retry_msg)).to eq('system')

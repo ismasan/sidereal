@@ -328,10 +328,10 @@ RSpec.describe Sidereal::Store::FileSystem do
     end
 
     describe 'meta' do
-      it 'attempt is 1 on first claim' do
+      it 'retry_count is 1 on first claim' do
         store.append(FsStoreCmd.new(payload: { name: 'x' }))
         _, meta = one_claim(store) { Sidereal::Store::Result::Ack }
-        expect(meta.attempt).to eq(1)
+        expect(meta.retry_count).to eq(1)
       end
 
       it 'first_appended_at falls between before and after the append call' do
@@ -344,7 +344,7 @@ RSpec.describe Sidereal::Store::FileSystem do
     end
 
     describe 'Result::Retry' do
-      it 'moves the message to scheduled/ with attempt bumped to 2' do
+      it 'moves the message to scheduled/ with retry_count bumped to 2' do
         store.append(FsStoreCmd.new(payload: { name: 'x' }))
         retry_at = Time.now + 5
 
@@ -358,7 +358,7 @@ RSpec.describe Sidereal::Store::FileSystem do
         expect(scheduled.size).to eq(1)
 
         parts = described_class.parse_filename(scheduled.first)
-        expect(parts[:attempt]).to eq(2)
+        expect(parts[:retry_count]).to eq(2)
         expected_ns = retry_at.tv_sec * 1_000_000_000 + retry_at.tv_nsec
         expect(parts[:not_before_ns]).to eq(expected_ns)
       end
@@ -387,7 +387,7 @@ RSpec.describe Sidereal::Store::FileSystem do
         expect(retried_body).to eq(original_body)
       end
 
-      it 'second claim observes meta.attempt == 2 with first_appended_at preserved' do
+      it 'second claim observes meta.retry_count == 2 with first_appended_at preserved' do
         fast_store = described_class.new(
           root: @root,
           poll_interval: 0.01,
@@ -417,8 +417,8 @@ RSpec.describe Sidereal::Store::FileSystem do
           end.wait
         end
 
-        expect(metas[0].attempt).to eq(1)
-        expect(metas[1].attempt).to eq(2)
+        expect(metas[0].retry_count).to eq(1)
+        expect(metas[1].retry_count).to eq(2)
         expect(metas[1].first_appended_at).to eq(metas[0].first_appended_at)
       end
     end
@@ -508,14 +508,14 @@ RSpec.describe Sidereal::Store::FileSystem do
         expect(Dir.children(File.join(@root, 'ready')).size).to eq(1)
       end
 
-      it 'resets attempt to 1 in the new filename' do
+      it 'resets retry_count to 1 in the new filename' do
         dead_name = fail_and_get_dead_name(store)
 
         store.requeue(dead_name)
 
         ready_name = Dir.children(File.join(@root, 'ready')).first
         parts = described_class.parse_filename(ready_name)
-        expect(parts[:attempt]).to eq(1)
+        expect(parts[:retry_count]).to eq(1)
       end
 
       it 'preserves first_append_ns from the original' do
