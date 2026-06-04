@@ -38,28 +38,11 @@ module Sidereal
 
           server = evaluator.make_server(@bound_endpoint)
 
-          @dispatcher = nil
+          @sidereal_host = Sidereal.new_host
 
           Async do |task|
             server.run
-            # Start the configured pubsub here (not inside the dispatcher)
-            # so it works regardless of which dispatcher implementation is
-            # plugged in — e.g. Sourced's Dispatcher in examples/sourced_donations
-            # also benefits from the long-lived Falcon task as the parent for
-            # pubsub's background fibers.
-            Sidereal.elector.start(task)
-            Sidereal.pubsub.start(task)
-
-            # Boot is over: classes have loaded, channel routes and
-            # exception subscribers are registered. Lock both registries
-            # so any further +channel_name(...)+ / +on_retry+ /
-            # +on_failure+ call raises loudly instead of silently racing
-            # the worker fibers about to start consuming.
-            Sidereal.channels.lock!
-            Sidereal.exceptions.lock!
-
-            @dispatcher = Sidereal.dispatcher.start(task)
-            Sidereal.scheduler.start(task)
+            @sidereal_host.start(task)
 
             task.children.each(&:wait)
           end
@@ -68,7 +51,7 @@ module Sidereal
         end
 
         def stop(...)
-          @dispatcher&.stop
+          @sidereal_host&.stop
           super
         end
       end

@@ -21,9 +21,6 @@ module Sidereal
     "__handle_#{prefix}_#{name.split('::').map(&:downcase).join('_')}"
   end
 
-  def self.setup!
-  end
-
   class Configuration
     attr_accessor :workers
     attr_reader :store, :pubsub, :dispatcher, :elector
@@ -78,9 +75,11 @@ module Sidereal
   end
 
   # Process-global channel-name registry. System notifications
-  # ({Sidereal::System::NotifyRetry} / {NotifyFailure}) are pre-routed
-  # via the +:source_channel+ metadata that the dispatcher stamps —
-  # this keeps user-supplied resolvers free of system-message branches.
+  # ({Sidereal::System::NotifyRetry} / {NotifyFailure}) are delivered by
+  # the exceptions registry's default publisher on the failed command's
+  # channel, never through user resolvers; {Channels.with_system_defaults}
+  # also keeps a defensive bypass route for them, so user-supplied
+  # resolvers stay free of system-message branches.
   def self.channels
     @channels ||= Channels.with_system_defaults
   end
@@ -113,6 +112,25 @@ module Sidereal
   def self.dispatcher = config.dispatcher
   def self.elector = config.elector
 
+  def self.setup!
+  end
+
+  # Build a {Host} wired to the process-global collaborators from
+  # {.config} (plus the {.channels} / {.exceptions} registries). Call
+  # after all app classes have loaded, so the registries are fully
+  # populated before {Host#start} freezes them.
+  #
+  # @return [Host]
+  def self.new_host
+    Host.new(
+      channels:,
+      exceptions:,
+      elector:,
+      pubsub:,
+      dispatcher:,
+      scheduler:
+    )
+  end
   # Build (if needed) and append a command to the configured {.store} from
   # outside the request/handler lifecycle. Use this from CLIs, consoles,
   # rake tasks, schedulers, or any code that needs to enqueue a command
@@ -173,5 +191,6 @@ require_relative 'sidereal/registry'
 require_relative 'sidereal/dispatcher'
 require_relative 'sidereal/elector'
 require_relative 'sidereal/scheduler'
+require_relative 'sidereal/host'
 require_relative 'sidereal/app'
 require_relative 'sidereal/components/command'
