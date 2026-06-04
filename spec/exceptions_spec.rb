@@ -66,6 +66,48 @@ RSpec.describe Sidereal::Exceptions do
     end
   end
 
+  describe 'fatal channel (on_fatal)' do
+    it 'routes a raising subscriber to on_fatal with the original report attached' do
+      fatals = []
+      exceptions.on_fatal { |f| fatals << f }
+      resolver_bug = KeyError.new('no such attribute')
+      exceptions.on_failure { |_| raise resolver_bug }
+
+      exceptions.report_failure(exception: boom, message: cmd, retry_count: 2)
+
+      expect(fatals.size).to eq(1)
+      expect(fatals.first).to be_a(Sidereal::FatalReport)
+      expect(fatals.first.exception).to be(resolver_bug)
+      # the failure report being delivered when the subscriber blew up
+      expect(fatals.first.report.failure?).to be(true)
+      expect(fatals.first.report.message).to be(cmd)
+    end
+
+    it 'report_fatal fans out to on_fatal subscribers (no report context)' do
+      seen = []
+      exceptions.on_fatal { |f| seen << f }
+
+      exceptions.report_fatal(exception: boom)
+
+      expect(seen.size).to eq(1)
+      expect(seen.first.exception).to be(boom)
+      expect(seen.first.report).to be_nil
+    end
+
+    it 'never silently swallows: report_fatal works with zero subscribers (logs only)' do
+      expect { exceptions.report_fatal(exception: boom) }.not_to raise_error
+    end
+
+    it 'an on_fatal subscriber that itself raises does not recurse or propagate' do
+      reached_second = false
+      exceptions.on_fatal { |_| raise 'fatal subscriber broken' }
+      exceptions.on_fatal { |_| reached_second = true }
+
+      expect { exceptions.report_fatal(exception: boom) }.not_to raise_error
+      expect(reached_second).to be(true)
+    end
+  end
+
   describe 'ExceptionReport shape' do
     it 'wraps retry context and exposes #retry?' do
       retry_at = Time.now + 30
@@ -104,11 +146,12 @@ RSpec.describe Sidereal::Exceptions do
       expect { exceptions.lock! }.not_to raise_error
     end
 
-    it 'raises LockedError on subsequent on_retry / on_failure registration' do
+    it 'raises LockedError on subsequent on_retry / on_failure / on_fatal registration' do
       exceptions.lock!
 
       expect { exceptions.on_retry   { |_| } }.to raise_error(Sidereal::Exceptions::LockedError, /locked/)
       expect { exceptions.on_failure { |_| } }.to raise_error(Sidereal::Exceptions::LockedError, /locked/)
+      expect { exceptions.on_fatal   { |_| } }.to raise_error(Sidereal::Exceptions::LockedError, /locked/)
     end
 
     it 'still allows reports to fan out after lock' do

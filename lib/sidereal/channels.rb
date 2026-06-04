@@ -68,12 +68,18 @@ module Sidereal
 
     # Resolve the channel for a message. O(1) hash lookup on
     # +msg.class+ — does NOT walk ancestors. Falls back to the catch-all
-    # if registered, then to {DEFAULT_CHANNEL}. Never raises so a
-    # misrouted message becomes visible in normal SSE traffic rather
-    # than crashing the worker fiber.
+    # if registered, then to {DEFAULT_CHANNEL}.
+    #
+    # A message class with NO registered resolver never raises — it
+    # falls back to {DEFAULT_CHANNEL}. But a *registered* resolver runs
+    # arbitrary application code: if it raises (e.g. dereferencing a
+    # payload attribute the message doesn't have), that exception
+    # propagates. That's an application bug and is meant to surface
+    # loudly, not be masked here.
     #
     # @param msg [Sidereal::Message]
     # @return [String]
+    # @raise [StandardError] whatever a registered resolver raises
     def for(msg)
       handler = @routes[msg.class] || @catch_all
       handler ? handler.call(msg) : DEFAULT_CHANNEL

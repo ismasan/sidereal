@@ -94,8 +94,12 @@ module Sidereal
     # subscriber's exception cascading into another report-and-fan-out
     # loop.
     #
-    # All errors during the report are logged and swallowed; a failure
-    # to notify must never crash the worker loop.
+    # All errors during the report are routed to {Sidereal::Exceptions#report_fatal}
+    # (logged + forwarded to +on_fatal+ subscribers) and swallowed; a
+    # failure to notify must never crash the worker loop. Note that errors
+    # raised *inside* report_retry/report_failure subscribers are already
+    # routed to report_fatal by the registry's fan-out, so this rescue only
+    # catches failures outside that (building the report, the policy match).
     def dispatch_notification(msg, meta, exception, policy_result)
       return if msg.is_a?(Sidereal::System::Notification)
 
@@ -112,12 +116,14 @@ module Sidereal
         nil
       end
     rescue StandardError => ex
-      Console.error(self, 'Failed to report exception',
-                    command: msg.class.name, exception: ex)
+      @exceptions.report_fatal(exception: ex)
     end
 
-    # Publish failures are logged but do not trigger retry. Handle has
-    # already mutated state by this point — retrying would double-apply.
+    # Publish failures are routed to {Sidereal::Exceptions#report_fatal}
+    # (logged + forwarded to +on_fatal+ subscribers) but do not trigger
+    # retry. Handle has already mutated state by this point — retrying
+    # would double-apply. Channel-resolver bugs and pubsub failures both
+    # land here; on_fatal subscribers can filter by exception class.
     def publish(result)
       @pubsub.publish @channels.for(result.msg), result.msg
       result.events.each do |e|
@@ -127,7 +133,7 @@ module Sidereal
         @store.append e
       end
     rescue StandardError => ex
-      Console.error(self, "Publish error", exception: ex)
+      @exceptions.report_fatal(exception: ex)
     end
   end
 end

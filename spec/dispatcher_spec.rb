@@ -332,6 +332,28 @@ RSpec.describe Sidereal::Dispatcher do
     expect(received.map { |m| m.payload.title }).to eq(['second'])
   end
 
+  it 'routes a success-path channel-resolver bug to on_fatal subscribers' do
+    fatals = []
+    fatal_exceptions = Sidereal::Exceptions.new.tap { |e| e.on_fatal { |f| fatals << f } }
+
+    # A resolver that raises while publishing the successful result —
+    # a programming bug, not a transient failure.
+    raising_channels = Sidereal::Channels.with_system_defaults.tap do |c|
+      c.channel_name { |_msg| raise KeyError, 'no channel attribute' }
+    end
+
+    store.append(DispatchCmd.new(payload: { title: 'hello' }))
+
+    run_and_collect('ch1',
+                    store: store, registry: registry_for(commander),
+                    pubsub: pubsub, channels: raising_channels,
+                    exceptions: fatal_exceptions) {}
+
+    expect(fatals.size).to be >= 1
+    expect(fatals.first).to be_a(Sidereal::FatalReport)
+    expect(fatals.first.exception).to be_a(KeyError)
+  end
+
   describe 'system notifications' do
     # Override the outer +exceptions+ let with one that captures
     # reports for assertion. No default publisher — we're testing
