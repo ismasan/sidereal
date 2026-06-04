@@ -22,17 +22,20 @@ module Sidereal
     # Raised when {#channel_name} is called after {#lock!}.
     LockedError = Class.new(StandardError)
 
-    # Build a Channels with the framework-internal source-channel bypass
+    # Build a Channels with the framework-internal system-message bypass
     # pre-installed for {Sidereal::System::NotifyRetry} and
-    # {NotifyFailure}. Use this anywhere a fresh registry needs to
-    # behave the way {Sidereal.channels} does — most notably in tests
-    # that inject their own +channels:+ into the dispatcher instead of
-    # mutating the process-global one.
+    # {NotifyFailure}. These route to {DEFAULT_CHANNEL} unconditionally —
+    # the point is purely to keep system notifications from falling
+    # through to a user-supplied catch-all resolver (which may deref
+    # payload keys these messages don't have). Use this anywhere a fresh
+    # registry needs to behave the way {Sidereal.channels} does — most
+    # notably in tests that inject their own +channels:+ into the
+    # dispatcher instead of mutating the process-global one.
     #
     # @return [Channels]
     def self.with_system_defaults
       new.tap do |c|
-        bypass = ->(msg) { msg.metadata[:source_channel] || DEFAULT_CHANNEL }
+        bypass = ->(_msg) { DEFAULT_CHANNEL }
         c.channel_name(System::NotifyRetry, &bypass)
         c.channel_name(System::NotifyFailure, &bypass)
       end

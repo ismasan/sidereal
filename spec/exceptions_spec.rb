@@ -194,7 +194,7 @@ RSpec.describe Sidereal::Exceptions do
       expect(received.first.payload.retry_count).to eq(3)
     end
 
-    it 'a domain-specific channel resolver does not crash on system messages — they bypass via source_channel' do
+    it 'a domain-specific channel resolver only ever sees the failed user command, not the notification' do
       # The default publisher publishes on Sidereal.channels.for(report.message),
       # which is the user resolver — fine. The failed message is the
       # user command, not the system notification, so the domain
