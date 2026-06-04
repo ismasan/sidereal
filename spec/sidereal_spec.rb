@@ -19,6 +19,39 @@ RSpec.describe Sidereal do
     end
   end
 
+  describe '.setup! / .on_setup' do
+    after { Sidereal.reset_setup_hooks! }
+
+    it 'is a no-op with no registered hooks' do
+      Sidereal.reset_setup_hooks!
+      expect { Sidereal.setup! }.not_to raise_error
+    end
+
+    it 'runs every registered hook, in registration order, on each setup!' do
+      calls = []
+      Sidereal.on_setup { calls << :first }
+      Sidereal.on_setup { calls << :second }
+
+      Sidereal.setup!
+      Sidereal.setup!
+
+      expect(calls).to eq(%i[first second first second])
+    end
+
+    it 'raises ArgumentError without a block' do
+      expect { Sidereal.on_setup }.to raise_error(ArgumentError, /block required/)
+    end
+
+    it 'reset_setup_hooks! clears registered hooks' do
+      ran = false
+      Sidereal.on_setup { ran = true }
+      Sidereal.reset_setup_hooks!
+
+      Sidereal.setup!
+      expect(ran).to be(false)
+    end
+  end
+
   describe '.dispatch!' do
     let(:store) { Sidereal::Store::Memory.new }
 
