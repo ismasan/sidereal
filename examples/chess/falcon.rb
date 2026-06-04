@@ -2,10 +2,11 @@
 # frozen_string_literal: true
 
 require 'sourced'
-require 'sourced/falcon'
+require 'sidereal'
+require 'sidereal/falcon/environment'
 
 service "sidereal-chess" do
-  include Sourced::Falcon::Environment
+  include Sidereal::Falcon::Environment
   include Falcon::Environment::Rackup
 
   url "http://localhost:9296"
