@@ -54,6 +54,12 @@ module Sidereal
     @config ||= Configuration.new
   end
 
+  # Yield the process-global {.config} to a block. Apps call this once at
+  # load time (top-level in boot.rb) to point Sidereal at a store,
+  # dispatcher, etc. Under the forking Falcon environment each worker
+  # loads boot.rb in its own process, so the block runs fresh per worker
+  # and fork-unsafe collaborators (DB connections) are established anew —
+  # no replay machinery needed.
   def self.configure(&)
     yield config
   end
@@ -111,39 +117,6 @@ module Sidereal
   def self.store = config.store
   def self.dispatcher = config.dispatcher
   def self.elector = config.elector
-
-  # Process/fork lifecycle hook. {Sidereal::Falcon::Environment::Service}
-  # calls this at the start of every +run+ (i.e. in each forked worker)
-  # before building the server or the {Host}. Runs every callback
-  # registered via {.on_setup} to re-establish anything that is not
-  # fork-safe — e.g. a Sourced-backed app registers
-  # +Sidereal.on_setup { Sourced.setup! }+ to rebuild its SQLite store
-  # (and replay its Sourced.configure block) in the worker process.
-  # @return [self]
-  def self.setup!
-    @setup_hooks&.each(&:call)
-    self
-  end
-
-  # Register a callback to run on every {.setup!} (once per forked
-  # worker, before boot). Order is preserved. Register at load time —
-  # e.g. top-level in boot.rb — NOT inside a block that is itself
-  # replayed by setup, or the callbacks accumulate.
-  # @raise [ArgumentError] without a block
-  # @return [self]
-  def self.on_setup(&block)
-    raise ArgumentError, 'block required' unless block
-
-    (@setup_hooks ||= []) << block
-    self
-  end
-
-  # Clear all setup hooks. For test isolation.
-  # @return [self]
-  def self.reset_setup_hooks!
-    @setup_hooks = nil
-    self
-  end
 
   # Build a {Host} wired to the process-global collaborators from
   # {.config} (plus the {.channels} / {.exceptions} registries). Call

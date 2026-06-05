@@ -887,6 +887,32 @@ Sidereal.configure do |c|
 end
 ```
 
+### Preload vs lazy loading (production)
+
+Falcon forks one worker per core (`count` defaults to the CPU count), and **where you load your app decides how fork-unsafe resources — DB connections, Sourced reactors — are handled across the fork:**
+
+- **Lazy (recommended default).** If `falcon.rb` requires *only* the environment (not the app), the controller never loads your app; each worker loads `config.ru` → `boot.rb` in its own process. Connections are opened **fresh per worker**, so nothing is stale and there's nothing to reconnect.
+
+  ```ruby
+  # falcon.rb — lazy: the app loads per worker via config.ru
+  require 'sidereal/falcon/environment'
+
+  service "my-app" do
+    include Sidereal::Falcon::Environment
+    include Falcon::Environment::Rackup
+    url "http://localhost:9292"
+  end
+  ```
+  ```ruby
+  # config.ru — loads boot.rb (and its connections) inside each worker
+  require_relative 'boot'
+  run MyApp
+  ```
+
+- **Preload (opt-in).** If you `require_relative 'app'` in `falcon.rb` (as the example above does) — or use Falcon's `--preload` / the `:preload` Bundler group — the app loads **once in the controller** before forking. That saves memory via copy-on-write and speeds up worker boot, but workers then **inherit** the controller's DB connections, which are not fork-safe. You must re-establish them per worker — e.g. call `Sourced.setup!` from a worker-boot fiber — exactly the `on_worker_boot` reconnection you'd wire up under Puma's `preload_app!`.
+
+Either way Falcon already warms up **gems** in the controller (`Bundler.require(:preload)` + GC compaction) for copy-on-write efficiency, so the lazy model still shares gem memory across workers — only your app and its connections load per worker. For an in-memory backend the distinction doesn't matter; it only bites when a backend (like Sourced) holds a real, fork-unsafe connection.
+
 ### Custom backends
 
 The store, pubsub, and dispatcher are configurable. By default Sidereal uses in-memory implementations, but you can swap them out:
@@ -1119,9 +1145,11 @@ Commands are processed asynchronously by worker fibers. The browser never waits 
 
 ### Setup
 
+Require the Sourced integration, then point Sidereal at Sourced's store and dispatcher:
+
 ```ruby
 require 'sidereal'
-require 'sourced'
+require 'sidereal/integrations/sourced'
 
 # Configure Sourced with a SQLite database
 Sourced.configure do |c|
@@ -1130,10 +1158,15 @@ end
 
 # Point Sidereal at Sourced's store and dispatcher
 Sidereal.configure do |c|
-  c.store = Sourced.store
+  c.store      = Sourced.config.store
   c.dispatcher = Sourced::Dispatcher
 end
 ```
+
+`require 'sidereal/integrations/sourced'` wires two things for you:
+
+- **Error toasts / reporting** — Sourced's retry and terminal-failure events are reported to `Sidereal.exceptions`, so the [default error toasts](#default-dev-ui-error-toasts) appear and any `on_retry` / `on_failure` / `on_fatal` subscribers (e.g. an APM hook) fire. When Sourced is the dispatcher it owns retry/fail orchestration, so Sidereal's *automatic* exception reporting doesn't run — this bridge is what surfaces failures in the UI.
+- **Fork safety** — under the default Falcon setup each worker loads `boot.rb` in its own process, so `Sourced.configure { c.store = Sequel.sqlite(...) }` opens a fresh SQLite connection per worker. Nothing is inherited across the fork, so there is no stale-connection problem and no post-fork reconnection step to wire up.
 
 ### Defining messages and Deciders
 

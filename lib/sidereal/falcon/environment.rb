@@ -12,9 +12,10 @@ module Sidereal
     # Include this module in a Falcon service definition to get Sidereal worker defaults
     # alongside the standard Falcon server environment. All settings are read from...
     #
-    # The Service automatically calls {Sidereal.setup!} at the start of +run+ to
-    # re-establish database connections after Falcon forks (SQLite connections
-    # are not fork-safe).
+    # Each worker loads the rackup app (config.ru → boot.rb) in its own
+    # process via +make_server+, so fork-unsafe collaborators (e.g. SQLite
+    # connections) are established fresh per worker — no post-fork
+    # reconnection step is needed.
     #
     # @example falcon.rb
     #   #!/usr/bin/env falcon-host
@@ -34,8 +35,6 @@ module Sidereal
       #
       class Service < ::Falcon::Service::Server
         def run(instance, evaluator)
-          Sidereal.setup!
-
           server = evaluator.make_server(@bound_endpoint)
 
           @sidereal_host = Sidereal.new_host
