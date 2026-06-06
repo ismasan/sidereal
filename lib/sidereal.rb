@@ -48,6 +48,31 @@ module Sidereal
     def elector=(e)
       @elector = ElectorInterface.parse(e)
     end
+
+    # Switch the store, pubsub, and elector to the filesystem / unix-socket
+    # implementations in one call — the set needed to run across multiple
+    # worker processes on a single machine. Files and the pubsub socket
+    # live under +dir+ (default ./storage, relative to the working
+    # directory — i.e. the app root when launched with `falcon host` from
+    # there).
+    #
+    # Override any individual collaborator afterward:
+    #
+    #   c.use_file_system!
+    #   c.store = Sourced.config.store   # keep the filesystem pubsub + elector
+    #
+    # @param dir [String] base directory for store files, socket, and lock
+    # @return [self]
+    def use_file_system!(dir: 'storage')
+      require 'sidereal/store/file_system'
+      require 'sidereal/pubsub/unix'
+      require 'sidereal/elector/file_system'
+
+      self.store   = Store::FileSystem.new(root: File.join(dir, 'store'))
+      self.pubsub  = PubSub::Unix.new(socket_path: File.join(dir, 'pubsub.sock'))
+      self.elector = Elector::FileSystem.new(lock_path: File.join(dir, 'leader.lock'))
+      self
+    end
   end
 
   def self.config

@@ -927,6 +927,15 @@ end
 
 A custom store must respond to `#append(message)`. A custom dispatcher must respond to `.start(task)` (class-level) and `#stop`.
 
+**Multi-process shortcut.** `c.use_file_system!` switches the store, pubsub, **and** elector to their filesystem / unix-socket implementations in one call — the combination needed to run across multiple Falcon workers on one host (a shared on-disk queue, a unix-socket pubsub broker, and file-lock leader election). Files and the socket live under `dir:` (default `./storage`, relative to the working directory). Override any individual collaborator afterward:
+
+```ruby
+Sidereal.configure do |c|
+  c.use_file_system!                 # FS store + unix-socket pubsub + file-lock elector
+  c.store = Sourced.config.store     # ...e.g. keep Sourced's store, but the rest stays
+end
+```
+
 ### Filesystem store
 
 `Sidereal::Store::FileSystem` is a built-in durable store that survives process restarts and lets multiple worker processes on the same host share a queue. It also honors [scheduled commands](#scheduled-commands), unlike the default in-memory store.
