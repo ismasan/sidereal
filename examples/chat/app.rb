@@ -4,18 +4,14 @@ require 'dotenv'
 Dotenv.load '.env'
 
 require 'sidereal'
-require 'sidereal/pubsub/unix'
-require 'sidereal/store/file_system'
-require 'sidereal/elector/file_system'
 require 'ruby_llm'
 
 Sidereal.configure do |c|
   c.workers = 3
-  c.store = Sidereal::Store::FileSystem.new(root: 'tmp/sidereal-store')
-  c.pubsub = Sidereal::PubSub::Unix.new
-  # Only one process per host runs scheduled blocks. Drop this line and
-  # the default AlwaysLeader elector fires schedules in every process.
-  c.elector = Sidereal::Elector::FileSystem.new(lock_path: 'tmp/sidereal-leader.lock')
+  # Filesystem store + unix-socket pubsub + file-lock elector under tmp/, so
+  # multiple worker processes share one store and one pubsub broker (only the
+  # elected leader runs scheduled blocks). Override any one with c.store= etc.
+  c.use_file_system!(dir: 'tmp')
 end
 
 RubyLLM.configure do |config|

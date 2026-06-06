@@ -5,8 +5,7 @@ class TodoPage < Sidereal::Page
 
   # Re-render the page when a todo is added
   on AddTodo do |_evt|
-    # browser.patch_elements load(params)
-    browser.patch_elements TodoList.new(TODOS.values.dup)
+    browser.patch_elements TodoList.new(TODOS.values)
   end
 
   on Notify do |cmd|
@@ -14,8 +13,7 @@ class TodoPage < Sidereal::Page
   end
 
   on RemoveTodo do |_evt|
-    # browser.patch_elements load(params)
-    browser.patch_elements TodoList.new(TODOS.values.dup)
+    browser.patch_elements TodoList.new(TODOS.values)
   end
 
   def self.load(_params, _ctx)

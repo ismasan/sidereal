@@ -1,6 +1,6 @@
 GIT
   remote: https://github.com/ismasan/sourced-ui.git
-  revision: 25817556903c7a6e097c3546486d813ff63cec74
+  revision: 754306da7f7dc26e4c11a4061ea828bea7dfc754
   branch: ccc
   specs:
     sourced-ui (0.1.0)
@@ -11,12 +11,13 @@ GIT
 
 GIT
   remote: https://github.com/ismasan/sourced.git
-  revision: 969845499d7bcbd4bdcbd8b0fa8d784f95d2b4a1
+  revision: bd065f199b25605202364e05edfe7cd73b58b896
   branch: ccc
   specs:
     sourced (0.0.1)
       async
       plumb (>= 0.0.17)
+      sourced-message
 
 PATH
   remote: ../..
@@ -30,6 +31,7 @@ PATH
       plumb (~> 0.0.17)
       rack (~> 3)
       rack-session
+      sourced-message
 
 GEM
   remote: https://rubygems.org/
@@ -67,11 +69,11 @@ GEM
     bigdecimal (4.1.2)
     brotli (0.8.0)
     concurrent-ruby (1.3.6)
-    console (1.35.1)
+    console (1.36.0)
       fiber-annotation
       fiber-local (~> 1.1)
       json
-    datastar (1.0.4)
+    datastar (1.0.5)
       json
       logger
       rack (>= 3.2)
@@ -109,7 +111,7 @@ GEM
       prism (>= 1.3.0)
       rdoc (>= 4.0.0)
       reline (>= 0.4.2)
-    json (2.19.7)
+    json (2.19.8)
     localhost (1.7.0)
     logger (1.7.0)
     mapping (1.1.3)
@@ -173,6 +175,9 @@ GEM
       mapping (~> 1.0)
     sequel (5.103.0)
       bigdecimal
+    sourced-message (0.1.0)
+      fugit
+      plumb (>= 0.0.17)
     sqlite3 (2.9.3-arm64-darwin)
     string-format (0.2.0)
     stringio (3.2.0)
@@ -208,8 +213,8 @@ CHECKSUMS
   bigdecimal (4.1.2) sha256=53d217666027eab4280346fba98e7d5b66baaae1b9c3c1c0ffe89d48188a3fbd
   brotli (0.8.0) sha256=0c5a42046b3b603fb109656881147fd76064c034b7d19c1b4fcc32a093a4d55d
   concurrent-ruby (1.3.6) sha256=6b56837e1e7e5292f9864f34b69c5a2cbc75c0cf5338f1ce9903d10fa762d5ab
-  console (1.35.1) sha256=6d2bfdd0bc7e57830540a6c0ce3bc83fff471844db44be89a38aef9f95df296a
-  datastar (1.0.4) sha256=46ac43193e2018f16bd3596531dbee5c59427b7797f03c17792bbc9ebdbb92eb
+  console (1.36.0) sha256=45599ea906cf80a73d8941f03abf873fe66a6a954e0bac5bc1c01e2cdc406f07
+  datastar (1.0.5) sha256=9ee7cda4e5707f00e22f4c989d554d908913b38373a3a0bc4afbc4aeec0b0c5c
   date (3.5.1) sha256=750d06384d7b9c15d562c76291407d89e368dda4d4fff957eb94962d325a0dc0
   diff-lcs (1.6.2) sha256=9ae0d2cba7d4df3075fe8cd8602a8604993efc0dfa934cff568969efb1909962
   erb (6.0.4) sha256=38e3803694be357fe2bfe312487c74beaf9fb4e5beb3e22498952fe1645b95d9
@@ -224,7 +229,7 @@ CHECKSUMS
   io-event (1.16.1) sha256=641686f1e919a4890f788b86393026f8ef1394ee4af4d2ab9c24c81e237736ed
   io-stream (0.11.1) sha256=fa5f551fcff99581c1757b9d1cee2c37b124f07d2ca4f40b756a05ab9bd21b87
   irb (1.18.0) sha256=de9454a0703a54704b9811a5ef31a60c86949fbf4013fcf244fabc7c775248e3
-  json (2.19.7) sha256=fe432c8639f6efff69f9d73b518a3705d9581ab93156f981ea72806e1e5bcc3e
+  json (2.19.8) sha256=6354310fd76ef69b87d5bd1f38b40d730613baf90b6803d2d0a48f618d32dfaa
   localhost (1.7.0) sha256=09b32819537f914ccdf0a7c595fab162517401b6ef644a2afd3708d943c4547f
   logger (1.7.0) sha256=196edec7cc44b66cfb40f9755ce11b392f21f7967696af15d274dde7edff0203
   mapping (1.1.3) sha256=2274931d20ecd46eaafdd1e00c58cc7472133b213bcac335cc7733d3c75f4da2
@@ -258,6 +263,7 @@ CHECKSUMS
   sequel (5.103.0) sha256=51bf23374cc585724fc51a2ae8b95283422c97ca4585ce28f3db27a26ce55a69
   sidereal (0.1.0)
   sourced (0.0.1)
+  sourced-message (0.1.0) sha256=e86f0e7c0e387d02c5811d2968dc48cb1e934c9244268974f78dc90714fab60d
   sourced-ui (0.1.0)
   sqlite3 (2.9.3-arm64-darwin) sha256=76b265d3d57362d3e38338f24f50a0c9cd47a4599c9cfbb578fac125d2299906
   string-format (0.2.0) sha256=bc981c14116b061f12134549f32fa2d61a17b5a35dd6fd36596c21722a789af6
