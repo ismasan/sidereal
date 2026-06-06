@@ -12,9 +12,10 @@ module Sidereal
     # Include this module in a Falcon service definition to get Sidereal worker defaults
     # alongside the standard Falcon server environment. All settings are read from...
     #
-    # The Service automatically calls {Sidereal.setup!} at the start of +run+ to
-    # re-establish database connections after Falcon forks (SQLite connections
-    # are not fork-safe).
+    # Each worker loads the rackup app (config.ru → boot.rb) in its own
+    # process via +make_server+, so fork-unsafe collaborators (e.g. SQLite
+    # connections) are established fresh per worker — no post-fork
+    # reconnection step is needed.
     #
     # @example falcon.rb
     #   #!/usr/bin/env falcon-host
@@ -34,31 +35,13 @@ module Sidereal
       #
       class Service < ::Falcon::Service::Server
         def run(instance, evaluator)
-          Sidereal.setup!
-
           server = evaluator.make_server(@bound_endpoint)
 
-          @dispatcher = nil
+          @sidereal_host = Sidereal.new_host
 
           Async do |task|
             server.run
-            # Start the configured pubsub here (not inside the dispatcher)
-            # so it works regardless of which dispatcher implementation is
-            # plugged in — e.g. Sourced's Dispatcher in examples/sourced_donations
-            # also benefits from the long-lived Falcon task as the parent for
-            # pubsub's background fibers.
-            Sidereal.elector.start(task)
-            Sidereal.pubsub.start(task)
-
-            # Boot is over: classes have loaded, channel routes are
-            # registered. Lock the channels registry so any further
-            # +Sidereal.channels.channel_name(...)+ call raises loudly
-            # instead of silently racing the worker fibers about to
-            # start consuming.
-            Sidereal.channels.lock!
-
-            @dispatcher = Sidereal.dispatcher.start(task)
-            Sidereal.scheduler.start(task)
+            @sidereal_host.start(task)
 
             task.children.each(&:wait)
           end
@@ -67,7 +50,7 @@ module Sidereal
         end
 
         def stop(...)
-          @dispatcher&.stop
+          @sidereal_host&.stop
           super
         end
       end

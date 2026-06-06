@@ -3,8 +3,8 @@
 require 'fileutils'
 require 'sequel'
 require 'sqlite3'
-require 'sourced'
 require 'sidereal'
+require 'sidereal/integrations/sourced'
 
 DB_PATH = File.expand_path('storage/donations.db', __dir__)
 FileUtils.mkdir_p(File.dirname(DB_PATH))
@@ -14,27 +14,35 @@ require_relative 'domain/donation'
 require_relative 'domain/campaigns_projector'
 require_relative 'domain/donation_view'
 
-# Wire everything inside Sourced.configure so it is re-run after Falcon forks
-# (SQLite connections are not fork-safe — Sourced calls setup! in the worker
-# process to rebuild the store, and we need Sidereal + reactor registration
-# to follow along).
+# Each forked Falcon worker loads this file in its own process, so the
+# Sourced store and reactors below are established fresh per worker (SQLite
+# connections aren't fork-safe, but nothing is inherited across the fork).
 Sourced.configure do |config|
   config.store = Sequel.sqlite(DB_PATH) unless ENV['TEST']
-  config.error_strategy do |s|
-    s.retry(times: 1, after: 1)
+end
 
-    s.on_fail do |exception, _message|
-      Sourced.config.logger.error("#{exception.class}: #{exception.message}")
-      Sourced.config.logger.error(exception.backtrace.join("\n"))
-    end
-  end
+Sourced.register(Donation)
+Sourced.register(Campaign)
+Sourced.register(CampaignsProjector)
 
+# Skip the Sidereal runtime bridge in TEST — specs drive deciders directly.
+unless ENV['TEST']
   Sidereal.configure do |c|
-    c.store      = config.store
+    # Cross-process pubsub + leader election (unix socket + file lock under
+    # ./storage), so SSE updates fan out to subscribers on every worker via
+    # one elected broker — required for count > 1.
+    c.use_file_system!
+    # ...but keep Sourced's SQLite store + dispatcher, not the FS store.
+    c.store      = Sourced.config.store
     c.dispatcher = Sourced::Dispatcher
   end
+end
 
-  Sourced.register(Donation)
-  Sourced.register(Campaign)
-  Sourced.register(CampaignsProjector)
+# Optional logger subscriber — preserves the previous server-side error
+# logging and demonstrates the subscriber API. Added once before
+# Sidereal::Host#start locks the exceptions registry. Array(...) guards
+# against a backtrace-less exception.
+Sidereal.exceptions.on_failure do |report|
+  Sourced.config.logger.error("#{report.exception.class}: #{report.exception.message}")
+  Sourced.config.logger.error(Array(report.exception.backtrace).join("\n"))
 end

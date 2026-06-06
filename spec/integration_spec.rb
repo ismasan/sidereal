@@ -36,7 +36,7 @@ RSpec.describe 'Sidereal retry → fail integration' do
       # Same shape as the default policy but tighter backoff so the
       # test converges quickly.
       def self.on_error(exception, _message, meta)
-        if meta.attempt < Sidereal::Commander::DEFAULT_MAX_ATTEMPTS
+        if meta.retry_count < Sidereal::Commander::DEFAULT_MAX_ATTEMPTS
           Sidereal::Store::Result::Retry.new(at: Time.now + 0.05)
         else
           Sidereal::Store::Result::Fail.new(error: exception)
@@ -84,7 +84,7 @@ RSpec.describe 'Sidereal retry → fail integration' do
 
     message_name = dead.find { |n| !n.end_with?('.error.json') }
     parts = Sidereal::Store::FileSystem.parse_filename(message_name)
-    expect(parts[:attempt]).to eq(Sidereal::Commander::DEFAULT_MAX_ATTEMPTS)
+    expect(parts[:retry_count]).to eq(Sidereal::Commander::DEFAULT_MAX_ATTEMPTS)
 
     sidecar_name = dead.find { |n| n.end_with?('.error.json') }
     sidecar = JSON.parse(File.read(File.join(@root, 'dead', sidecar_name)))

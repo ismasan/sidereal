@@ -30,18 +30,18 @@ module Sidereal
       DEFAULT_SCHEDULER_INTERVAL = 1.0
 
       # Parse a canonical message filename into its component parts.
-      # Filename format: +<not_before_ns>-<first_append_ns>-<attempt>-<pid>-<rand>.json+
+      # Filename format: +<not_before_ns>-<first_append_ns>-<retry_count>-<pid>-<rand>.json+
       # Public so tests and ops tooling can inspect on-disk entries
       # without duplicating the format.
       #
       # @param name [String] basename, with or without the +.json+ suffix
-      # @return [Hash] {not_before_ns:, first_append_ns:, attempt:, pid:, rand_hex:}
+      # @return [Hash] {not_before_ns:, first_append_ns:, retry_count:, pid:, rand_hex:}
       def self.parse_filename(name)
         parts = name.delete_suffix('.json').split('-')
         {
           not_before_ns: parts[0].to_i,
           first_append_ns: parts[1].to_i,
-          attempt: parts[2].to_i,
+          retry_count: parts[2].to_i,
           pid: parts[3].to_i,
           rand_hex: parts[4]
         }
@@ -116,9 +116,9 @@ module Sidereal
         created_at_ns = message.created_at.tv_sec * 1_000_000_000 + message.created_at.tv_nsec
         not_before_ns = [created_at_ns, now_ns].max
         first_append_ns = now_ns
-        attempt = 1
+        retry_count = 1
 
-        name = build_filename(not_before_ns, first_append_ns, attempt)
+        name = build_filename(not_before_ns, first_append_ns, retry_count)
         tmp_path = File.join(@tmp_dir, name)
         dest_dir = not_before_ns > now_ns ? @scheduled_dir : @ready_dir
         dest_path = File.join(dest_dir, name)
@@ -181,7 +181,7 @@ module Sidereal
       # +"dead/abc.json"+, and +"<root>/dead/abc.json"+ all resolve to
       # the same file under the store's own +dead/+ directory.
       #
-      # The new filename resets +attempt+ to 1 (full retry budget),
+      # The new filename resets +retry_count+ to 1 (full retry budget),
       # sets +not_before_ns+ to now (immediately ready), and preserves
       # +first_append_ns+ from the original (so age-based diagnostics
       # still see the message's true lineage). The +.error.json+
@@ -215,7 +215,7 @@ module Sidereal
       #
       #   Result::Ack             — unlink processing/<f>
       #   Result::Retry.new(at:)  — rename processing/<f> → scheduled/<f'>
-      #                             with bumped attempt and new not_before_ns;
+      #                             with bumped retry_count and new not_before_ns;
       #                             body untouched
       #   Result::Fail.new(error:) — write sidecar dead/<f>.error.json with
       #                              {class, message, backtrace}, then rename
@@ -245,14 +245,14 @@ module Sidereal
 
       # Build per-claim Meta by parsing the original filename out of the
       # processing-side name (which is +<original>__<pid>__<claim_ns>+)
-      # and extracting +attempt+ and +first_append_ns+ from it.
+      # and extracting +retry_count+ and +first_append_ns+ from it.
       def build_meta(processing_path)
         processing_name = File.basename(processing_path)
         original, _pid, _claim_ns = parse_processing_name(processing_name)
         parts = self.class.parse_filename(original)
         ns = parts[:first_append_ns]
         Sidereal::Store::Meta.new(
-          attempt: parts[:attempt],
+          retry_count: parts[:retry_count],
           first_appended_at: Time.at(ns / 1_000_000_000, ns % 1_000_000_000, :nsec)
         )
       end
@@ -273,7 +273,7 @@ module Sidereal
       end
 
       # Move a processing/ entry back to scheduled/ with a new
-      # not_before_ns and bumped attempt. The first_append_ns is
+      # not_before_ns and bumped retry_count. The first_append_ns is
       # preserved so age-based policies stay correct across retries.
       # Body is not rewritten.
       def reschedule(claimed_path, at_time, meta)
@@ -283,7 +283,7 @@ module Sidereal
         new_name = build_filename(
           new_not_before_ns,
           parts[:first_append_ns],
-          meta.attempt + 1
+          meta.retry_count + 1
         )
         File.rename(claimed_path, File.join(@scheduled_dir, new_name))
       end
@@ -410,8 +410,8 @@ module Sidereal
         (now_ns - claim_ns) > (@stale_threshold * 1_000_000_000)
       end
 
-      def build_filename(not_before_ns, first_append_ns, attempt)
-        "#{not_before_ns}-#{first_append_ns}-#{attempt}-#{Process.pid}-#{SecureRandom.hex(4)}.json"
+      def build_filename(not_before_ns, first_append_ns, retry_count)
+        "#{not_before_ns}-#{first_append_ns}-#{retry_count}-#{Process.pid}-#{SecureRandom.hex(4)}.json"
       end
 
       def serialize(message)
@@ -424,7 +424,8 @@ module Sidereal
 
       def deserialize(json_str)
         attrs = JSON.parse(json_str, symbolize_names: true)
-        Sidereal::Message.from(attrs)
+        # Resolve from the shared root registry (sees Sidereal + Sourced types).
+        Sourced::Message.from(attrs)
       end
     end
   end

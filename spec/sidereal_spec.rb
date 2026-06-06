@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require 'tmpdir'
+
 DispatchBangCmd = Sidereal::Message.define('sidereal_spec.do_thing') do
   attribute :title, Sidereal::Types::String.present
 end
@@ -121,5 +123,36 @@ RSpec.describe Sidereal::Configuration do
     expect {
       config.dispatcher = invalid_dispatcher
     }.to raise_error(Plumb::ParseError)
+  end
+
+  describe '#use_file_system!' do
+    it 'switches store/pubsub/elector to the filesystem + unix-socket impls' do
+      Dir.mktmpdir do |dir|
+        config.use_file_system!(dir: dir)
+
+        expect(config.store).to be_a(Sidereal::Store::FileSystem)
+        expect(config.pubsub).to be_a(Sidereal::PubSub::Unix)
+        expect(config.elector).to be_a(Sidereal::Elector::FileSystem)
+      end
+    end
+
+    it 'returns self for chaining' do
+      Dir.mktmpdir do |dir|
+        expect(config.use_file_system!(dir: dir)).to be(config)
+      end
+    end
+
+    it 'lets an individual collaborator be overridden afterward' do
+      Dir.mktmpdir do |dir|
+        config.use_file_system!(dir: dir)
+
+        custom_store = Class.new { def self.append(...) = self }
+        config.store = custom_store
+
+        expect(config.store).to eq(custom_store)        # overridden
+        expect(config.pubsub).to be_a(Sidereal::PubSub::Unix)  # left intact
+        expect(config.elector).to be_a(Sidereal::Elector::FileSystem)
+      end
+    end
   end
 end

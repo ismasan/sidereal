@@ -98,9 +98,10 @@ module Sidereal
       #   end
       #
       # System notifications ({Sidereal::System::NotifyRetry} and
-      # {NotifyFailure}) are pre-routed at the {Sidereal.channels} level
-      # via +:source_channel+ metadata stamped by the dispatcher; user
-      # resolvers don't need to handle them.
+      # {NotifyFailure}) are delivered by the exceptions registry's
+      # default publisher on the failed command's channel, not through
+      # user resolvers — so resolvers registered here don't need to
+      # handle them.
       #
       # @param message_classes [Array<Class>] zero or more message classes
       # @return [self]
@@ -252,7 +253,7 @@ module Sidereal
           c.new(payload:)
         in [Class => c]
           c.new
-        in [MessageInterface => m]
+        in [Sourced::Message => m]
           m
       end
 

@@ -306,7 +306,7 @@ RSpec.describe Sidereal::Page do
         command_type: 'todos.add',
         command_id: SecureRandom.uuid,
         command_payload: { title: 'x' },
-        attempt: 2,
+        retry_count: 2,
         retry_at: Time.now.iso8601(6),
         error_class: 'RuntimeError',
         error_message: 'boom',
@@ -319,7 +319,7 @@ RSpec.describe Sidereal::Page do
         command_type: 'todos.add',
         command_id: SecureRandom.uuid,
         command_payload: { title: 'x' },
-        attempt: 5,
+        retry_count: 5,
         error_class: 'RuntimeError',
         error_message: 'permanent',
         backtrace: []

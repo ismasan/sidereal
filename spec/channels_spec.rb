@@ -117,30 +117,29 @@ RSpec.describe Sidereal::Channels do
   describe 'Sidereal.channels (process-global)' do
     before { Sidereal.reset_channels! }
 
-    it 'pre-registers the System::NotifyRetry source-channel bypass' do
+    it 'routes System::NotifyRetry/NotifyFailure to DEFAULT_CHANNEL regardless of metadata' do
       retry_msg = Sidereal::System::NotifyRetry.new(
-        payload: { command_type: 'x', command_id: 'id', attempt: 1, retry_at: Time.now.iso8601, error_class: 'E', error_message: 'boom' },
-        metadata: { source_channel: 'campaigns.42' }
+        payload: { command_type: 'x', command_id: 'id', retry_count: 1, retry_at: Time.now.iso8601, error_class: 'E', error_message: 'boom' },
+        metadata: { source_channel: 'campaigns.42' } # stray metadata is ignored now
       )
-
-      expect(Sidereal.channels.for(retry_msg)).to eq('campaigns.42')
-    end
-
-    it 'pre-registers the System::NotifyFailure source-channel bypass' do
       fail_msg = Sidereal::System::NotifyFailure.new(
-        payload: { command_type: 'x', command_id: 'id', attempt: 1, error_class: 'E', error_message: 'boom' },
-        metadata: { source_channel: 'campaigns.42' }
+        payload: { command_type: 'x', command_id: 'id', retry_count: 1, error_class: 'E', error_message: 'boom' }
       )
 
-      expect(Sidereal.channels.for(fail_msg)).to eq('campaigns.42')
+      expect(Sidereal.channels.for(retry_msg)).to eq(Sidereal::Channels::DEFAULT_CHANNEL)
+      expect(Sidereal.channels.for(fail_msg)).to eq(Sidereal::Channels::DEFAULT_CHANNEL)
     end
 
-    it "falls back to 'system' when source_channel is not stamped" do
-      retry_msg = Sidereal::System::NotifyRetry.new(
-        payload: { command_type: 'x', command_id: 'id', attempt: 1, retry_at: Time.now.iso8601, error_class: 'E', error_message: 'boom' }
+    it 'never routes system notifications through a user catch-all resolver' do
+      # A catch-all that derefs a payload key these messages lack would
+      # crash if it ever saw them — the typed bypass is what prevents it.
+      Sidereal.channels.channel_name { |msg| "campaigns.#{msg.payload.campaign_id}" }
+      fail_msg = Sidereal::System::NotifyFailure.new(
+        payload: { command_type: 'x', command_id: 'id', retry_count: 1, error_class: 'E', error_message: 'boom' }
       )
 
-      expect(Sidereal.channels.for(retry_msg)).to eq('system')
+      expect { Sidereal.channels.for(fail_msg) }.not_to raise_error
+      expect(Sidereal.channels.for(fail_msg)).to eq(Sidereal::Channels::DEFAULT_CHANNEL)
     end
   end
 end

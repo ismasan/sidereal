@@ -13,17 +13,19 @@ HandleTestOtherCmd = Sidereal::Message.define('app_test.do_other') do
 end
 
 RSpec.describe 'Sidereal::App.commander' do
-  it 'auto-registers no-op handlers for system notifications' do
+  it 'does not auto-register handlers for system notifications' do
+    # System notifications (NotifyRetry/NotifyFailure) are delivered to
+    # pages via pubsub by Sidereal.exceptions' default publisher — they
+    # are no longer routed through the commander/store. So a fresh app's
+    # commander knows nothing about them unless the app opts in below.
     app = Class.new(Sidereal::App)
-    app.const_set(:Name, 'AutoRegisterTestApp') # for naming, optional
 
-    expect(app.commander.command_registry).to include(
-      Sidereal::System::NotifyRetry.type => Sidereal::System::NotifyRetry,
-      Sidereal::System::NotifyFailure.type => Sidereal::System::NotifyFailure
-    )
+    registry = app.commander.command_registry
+    expect(registry).not_to have_key(Sidereal::System::NotifyRetry.type)
+    expect(registry).not_to have_key(Sidereal::System::NotifyFailure.type)
   end
 
-  it 'allows overriding the no-op NotifyFailure handler' do
+  it 'allows an app to handle a system notification via the command DSL' do
     captured = []
     app = Class.new(Sidereal::App) do
       command(Sidereal::System::NotifyFailure) { |cmd| captured << cmd }
@@ -33,7 +35,7 @@ RSpec.describe 'Sidereal::App.commander' do
       payload: {
         command_type: 'x',
         command_id: SecureRandom.uuid,
-        attempt: 1,
+        retry_count: 1,
         error_class: 'RuntimeError',
         error_message: 'oops',
         backtrace: []

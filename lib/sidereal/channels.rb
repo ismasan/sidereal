@@ -22,17 +22,20 @@ module Sidereal
     # Raised when {#channel_name} is called after {#lock!}.
     LockedError = Class.new(StandardError)
 
-    # Build a Channels with the framework-internal source-channel bypass
+    # Build a Channels with the framework-internal system-message bypass
     # pre-installed for {Sidereal::System::NotifyRetry} and
-    # {NotifyFailure}. Use this anywhere a fresh registry needs to
-    # behave the way {Sidereal.channels} does — most notably in tests
-    # that inject their own +channels:+ into the dispatcher instead of
-    # mutating the process-global one.
+    # {NotifyFailure}. These route to {DEFAULT_CHANNEL} unconditionally —
+    # the point is purely to keep system notifications from falling
+    # through to a user-supplied catch-all resolver (which may deref
+    # payload keys these messages don't have). Use this anywhere a fresh
+    # registry needs to behave the way {Sidereal.channels} does — most
+    # notably in tests that inject their own +channels:+ into the
+    # dispatcher instead of mutating the process-global one.
     #
     # @return [Channels]
     def self.with_system_defaults
       new.tap do |c|
-        bypass = ->(msg) { msg.metadata[:source_channel] || DEFAULT_CHANNEL }
+        bypass = ->(_msg) { DEFAULT_CHANNEL }
         c.channel_name(System::NotifyRetry, &bypass)
         c.channel_name(System::NotifyFailure, &bypass)
       end
@@ -65,12 +68,18 @@ module Sidereal
 
     # Resolve the channel for a message. O(1) hash lookup on
     # +msg.class+ — does NOT walk ancestors. Falls back to the catch-all
-    # if registered, then to {DEFAULT_CHANNEL}. Never raises so a
-    # misrouted message becomes visible in normal SSE traffic rather
-    # than crashing the worker fiber.
+    # if registered, then to {DEFAULT_CHANNEL}.
+    #
+    # A message class with NO registered resolver never raises — it
+    # falls back to {DEFAULT_CHANNEL}. But a *registered* resolver runs
+    # arbitrary application code: if it raises (e.g. dereferencing a
+    # payload attribute the message doesn't have), that exception
+    # propagates. That's an application bug and is meant to surface
+    # loudly, not be masked here.
     #
     # @param msg [Sidereal::Message]
     # @return [String]
+    # @raise [StandardError] whatever a registered resolver raises
     def for(msg)
       handler = @routes[msg.class] || @catch_all
       handler ? handler.call(msg) : DEFAULT_CHANNEL

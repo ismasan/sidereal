@@ -8,7 +8,7 @@ RSpec.describe Sidereal::Components::SystemNotify do
       command_type: 'todos.add',
       command_id: SecureRandom.uuid,
       command_payload: { title: 'buy milk' },
-      attempt: 2,
+      retry_count: 2,
       retry_at: '2026-05-01T11:30:00+00:00',
       error_class: 'RuntimeError',
       error_message: 'transient failure',
@@ -21,7 +21,7 @@ RSpec.describe Sidereal::Components::SystemNotify do
       command_type: 'todos.add',
       command_id: SecureRandom.uuid,
       command_payload: { title: 'buy milk' },
-      attempt: 5,
+      retry_count: 5,
       error_class: 'RuntimeError',
       error_message: 'permanent failure',
       backtrace: backtrace
@@ -39,9 +39,9 @@ RSpec.describe Sidereal::Components::SystemNotify do
       expect(html).to match(%r{<style>.*\.sidereal-sysnotify.*</style>}m)
     end
 
-    it 'includes the command type and attempt in the title' do
+    it 'includes the command type and scheduled retry number in the title' do
       expect(html).to include('todos.add')
-      expect(html).to include('attempt 2')
+      expect(html).to include('retry 2 scheduled')
     end
 
     it 'includes the error class and message' do
@@ -71,8 +71,8 @@ RSpec.describe Sidereal::Components::SystemNotify do
       expect(html).to include('sidereal-sysnotify--failure')
     end
 
-    it 'mentions the attempt count' do
-      expect(html).to include('5 attempt')
+    it 'mentions the exhausted retry count' do
+      expect(html).to include('gave up after 4 retries')
     end
 
     it 'includes the error message' do

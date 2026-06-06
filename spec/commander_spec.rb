@@ -282,8 +282,8 @@ RSpec.describe Sidereal::Commander do
   describe '.on_error' do
     let(:msg) { TestAddItem.new(payload: { name: 'x' }) }
 
-    def meta_for(attempt)
-      Sidereal::Store::Meta.new(attempt: attempt, first_appended_at: Time.now)
+    def meta_for(retry_count)
+      Sidereal::Store::Meta.new(retry_count: retry_count, first_appended_at: Time.now)
     end
 
     it 'returns Result::Retry for attempts below DEFAULT_MAX_ATTEMPTS' do

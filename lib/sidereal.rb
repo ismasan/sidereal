@@ -21,9 +21,6 @@ module Sidereal
     "__handle_#{prefix}_#{name.split('::').map(&:downcase).join('_')}"
   end
 
-  def self.setup!
-  end
-
   class Configuration
     attr_accessor :workers
     attr_reader :store, :pubsub, :dispatcher, :elector
@@ -51,12 +48,43 @@ module Sidereal
     def elector=(e)
       @elector = ElectorInterface.parse(e)
     end
+
+    # Switch the store, pubsub, and elector to the filesystem / unix-socket
+    # implementations in one call — the set needed to run across multiple
+    # worker processes on a single machine. Files and the pubsub socket
+    # live under +dir+ (default ./storage, relative to the working
+    # directory — i.e. the app root when launched with `falcon host` from
+    # there).
+    #
+    # Override any individual collaborator afterward:
+    #
+    #   c.use_file_system!
+    #   c.store = Sourced.config.store   # keep the filesystem pubsub + elector
+    #
+    # @param dir [String] base directory for store files, socket, and lock
+    # @return [self]
+    def use_file_system!(dir: 'storage')
+      require 'sidereal/store/file_system'
+      require 'sidereal/pubsub/unix'
+      require 'sidereal/elector/file_system'
+
+      self.store   = Store::FileSystem.new(root: File.join(dir, 'store'))
+      self.pubsub  = PubSub::Unix.new(socket_path: File.join(dir, 'pubsub.sock'))
+      self.elector = Elector::FileSystem.new(lock_path: File.join(dir, 'leader.lock'))
+      self
+    end
   end
 
   def self.config
     @config ||= Configuration.new
   end
 
+  # Yield the process-global {.config} to a block. Apps call this once at
+  # load time (top-level in boot.rb) to point Sidereal at a store,
+  # dispatcher, etc. Under the forking Falcon environment each worker
+  # loads boot.rb in its own process, so the block runs fresh per worker
+  # and fork-unsafe collaborators (DB connections) are established anew —
+  # no replay machinery needed.
   def self.configure(&)
     yield config
   end
@@ -78,15 +106,30 @@ module Sidereal
   end
 
   # Process-global channel-name registry. System notifications
-  # ({Sidereal::System::NotifyRetry} / {NotifyFailure}) are pre-routed
-  # via the +:source_channel+ metadata that the dispatcher stamps —
-  # this keeps user-supplied resolvers free of system-message branches.
+  # ({Sidereal::System::NotifyRetry} / {NotifyFailure}) are delivered by
+  # the exceptions registry's default publisher on the failed command's
+  # channel, never through user resolvers; {Channels.with_system_defaults}
+  # also keeps a defensive bypass route for them, so user-supplied
+  # resolvers stay free of system-message branches.
   def self.channels
     @channels ||= Channels.with_system_defaults
   end
 
   def self.reset_channels!
     @channels = nil
+  end
+
+  # Process-global exception-subscriber registry. Backends call
+  # +report_retry+ / +report_failure+ when their retry/fail policy
+  # fires; pre-installed default publishers turn each report into
+  # a {Sidereal::System::Notify*} message broadcast on the failed
+  # command's channel.
+  def self.exceptions
+    @exceptions ||= Exceptions.with_default_publisher
+  end
+
+  def self.reset_exceptions!
+    @exceptions = nil
   end
 
   def self.register(commander)
@@ -100,6 +143,22 @@ module Sidereal
   def self.dispatcher = config.dispatcher
   def self.elector = config.elector
 
+  # Build a {Host} wired to the process-global collaborators from
+  # {.config} (plus the {.channels} / {.exceptions} registries). Call
+  # after all app classes have loaded, so the registries are fully
+  # populated before {Host#start} freezes them.
+  #
+  # @return [Host]
+  def self.new_host
+    Host.new(
+      channels:,
+      exceptions:,
+      elector:,
+      pubsub:,
+      dispatcher:,
+      scheduler:
+    )
+  end
   # Build (if needed) and append a command to the configured {.store} from
   # outside the request/handler lifecycle. Use this from CLIs, consoles,
   # rake tasks, schedulers, or any code that needs to enqueue a command
@@ -138,7 +197,7 @@ module Sidereal
         c.parse(payload:)
       in [Class => c]
         c.parse(Plumb::BLANK_HASH)
-      in [MessageInterface => m]
+      in [Sourced::Message => m]
         m
     end
 
@@ -149,6 +208,7 @@ end
 require_relative 'sidereal/message'
 require_relative 'sidereal/system'
 require_relative 'sidereal/channels'
+require_relative 'sidereal/exceptions'
 require_relative 'sidereal/router'
 require_relative 'sidereal/components/layout'
 require_relative 'sidereal/page'
@@ -159,5 +219,6 @@ require_relative 'sidereal/registry'
 require_relative 'sidereal/dispatcher'
 require_relative 'sidereal/elector'
 require_relative 'sidereal/scheduler'
+require_relative 'sidereal/host'
 require_relative 'sidereal/app'
 require_relative 'sidereal/components/command'

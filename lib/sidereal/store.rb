@@ -3,11 +3,11 @@
 module Sidereal
   module Store
     # Per-claim metadata yielded as the second arg of {Store#claim_next}.
-    # +attempt+ is 1 on first delivery and increments on each {Result::Retry}.
+    # +retry_count+ is 1 on first delivery and increments on each {Result::Retry}.
     # +first_appended_at+ is the wall-clock time the message originally
     # entered the store, preserved across retries — useful for "give up
     # after N hours regardless of attempt count" policies.
-    Meta = Data.define(:attempt, :first_appended_at)
+    Meta = Data.define(:retry_count, :first_appended_at)
 
     # Protocol values returned by the block passed to {Store#claim_next}.
     # The store interprets each value as the next state transition for the

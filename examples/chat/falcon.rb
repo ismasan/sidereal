@@ -6,8 +6,8 @@ require 'sidereal/falcon/environment'
 
 # Set PORT in the environment to launch on a different port. This lets you
 # run multiple master processes in separate terminals all backed by the same
-# tmp/sidereal-pubsub.sock and tmp/sidereal-store/ — exercising the
-# cross-process FileSystem store + Unix pubsub:
+# tmp/pubsub.sock and tmp/store/ — exercising the cross-process FileSystem
+# store + Unix pubsub (configured via c.use_file_system!(dir: 'tmp') in app.rb):
 #
 #   bundle exec falcon-host falcon.rb              # → http://localhost:9293
 #   PORT=9294 bundle exec falcon-host falcon.rb    # → http://localhost:9294
