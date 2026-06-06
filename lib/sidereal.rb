@@ -197,7 +197,7 @@ module Sidereal
         c.parse(payload:)
       in [Class => c]
         c.parse(Plumb::BLANK_HASH)
-      in [MessageInterface => m]
+      in [Sourced::Message => m]
         m
     end
 

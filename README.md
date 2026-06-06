@@ -615,7 +615,7 @@ command PlaceOrder do |cmd|
 end
 ```
 
-Resolved targets earlier than the message's `created_at` raise `Sidereal::PastMessageDateError` — including negative integers (`.in(-60)`) and durations that resolve to the past.
+Resolved targets earlier than the message's `created_at` raise `Sourced::Message::PastMessageDateError` — including negative integers (`.in(-60)`) and durations that resolve to the past.
 
 The dispatched message is appended to the store with its `created_at` set to the resolved target. Stores that support scheduled delivery hold the message back and only deliver it once that time has passed:
 

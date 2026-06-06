@@ -33,6 +33,7 @@ Gem::Specification.new do |spec|
   spec.require_paths = ['lib']
 
   # Uncomment to register a new dependency of your gem
+  spec.add_dependency('sourced-message')
   spec.add_dependency('plumb', '~> 0.0.17')
   spec.add_dependency('rack', '~> 3')
   spec.add_dependency('rack-session')

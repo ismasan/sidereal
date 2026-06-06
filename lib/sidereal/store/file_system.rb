@@ -424,7 +424,8 @@ module Sidereal
 
       def deserialize(json_str)
         attrs = JSON.parse(json_str, symbolize_names: true)
-        Sidereal::Message.from(attrs)
+        # Resolve from the shared root registry (sees Sidereal + Sourced types).
+        Sourced::Message.from(attrs)
       end
     end
   end

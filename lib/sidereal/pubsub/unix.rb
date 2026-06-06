@@ -233,7 +233,9 @@ module Sidereal
 
       def decode_frame(line)
         parsed = JSON.parse(line, symbolize_names: true)
-        [parsed[:channel], Sidereal::Message.from(parsed[:msg])]
+        # Resolve from the shared root registry so frames carrying Sourced types
+        # (not just Sidereal's) decode on the receiving process.
+        [parsed[:channel], Sourced::Message.from(parsed[:msg])]
       end
 
       def validate_socket_path!(path)

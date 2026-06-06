@@ -253,7 +253,7 @@ module Sidereal
           c.new(payload:)
         in [Class => c]
           c.new
-        in [MessageInterface => m]
+        in [Sourced::Message => m]
           m
       end
 
