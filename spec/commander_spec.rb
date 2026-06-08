@@ -386,6 +386,24 @@ RSpec.describe Sidereal::Commander do
     end
   end
 
+  describe 'app-extensible dependencies' do
+    after { Sidereal.reset_config! }
+
+    it 'resolves an injected dep from Sidereal.config while pubsub stays caller-overridable' do
+      Sidereal.config.register(:accounts_repo) { :the_repo }
+
+      seen = nil
+      cmdr_class = Class.new(Sidereal::Commander) do
+        include Sidereal.inject(:accounts_repo)
+        command(TestAddItem) { |_cmd| seen = accounts_repo } # private reader usable in handlers
+      end
+
+      cmdr_class.handle(TestAddItem.new(payload: { title: 'hi' }), pubsub: pubsub)
+
+      expect(seen).to eq(:the_repo) # :accounts_repo came from config; :pubsub from the caller
+    end
+  end
+
   describe '#broadcast' do
     before { Sidereal.reset_channels! }
 

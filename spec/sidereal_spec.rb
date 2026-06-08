@@ -21,6 +21,33 @@ RSpec.describe Sidereal do
     end
   end
 
+  describe '.inject' do
+    around { |ex| Sidereal.reset_config!; ex.run; Sidereal.reset_config! }
+
+    it 'is shorthand for config.inject and wires registered deps into a class' do
+      Sidereal.config.register(:greeting) { 'hi' }
+
+      klass = Class.new do
+        include Sidereal.inject(:greeting)
+        def greet = greeting
+      end
+
+      expect(klass.new.greet).to eq('hi')          # resolved from Sidereal.config
+      expect(klass.new(greeting: 'yo').greet).to eq('yo') # caller override
+    end
+  end
+
+  describe '.new_host' do
+    around { |ex| Sidereal.reset_config!; ex.run; Sidereal.reset_config! }
+
+    it 'freezes config so dependencies cannot be registered after boot' do
+      Sidereal.new_host
+
+      expect(Sidereal.config).to be_frozen
+      expect { Sidereal.config.register(:late) { 1 } }.to raise_error(FrozenError)
+    end
+  end
+
   describe '.dispatch!' do
     let(:store) { Sidereal::Store::Memory.new }
 
@@ -123,6 +150,23 @@ RSpec.describe Sidereal::Configuration do
     expect {
       config.dispatcher = invalid_dispatcher
     }.to raise_error(Plumb::ParseError)
+  end
+
+  it 'registers and resolves arbitrary app dependencies (IOCContainer)' do
+    config.register(:accounts_repo) { :the_repo }
+    expect(config[:accounts_repo]).to eq(:the_repo)
+  end
+
+  it 'injects registered deps into a class via #inject' do
+    config.register(:accounts_repo) { :the_repo }
+
+    container = config
+    klass = Class.new do
+      include container.inject(:accounts_repo)
+      def fetch = accounts_repo
+    end
+
+    expect(klass.new.fetch).to eq(:the_repo)
   end
 
   describe '#use_file_system!' do

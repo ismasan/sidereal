@@ -4,6 +4,7 @@ require 'async'
 require_relative 'sidereal/version'
 require_relative 'sidereal/types'
 require_relative 'sidereal/utils'
+require_relative 'sidereal/ioc_container'
 
 module Sidereal
   class Error < StandardError; end
@@ -21,33 +22,48 @@ module Sidereal
     "__handle_#{prefix}_#{name.split('::').map(&:downcase).join('_')}"
   end
 
-  class Configuration
+  # App-wide dependency container. Subclasses {IOCContainer}, so apps can
+  # +register+ arbitrary dependencies and classes can pull them in via
+  # +include Sidereal.config.inject(...)+ (or the {Sidereal.inject} shorthand).
+  # The framework seeds the swappable infrastructure deps (store, pubsub,
+  # dispatcher, elector) as +:global+ registrations, and keeps the historical
+  # setter sugar (+config.store = ...+, {#use_file_system!}) as validated
+  # +register+ calls. Frozen at boot by {Sidereal.new_host}.
+  class Configuration < IOCContainer
     attr_accessor :workers
-    attr_reader :store, :pubsub, :dispatcher, :elector
 
     def initialize(workers: 25)
+      super()                                   # no block => not frozen; overridable until boot
       @workers = workers
-      @pubsub = PubSub::Memory.instance
-      @store = Store::Memory.instance
-      @dispatcher = Sidereal::Dispatcher
-      @elector = Elector::AlwaysLeader.new
+      register(:store)      { Store::Memory.instance }
+      register(:pubsub)     { PubSub::Memory.instance }
+      register(:dispatcher) { Sidereal::Dispatcher }
+      register(:elector)    { Elector::AlwaysLeader.new }
     end
 
     def store=(s)
-      @store = StoreWriterInterface.parse(s)
+      validated = StoreWriterInterface.parse(s)
+      register(:store) { validated }
     end
+    def store = self[:store]
 
     def pubsub=(p)
-      @pubsub = PubsubInterface.parse(p)
+      validated = PubsubInterface.parse(p)
+      register(:pubsub) { validated }
     end
+    def pubsub = self[:pubsub]
 
     def dispatcher=(d)
-      @dispatcher = DispatcherInterface.parse(d)
+      validated = DispatcherInterface.parse(d)
+      register(:dispatcher) { validated }
     end
+    def dispatcher = self[:dispatcher]
 
     def elector=(e)
-      @elector = ElectorInterface.parse(e)
+      validated = ElectorInterface.parse(e)
+      register(:elector) { validated }
     end
+    def elector = self[:elector]
 
     # Switch the store, pubsub, and elector to the filesystem / unix-socket
     # implementations in one call — the set needed to run across multiple
@@ -88,6 +104,19 @@ module Sidereal
   def self.configure(&)
     yield config
   end
+
+  def self.reset_config!
+    @config = nil
+  end
+
+  # Shorthand for +Sidereal.config.inject(...)+: returns a mixin that wires a
+  # class's constructor to the app-wide {.config} container. Binds to the
+  # config instance at call (class-load) time; see {IOCContainer#inject}.
+  #
+  #   class MyCommander < Sidereal::Commander
+  #     include Sidereal.inject(:accounts_repo)
+  #   end
+  def self.inject(...) = config.inject(...)
 
   def self.registry
     @registry ||= Registry.new
@@ -146,11 +175,13 @@ module Sidereal
   # Build a {Host} wired to the process-global collaborators from
   # {.config} (plus the {.channels} / {.exceptions} registries). Call
   # after all app classes have loaded, so the registries are fully
-  # populated before {Host#start} freezes them.
+  # populated before {Host#start} freezes them. Freezes {.config} once the
+  # deps have been read, locking the dependency container for the worker's
+  # lifetime (parallel to channels/exceptions locking in {Host#start}).
   #
   # @return [Host]
   def self.new_host
-    Host.new(
+    host = Host.new(
       channels:,
       exceptions:,
       elector:,
@@ -158,6 +189,8 @@ module Sidereal
       dispatcher:,
       scheduler:
     )
+    config.freeze
+    host
   end
   # Build (if needed) and append a command to the configured {.store} from
   # outside the request/handler lifecycle. Use this from CLIs, consoles,

@@ -5,6 +5,12 @@ require_relative 'scheduling'
 module Sidereal
   class Commander
     include Scheduling
+    # :pubsub is resolved from the app-wide Sidereal.config container. The
+    # dispatcher still passes its own pubsub (`handle(msg, pubsub: @pubsub)`),
+    # which the generated `.new` honors as a caller override. App commanders
+    # add their own deps with `include Sidereal.inject(:my_repo)` — these
+    # accumulate on top of :pubsub.
+    include Sidereal.inject(:pubsub)
 
     CMD_METHOD_PREFIX = '__cmd_'
     CMD_HASH = Types::Hash[type: String, payload?: Hash]
@@ -57,8 +63,8 @@ module Sidereal
         cmd_class.new(data)
       end
 
-      def handle(msg, pubsub:)
-        new(pubsub:).handle(msg)
+      def handle(msg, **deps)
+        new(**deps).handle(msg)
       end
 
       # Decide what to do with a failed command. Called by the dispatcher
@@ -85,9 +91,9 @@ module Sidereal
       end
     end
 
-    def initialize(pubsub:)
-      @pubsub = pubsub
+    def initialize(**rest)
       @__current_msg = nil
+      super(**rest)                       # generated initializer assigns @pubsub
     end
 
     Result = Data.define(:msg, :events, :commands)

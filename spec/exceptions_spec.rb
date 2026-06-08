@@ -186,13 +186,13 @@ RSpec.describe Sidereal::Exceptions do
     end
 
     around do |ex|
-      original_pubsub = Sidereal.config.pubsub
       original_channels_var = Sidereal.instance_variable_get(:@channels)
-      Sidereal.config.instance_variable_set(:@pubsub, pubsub)
+      Sidereal.reset_config!
+      Sidereal.config.pubsub = pubsub
       Sidereal.instance_variable_set(:@channels, channels)
       ex.run
     ensure
-      Sidereal.config.instance_variable_set(:@pubsub, original_pubsub)
+      Sidereal.reset_config!
       Sidereal.instance_variable_set(:@channels, original_channels_var)
     end
 
