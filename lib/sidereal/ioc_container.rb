@@ -186,8 +186,9 @@ module Sidereal
     #   `def new(**args)`, so positional constructor arguments are not supported.
     #
     # @param keys [Array<Symbol>, Hash{Symbol=>Symbol}] dependency keys.
-    #   Positional symbols use the same name for the container key and the
-    #   constructor kwarg; a trailing hash maps container_key => ctor_key.
+    #   Positional symbols use the same name for the constructor kwarg and the
+    #   container key; a trailing hash maps ctor_key (the local attr name) =>
+    #   container_key (the name registered in the container).
     # @return [Module] a mixin to `include` into the target class.
     #
     # @example Inject dependencies straight from the container
@@ -203,9 +204,9 @@ module Sidereal
     #     include System.inject(:logger)   # now has both :db and :logger
     #   end
     #
-    # @example Mapping a container key to a different constructor kwarg
+    # @example Mapping a constructor kwarg to a differently-named container key
     #   class Service
-    #     include System.inject(cache: :store)   # @store comes from container[:cache]
+    #     include System.inject(store: :cache)   # @store comes from container[:cache]
     #   end
     #
     # @example Defining your own #initialize alongside injected dependencies
@@ -285,7 +286,7 @@ module Sidereal
       end
 
       def __register_injection__(container, mapping, readers_mod)
-        mapping.each do |container_key, ctor_key|
+        mapping.each do |ctor_key, container_key|
           __injections__[ctor_key] = [container, container_key]
           readers_mod.send(:attr_reader, ctor_key)
           readers_mod.send(:private, ctor_key)

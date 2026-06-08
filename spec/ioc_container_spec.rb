@@ -233,10 +233,10 @@ RSpec.describe Sidereal::IOCContainer do
       expect(sub.new.fetch_db).to eq('OTHERDB')
     end
 
-    it 'maps container_key => ctor_key' do
+    it 'maps local_attr_name => container_key' do
       container = ioc
       klass = Class.new do
-        include container.inject(cache: :store)
+        include container.inject(store: :cache)   # @store from container[:cache]
         def fetch_store = store
       end
 
