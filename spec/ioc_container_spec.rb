@@ -43,6 +43,44 @@ RSpec.describe Sidereal::IOCContainer do
     expect(results).to eq(['bar'] * 5)
   end
 
+  describe 'registration lifecycle' do
+    it 'allows registering after construction when no block is given' do
+      container = described_class.new
+      container.register(:db) { 'DB' }
+      container.register(:logger) { 'LOG' }
+
+      expect(container[:db]).to eq('DB')
+      expect(container[:logger]).to eq('LOG')
+    end
+
+    it 'block form freezes the registry' do
+      container = described_class.new { |c| c.register(:db) { 'DB' } }
+
+      expect(container).to be_frozen
+    end
+
+    it 'does not freeze when constructed without a block' do
+      expect(described_class.new).not_to be_frozen
+    end
+
+    it '#freeze locks the registry and resolution still works' do
+      container = described_class.new
+      container.register(:db) { 'DB' }
+
+      expect(container.freeze).to be(container)
+      expect(container).to be_frozen
+      expect(container[:db]).to eq('DB')
+    end
+
+    it 'raises when registering after freeze' do
+      container = described_class.new
+      container.register(:db) { 'DB' }
+      container.freeze
+
+      expect { container.register(:logger) { 'LOG' } }.to raise_error(FrozenError)
+    end
+  end
+
   describe 'memoize: current_fiber' do
     it 'memoizes only in the context of the current fiber' do
       count = 0

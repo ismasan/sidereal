@@ -23,6 +23,12 @@
 #   DEPS.get(ENV.fetch(:repo_type, :mem_repo).to_sym)
 # end
 #
+# # Dependencies can be registered from several places (e.g. application boot
+# # code). Lock the registry once boot completes so #resolve reads it lock-free:
+# DEPS.freeze
+#
+# # (The block form of .new — IOCContainer.new { |c| ... } — freezes for you.)
+#
 # # App will :resolve what it needs from DEPS
 # # only used dependencies will be initialized
 # app = SomeApp.new(repo: DEPS[:repo])
@@ -126,9 +132,22 @@ module Sidereal
       @global_cache = {}
       @current_fiber_cache = CurrentFiberCache.new
       @null_cache = NullCache.new
-      yield self if block_given?
+      if block_given?
+        yield self
+        freeze
+      end
+    end
 
+    # Locks the registry: no further dependencies can be registered. The block
+    # form of .new freezes automatically; call this manually when dependencies
+    # are registered from several places (e.g. application boot code) and you
+    # want to lock them in once boot completes. Freeze before workers start so
+    # #resolve can read the registry lock-free. Idempotent; returns self.
+    #
+    # @return [self]
+    def freeze
       @definitions.freeze
+      super
     end
 
     def inspect
@@ -141,8 +160,10 @@ module Sidereal
 
     def resolve(name)
       name = name.to_s
-      # @definitions is frozen after initialize, so reading it concurrently is
-      # safe without a lock; each Definition guards its own compute-once.
+      # Reads @definitions without a lock. This is concurrency-safe provided the
+      # container has been frozen before workers start resolving (block form of
+      # .new freezes automatically; otherwise call #freeze after boot) — once
+      # frozen the hash is read-only. Each Definition guards its own compute-once.
       definition = definitions[name]
       raise MissingDependencyDeclaration, "no dependency declared for '#{name}'" unless definition
 
