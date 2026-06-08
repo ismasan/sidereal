@@ -188,7 +188,9 @@ module Sidereal
     # @param keys [Array<Symbol>, Hash{Symbol=>Symbol}] dependency keys.
     #   Positional symbols use the same name for the constructor kwarg and the
     #   container key; a trailing hash maps ctor_key (the local attr name) =>
-    #   container_key (the name registered in the container).
+    #   container_key (the name registered in the container). The two forms may
+    #   be combined, with the trailing hash last:
+    #   `inject(:db, :logger, accounts: :accounts_repo)`.
     # @return [Module] a mixin to `include` into the target class.
     #
     # @example Inject dependencies straight from the container
@@ -208,6 +210,12 @@ module Sidereal
     #   class Service
     #     include System.inject(store: :cache)   # @store comes from container[:cache]
     #   end
+    #
+    # @example Combining positional names with a trailing mapping hash
+    #   class Service
+    #     include System.inject(:db, :logger, accounts: :accounts_repo)
+    #   end
+    #   # => @db, @logger, and @accounts (from container[:accounts_repo])
     #
     # @example Defining your own #initialize alongside injected dependencies
     #   A class may declare its own constructor with extra arguments. Capture
@@ -233,7 +241,9 @@ module Sidereal
     #     so they reach `Object#initialize` and raise ArgumentError.
     #   * Keep your constructor keyword-only (see the keyword-only note above).
     def inject(*keys)
-      mapping = keys.last.is_a?(Hash) ? keys.last : keys.each.with_object({}) { |k, r| r[k] = k }
+      opts = keys.last.is_a?(Hash) ? keys.pop : {}
+      mapping = keys.each.with_object({}) { |k, r| r[k] = k }
+      mapping.merge!(opts)
       container = self
 
       mod = Module.new

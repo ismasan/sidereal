@@ -243,6 +243,20 @@ RSpec.describe Sidereal::IOCContainer do
       expect(klass.new.fetch_store).to eq('CACHE')
     end
 
+    it 'combines positional names with a trailing mapping hash' do
+      container = described_class.new do |c|
+        c.register(:db) { 'DB' }
+        c.register(:logger) { 'LOG' }
+        c.register(:accounts_repo) { 'ACCOUNTS' }
+      end
+      klass = Class.new do
+        include container.inject(:db, :logger, accounts: :accounts_repo)
+        def describe = "#{db}-#{logger}-#{accounts}"
+      end
+
+      expect(klass.new.describe).to eq('DB-LOG-ACCOUNTS')
+    end
+
     it 'coexists with a hand-written initialize that calls super' do
       container = ioc
       klass = Class.new do
