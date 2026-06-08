@@ -70,7 +70,7 @@ module Sidereal
     # across child fibers, which would leak between siblings). Values are boxed
     # so `key?` stays reliable even when a dependency memoizes to `nil`.
     class CurrentFiberCache
-      Box = Struct.new(:value)
+      Box = Data.define(:value)
 
       def initialize
         @prefix = "ioc_#{object_id}_"
