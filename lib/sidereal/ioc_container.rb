@@ -27,6 +27,16 @@
 # # only used dependencies will be initialized
 # app = SomeApp.new(repo: DEPS[:repo])
 #
+# # Or wire dependencies straight into a class's constructor with #inject.
+# # `.new` fills declared kwargs from the container; callers can still override.
+# class SomeApp
+#   include DEPS.inject(:repo)
+# end
+# SomeApp.new            # repo resolved from DEPS
+# SomeApp.new(repo: x)   # caller wins
+# # Separate includes accumulate (and are inherited), so framework classes can
+# # ship dependencies that apps add to or override. See #inject.
+#
 # Memoization is controlled per registration via `memoize:`:
 #   :global         (default) — one shared instance for the whole container
 #   :current_fiber            — one instance per fiber, backed by Fiber-local
@@ -141,36 +151,130 @@ module Sidereal
 
     alias_method :[], :resolve
 
+    # Returns a Module that, when `include`d into a class, wires that class's
+    # constructor to this container. The generated mixin:
+    #   * overrides `.new` to fill any declared kwarg the caller omits, resolving
+    #     it from the container (a caller-passed value — even `nil` — wins);
+    #   * defines an `initialize` that assigns the declared deps to `@ivars`;
+    #   * adds a private `attr_reader` per dep.
+    #
+    # Separate `include` calls ACCUMULATE rather than replace, and the registry
+    # is inherited (a subclass adds to, or overrides, what its parent declared).
+    #
+    # @note Construction becomes keyword-only: the generated `.new` is
+    #   `def new(**args)`, so positional constructor arguments are not supported.
+    #
+    # @param keys [Array<Symbol>, Hash{Symbol=>Symbol}] dependency keys.
+    #   Positional symbols use the same name for the container key and the
+    #   constructor kwarg; a trailing hash maps container_key => ctor_key.
+    # @return [Module] a mixin to `include` into the target class.
+    #
+    # @example Inject dependencies straight from the container
+    #   class Service
+    #     include System.inject(:db, :logger)
+    #   end
+    #   Service.new            # db/logger resolved from the container
+    #   Service.new(db: x)     # caller wins for :db, logger from the container
+    #
+    # @example Accumulating across includes (and inheritance)
+    #   class Service
+    #     include System.inject(:db)
+    #     include System.inject(:logger)   # now has both :db and :logger
+    #   end
+    #
+    # @example Mapping a container key to a different constructor kwarg
+    #   class Service
+    #     include System.inject(cache: :store)   # @store comes from container[:cache]
+    #   end
+    #
+    # @example Defining your own #initialize alongside injected dependencies
+    #   A class may declare its own constructor with extra arguments. Capture
+    #   your own (keyword) arguments explicitly, collect the rest with `**rest`,
+    #   and forward them with `super(**rest)` so the generated initializer can
+    #   assign the injected dependencies:
+    #
+    #     class Service
+    #       include System.inject(:db, :logger)
+    #
+    #       def initialize(name:, **rest)
+    #         @name = name
+    #         super(**rest)        # hands db:/logger: to the generated initializer
+    #       end
+    #     end
+    #
+    #     Service.new(name: 'svc')             # db/logger from the container
+    #     Service.new(name: 'svc', db: other)  # caller overrides :db
+    #
+    #   Two rules make this work:
+    #   * Use `super(**rest)`, NOT bare `super`. Bare `super` re-forwards your own
+    #     args (e.g. `name:`), which the generated initializer does not consume,
+    #     so they reach `Object#initialize` and raise ArgumentError.
+    #   * Keep your constructor keyword-only (see the keyword-only note above).
     def inject(*keys)
-      map = keys.last.is_a?(Hash) ? keys.last : keys.each.with_object({}) { |k, r| r[k] = k }
+      mapping = keys.last.is_a?(Hash) ? keys.last : keys.each.with_object({}) { |k, r| r[k] = k }
       container = self
 
       mod = Module.new
-      mod.define_method(:build) do |**args|
-        opts = map.each.with_object({}) { |(container_key, constructor_key), ret|
-          ret[constructor_key.to_sym] = container[container_key.to_s]
-        }.merge(args)
-        new(**opts)
+      mod.define_singleton_method(:included) do |base|
+        unless base.instance_variable_defined?(:@__di_readers__)
+          # First class in this hierarchy to use inject? Only the DI root carries
+          # the generated initialize.
+          di_root = !base.superclass.respond_to?(:__collect_injections__, true)
+          base.extend(DependencyInjection)
+          readers = Module.new
+          base.instance_variable_set(:@__di_readers__, readers)
+          if di_root
+            # The single root initialize reads the fully-collected map via
+            # self.class, so it serves the whole hierarchy. Defining one per
+            # class would double-assign and clobber subclass overrides.
+            readers.define_method(:initialize) do |**kwargs|
+              dep_keys = self.class.send(:__collect_injections__).keys
+              dep_keys.each { |k| instance_variable_set("@#{k}", kwargs[k]) }
+              # Pass non-DI kwargs up so a hand-written initialize can coexist.
+              super(**kwargs.except(*dep_keys))
+            end
+          end
+          base.include(readers)
+        end
+        base.send(:__register_injection__, container, mapping, base.instance_variable_get(:@__di_readers__))
       end
       mod
     end
 
-    def methods(*keys)
-      map = keys.last.is_a?(Hash) ? keys.last : keys.each.with_object({}) { |k, r| r[k] = k }
-      container = self
+    # Class-level machinery extended onto any class that includes an `inject`
+    # mixin. Only `new` is public; the registry helpers are private and reached
+    # via `send`, so a host class gains no extra public API beyond the override.
+    module DependencyInjection
+      def new(**args)
+        filled = __collect_injections__.each_with_object({}) do |(ctor_key, (container, container_key)), acc|
+          acc[ctor_key] = args.key?(ctor_key) ? args[ctor_key] : container[container_key]
+        end
+        super(**args.merge(filled))
+      end
 
-      mod = Module.new
-      map.each do |dep, name|
-        mod.define_method(name) do
-          container[dep.to_s]
+      private
+
+      def __injections__
+        @__injections__ ||= {}
+      end
+
+      def __collect_injections__
+        parent = superclass.respond_to?(:__collect_injections__, true) ? superclass.send(:__collect_injections__) : {}
+        parent.merge(__injections__)
+      end
+
+      def __register_injection__(container, mapping, readers_mod)
+        mapping.each do |container_key, ctor_key|
+          __injections__[ctor_key] = [container, container_key]
+          readers_mod.send(:attr_reader, ctor_key)
+          readers_mod.send(:private, ctor_key)
         end
       end
-      mod
     end
 
     private
 
-    attr_reader :cache, :definitions
+    attr_reader :definitions
 
     def resolve_cache(memoize)
       case memoize

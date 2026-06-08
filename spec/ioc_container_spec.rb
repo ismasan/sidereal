@@ -106,75 +106,117 @@ RSpec.describe Sidereal::IOCContainer do
     end
   end
 
-  describe 'extend .inject' do
-    let!(:ioc) do
-      described_class.new do |ioc|
-        ioc.register(:a) do |c|
-          'A'
-        end
-        ioc.register(:b) do |c|
-          'B'
-        end
+  describe '#inject' do
+    let(:ioc) do
+      described_class.new do |c|
+        c.register(:db) { 'DB' }
+        c.register(:logger) { 'LOG' }
+        c.register(:cache) { 'CACHE' }
       end
     end
 
-    it 'defines .build factory' do
+    it 'resolves declared deps from the container on .new with no args' do
+      container = ioc
       klass = Class.new do
-        attr_reader :a, :b, :c
-        def initialize(a:, b:, c: 'C')
-          @a, @b, @c = a, b, c
-        end
+        include container.inject(:db, :logger)
+        def describe = "#{db}-#{logger}"
       end
 
-      klass.extend ioc.inject(:a, :b)
-
-      instance = klass.build
-      expect(instance.a).to eq('A')
-      expect(instance.b).to eq('B')
-      expect(instance.c).to eq('C')
-
-      instance = klass.build(b: 'BB', c: 'CC')
-      expect(instance.a).to eq('A')
-      expect(instance.b).to eq('BB')
-      expect(instance.c).to eq('CC')
+      expect(klass.new.describe).to eq('DB-LOG')
     end
 
-    it 'maps hash to IOC arg => constructor arg' do
+    it 'lets a caller-passed kwarg override the container' do
+      container = ioc
       klass = Class.new do
-        attr_reader :aa1, :bb1
-        def initialize(aa1:, bb1:)
-          @aa1, @bb1 = aa1, bb1
-        end
+        include container.inject(:db, :logger)
+        def describe = "#{db}-#{logger}"
       end
 
-      klass.extend ioc.inject(a: :aa1, b: :bb1)
-
-      instance = klass.build
-      expect(instance.aa1).to eq('A')
-      expect(instance.bb1).to eq('B')
+      expect(klass.new(db: 'OVERRIDE').describe).to eq('OVERRIDE-LOG')
     end
-  end
 
-  describe 'include #methods' do
-    let!(:ioc) do
-      described_class.new do |ioc|
-        ioc.register('methods.a') do |c|
-          'A'
-        end
-        ioc.register(:b) do |c|
-          'B'
-        end
+    it 'honors an explicitly-passed nil (does not fall back to the container)' do
+      container = ioc
+      klass = Class.new do
+        include container.inject(:db)
+        def fetch_db = db
       end
+
+      expect(klass.new(db: nil).fetch_db).to be_nil
     end
 
-    it 'includes methods to access system registers' do
-      klass = Class.new
-      klass.include ioc.methods(:b)
-      klass.include ioc.methods('methods.a' => :method_a)
+    it 'generates private readers' do
+      container = ioc
+      klass = Class.new do
+        include container.inject(:db, :logger)
+      end
 
-      instance = klass.new
-      expect(instance.b).to eq('B')
-      expect(instance.method_a).to eq('A')
+      expect(klass.private_instance_methods).to include(:db, :logger)
+      expect(klass.public_instance_methods).not_to include(:db, :logger)
+    end
+
+    it 'accumulates across separate include calls' do
+      container = ioc
+      klass = Class.new do
+        include container.inject(:db)
+        include container.inject(:logger)
+        def describe = "#{db}-#{logger}"
+      end
+
+      expect(klass.new.describe).to eq('DB-LOG')
+    end
+
+    it 'inherits the parent registry and lets a subclass add to it' do
+      container = ioc
+      base = Class.new do
+        include container.inject(:db)
+        def base_db = db
+      end
+      sub = Class.new(base) do
+        include container.inject(:logger)
+        def describe = "#{db}-#{logger}"
+      end
+
+      expect(sub.new.describe).to eq('DB-LOG')
+      expect(base.new.base_db).to eq('DB')
+    end
+
+    it 'lets a subclass override a dep by re-including from another container' do
+      container = ioc
+      other = described_class.new { |c| c.register(:db) { 'OTHERDB' } }
+      base = Class.new do
+        include container.inject(:db)
+      end
+      sub = Class.new(base) do
+        include other.inject(:db)
+        def fetch_db = db
+      end
+
+      expect(sub.new.fetch_db).to eq('OTHERDB')
+    end
+
+    it 'maps container_key => ctor_key' do
+      container = ioc
+      klass = Class.new do
+        include container.inject(cache: :store)
+        def fetch_store = store
+      end
+
+      expect(klass.new.fetch_store).to eq('CACHE')
+    end
+
+    it 'coexists with a hand-written initialize that calls super' do
+      container = ioc
+      klass = Class.new do
+        include container.inject(:db)
+        def initialize(extra:, **rest)
+          @extra = extra
+          super(**rest)
+        end
+        def describe = "#{db}/#{@extra}"
+      end
+
+      expect(klass.new(extra: 'X').describe).to eq('DB/X')
     end
   end
 end
