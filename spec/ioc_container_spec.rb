@@ -81,6 +81,137 @@ RSpec.describe Sidereal::IOCContainer do
     end
   end
 
+  describe '.attribute' do
+    it 'defines an instance reader that resolves the registered value' do
+      klass = Class.new(described_class) { attribute :store }
+      container = klass.new
+      container.register(:store) { 'DB' }
+
+      expect(container.store).to eq('DB')
+    end
+
+    it 'defines an instance writer that registers the value' do
+      klass = Class.new(described_class) { attribute :store }
+      container = klass.new
+
+      container.store = 'custom'
+      expect(container.store).to eq('custom')
+    end
+
+    it 'defines real instance methods on the class' do
+      klass = Class.new(described_class) { attribute :store }
+
+      expect(klass.instance_methods).to include(:store, :store=)
+    end
+
+    it 'is inherited by subclasses' do
+      base = Class.new(described_class) { attribute :store }
+      sub = Class.new(base)
+      container = sub.new
+
+      container.store = 'custom'
+      expect(container.store).to eq('custom')
+    end
+
+    it 'returns the class for chaining' do
+      klass = Class.new(described_class)
+      expect(klass.attribute(:store)).to be(klass)
+    end
+
+    it 'accepts a symbol or string name' do
+      klass = Class.new(described_class) { attribute 'store' }
+      container = klass.new
+
+      container.store = 'custom'
+      expect(container.store).to eq('custom')
+    end
+
+    context 'with a check' do
+      it 'validates the assigned value eagerly via the writer' do
+        klass = Class.new(described_class) { attribute :store, Sidereal::Types::Interface[:append] }
+        container = klass.new
+
+        expect { container.store = Object.new }.to raise_error(Plumb::ParseError)
+      end
+
+      it 'accepts a value that satisfies the check' do
+        klass = Class.new(described_class) { attribute :store, Sidereal::Types::Interface[:append] }
+        container = klass.new
+
+        valid = Class.new { def self.append(...) = self }
+        container.store = valid
+        expect(container.store).to eq(valid)
+      end
+
+      it 'coerces the assigned value to what the check returns' do
+        klass = Class.new(described_class) { attribute :count, Sidereal::Types::Lax::Integer }
+        container = klass.new
+
+        container.count = '42'
+        expect(container.count).to eq(42)
+      end
+    end
+
+    context 'without a check' do
+      it 'registers any value unvalidated' do
+        klass = Class.new(described_class) { attribute :anything }
+        container = klass.new
+
+        container.anything = 123
+        expect(container.anything).to eq(123)
+      end
+    end
+
+    context 'writer: false' do
+      it 'defines only a reader, no writer' do
+        klass = Class.new(described_class) { attribute :store, writer: false }
+        container = klass.new
+        container.register(:store) { 'DB' }
+
+        expect(container.store).to eq('DB')
+        expect(container).not_to respond_to(:store=)
+      end
+    end
+
+    context 'with a default block' do
+      it 'registers the block as the default value on initialize' do
+        klass = Class.new(described_class) do
+          attribute(:store) { 'DEFAULT' }
+        end
+
+        expect(klass.new.store).to eq('DEFAULT')
+      end
+
+      it 'lets the writer override the default before resolution' do
+        klass = Class.new(described_class) do
+          attribute(:store) { 'DEFAULT' }
+        end
+        container = klass.new
+
+        container.store = 'OVERRIDE'
+        expect(container.store).to eq('OVERRIDE')
+      end
+
+      it 'lets a constructor block override the default' do
+        klass = Class.new(described_class) do
+          attribute(:store) { 'DEFAULT' }
+        end
+
+        container = klass.new { |c| c.register(:store) { 'FROM_BLOCK' } }
+        expect(container.store).to eq('FROM_BLOCK')
+      end
+
+      it 'inherits attribute defaults from ancestors' do
+        base = Class.new(described_class) { attribute(:store) { 'DEFAULT' } }
+        sub = Class.new(base) { attribute(:logger) { 'LOG' } }
+
+        container = sub.new
+        expect(container.store).to eq('DEFAULT')
+        expect(container.logger).to eq('LOG')
+      end
+    end
+  end
+
   describe 'memoize: current_fiber' do
     it 'memoizes only in the context of the current fiber' do
       count = 0

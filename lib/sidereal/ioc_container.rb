@@ -132,6 +132,7 @@ module Sidereal
       @global_cache = {}
       @current_fiber_cache = CurrentFiberCache.new
       @null_cache = NullCache.new
+      register_attribute_defaults
       if block_given?
         yield self
         freeze
@@ -152,6 +153,44 @@ module Sidereal
 
     def inspect
       %(<#{self.class} [#{@definitions.keys.join(', ')}]>)
+    end
+
+    # Declare a container-backed attribute on this class: an instance reader
+    # (+name+ resolves +self[name]+) and, unless +writer: false+, a writer
+    # (+name=+ registers the value). An optional +check+ (Plumb type or any
+    # #parse object) validates/coerces the assigned value eagerly. An optional
+    # block is registered as the default for +name+ on +initialize+ (apps can
+    # still override it before boot). Returns the class.
+    #
+    #   class MyConfig < IOCContainer
+    #     attribute :store, StoreWriterInterface do
+    #       Store::Memory.instance
+    #     end
+    #   end
+    def self.attribute(name, check = nil, writer: true, &default)
+      name = name.to_sym
+      attribute_defaults[name] = default if default
+      # reader
+      define_method(name) { self[name] }
+      # writer
+      if writer
+        define_method(:"#{name}=") do |value|
+          value = check.parse(value) if check
+          register(name) { value }
+        end
+      end
+      self
+    end
+
+    # Default blocks declared via {.attribute}, keyed by name. Per-class; use
+    # {.collected_attribute_defaults} for those inherited from ancestors too.
+    def self.attribute_defaults
+      @attribute_defaults ||= {}
+    end
+
+    def self.collected_attribute_defaults
+      parent = superclass.respond_to?(:collected_attribute_defaults) ? superclass.collected_attribute_defaults : {}
+      parent.merge(attribute_defaults)
     end
 
     def register(name, memoize: :global, &block)
@@ -307,6 +346,14 @@ module Sidereal
     private
 
     attr_reader :definitions
+
+    # Register the default block for each declared attribute (own + inherited).
+    # Runs before the optional constructor block, so an app block can override.
+    def register_attribute_defaults
+      self.class.collected_attribute_defaults.each do |name, default|
+        register(name, &default)
+      end
+    end
 
     def resolve_cache(memoize)
       case memoize

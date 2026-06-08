@@ -30,40 +30,23 @@ module Sidereal
   # setter sugar (+config.store = ...+, {#use_file_system!}) as validated
   # +register+ calls. Frozen at boot by {Sidereal.new_host}.
   class Configuration < IOCContainer
-    attr_accessor :workers
+    attribute(:workers, Plumb::Types::Integer[0..]) { 25 }
 
-    def initialize(workers: 25)
-      super()                                   # no block => not frozen; overridable until boot
-      @workers = workers
-      register(:store)      { Store::Memory.instance }
-      register(:pubsub)     { PubSub::Memory.instance }
-      register(:dispatcher) { Sidereal::Dispatcher }
-      register(:elector)    { Elector::AlwaysLeader.new }
+    attribute :store, StoreWriterInterface do
+      Store::Memory.instance
     end
 
-    def store=(s)
-      validated = StoreWriterInterface.parse(s)
-      register(:store) { validated }
+    attribute :pubsub, PubsubInterface do
+      PubSub::Memory.instance
     end
-    def store = self[:store]
 
-    def pubsub=(p)
-      validated = PubsubInterface.parse(p)
-      register(:pubsub) { validated }
+    attribute :dispatcher, DispatcherInterface do
+      Sidereal::Dispatcher
     end
-    def pubsub = self[:pubsub]
 
-    def dispatcher=(d)
-      validated = DispatcherInterface.parse(d)
-      register(:dispatcher) { validated }
+    attribute :elector, ElectorInterface do
+      Elector::AlwaysLeader.new
     end
-    def dispatcher = self[:dispatcher]
-
-    def elector=(e)
-      validated = ElectorInterface.parse(e)
-      register(:elector) { validated }
-    end
-    def elector = self[:elector]
 
     # Switch the store, pubsub, and elector to the filesystem / unix-socket
     # implementations in one call — the set needed to run across multiple
