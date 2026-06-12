@@ -32,7 +32,7 @@ class Square < Sidereal::Components::BaseComponent
   # Currently-selected friendly piece. Re-submitting SelectSource with
   # the same coord toggles it off (handled server-side).
   def render_selected_source
-    command SelectSource, class: 'square-form' do |f|
+    command SelectSource, class: 'square-form', key: @coord do |f|
       f.payload_fields(game_id: @game_id, coord: @coord)
       button(
         type: :submit,
@@ -48,7 +48,7 @@ class Square < Sidereal::Components::BaseComponent
   # Friendly piece on viewer's turn but not currently selected. Clicking
   # selects it (or switches the source if another was already selected).
   def render_friendly
-    command SelectSource, class: 'square-form' do |f|
+    command SelectSource, class: 'square-form', key: @coord do |f|
       f.payload_fields(game_id: @game_id, coord: @coord)
       button(
         type: :submit,
@@ -64,7 +64,7 @@ class Square < Sidereal::Components::BaseComponent
   # Legal destination from the currently-selected source. Submitting
   # MakeMove posts a fully-formed move (server-stamped from + to).
   def render_valid_target
-    command Game::MakeMove, class: 'square-form' do |f|
+    command Game::MakeMove, class: 'square-form', key: @coord do |f|
       f.payload_fields(
         game_id: @game_id,
         from: @selected_source_coord.to_s,

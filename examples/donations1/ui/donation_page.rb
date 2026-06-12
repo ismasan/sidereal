@@ -144,7 +144,7 @@ class DonationPage < Sidereal::Page
 
         div(class: 'amount-grid') do
           AMOUNTS.each do |amount|
-            command SelectAmount, class: 'amount-form' do |f|
+            command SelectAmount, class: 'amount-form', key: amount do |f|
               f.payload_fields(amount:)
               button(type: :submit, class: 'amount-button') do
                 span(class: 'amount-button__currency') { '€' }
