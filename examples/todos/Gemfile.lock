@@ -7,7 +7,6 @@ PATH
       datastar (~> 1.0.4)
       fugit
       phlex
-      plumb (~> 0.0.17)
       rack (~> 3)
       rack-session
       sourced-message
