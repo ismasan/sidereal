@@ -77,6 +77,43 @@ RSpec.describe Sidereal::Commander do
     end
   end
 
+  describe 'subclassing (inherited hook)' do
+    it 'seeds a subclass command registry from its parent' do
+      parent = Class.new(Sidereal::Commander) do
+        command TestAddItem do |cmd|
+        end
+      end
+
+      child = Class.new(parent)
+
+      expect(child.command_registry).to have_key('test.add_item')
+      expect(child.handled_commands).to include(TestAddItem)
+    end
+
+    it 'lets a subclass add commands without mutating its parent' do
+      parent = Class.new(Sidereal::Commander) do
+        command TestAddItem do |cmd|
+        end
+      end
+
+      child = Class.new(parent) do
+        command TestSendEmail do |cmd|
+        end
+      end
+
+      expect(child.handled_commands).to include(TestAddItem, TestSendEmail)
+      expect(parent.handled_commands).to include(TestAddItem)
+      expect(parent.handled_commands).not_to include(TestSendEmail)
+    end
+
+    it 'still sets up the Schedules namespace for the subclass' do
+      parent = Class.new(Sidereal::Commander)
+      child = Class.new(parent)
+
+      expect(child.const_defined?(:Schedules, false)).to be(true)
+    end
+  end
+
   describe '.schedule (Scheduling mixin)' do
     # Heavy DSL coverage lives in spec/scheduling_spec.rb against a
     # minimal stand-in host. These tests only verify the Commander's

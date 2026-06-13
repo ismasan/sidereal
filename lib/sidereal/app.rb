@@ -75,9 +75,36 @@ module Sidereal
         end
       end
 
+      # Register one or more *additional* commanders with the app, beyond
+      # the default inline commander that {.command}/{.schedule} target.
+      # Each commander is wired into the process-global {Sidereal.registry},
+      # which routes commands to commanders by class at dispatch time.
+      #
+      # @example Register an existing commander class
+      #   commands CustomerStateMachine
+      #
+      # @example Register a subclass that extends an existing commander
+      #   commands SomeCommander do
+      #     command Extra do |cmd| ... end
+      #   end
+      #   # SomeCommander is *not* mutated; a subclass inheriting its
+      #   # command registrations (see Commander.inherited) is registered.
+      #
+      # @example Build and register a brand-new anonymous commander
+      #   commands do
+      #     command StartTrial do |cmd| ... end
+      #   end
+      #
+      # @param cmder [Class, nil] an existing commander class, or nil to
+      #   build a fresh one from the block
+      # @return [self]
       def commands(cmder = nil, &block)
-        @commander = cmder if cmder
-        @commander.class_eval(&block) if block_given?
+        if cmder.nil? && block.nil?
+          raise ArgumentError, 'commands requires a commander class or a block'
+        end
+
+        cmder = Class.new(cmder || Commander, &block) if block
+        Sidereal.register(cmder)
         self
       end
 
@@ -110,8 +137,19 @@ module Sidereal
         self
       end
 
-      def command_helpers(...)
-        commands(...)
+      # Add helper methods to the *default* inline commander (the one
+      # {.command}/{.schedule} target). Use for shared private helpers that
+      # command handlers call.
+      #
+      # @example
+      #   command_helpers do
+      #     private def repo = MyRepo.new
+      #   end
+      #
+      # @return [self]
+      def command_helpers(&block)
+        commander.class_eval(&block) if block
+        self
       end
 
       def before_command(&block)

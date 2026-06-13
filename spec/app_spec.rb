@@ -47,6 +47,103 @@ RSpec.describe 'Sidereal::App.commander' do
   end
 end
 
+RSpec.describe 'Sidereal::App.commands' do
+  # Reusable command messages for the additional-commander tests.
+  CommandsCmdA = Sidereal::Message.define('app_commands.cmd_a')
+  CommandsCmdB = Sidereal::Message.define('app_commands.cmd_b')
+  CommandsExtra = Sidereal::Message.define('app_commands.extra')
+
+  # A standalone commander class (defined outside any App), simulating a
+  # custom commander implementation a user would register.
+  class StandaloneCommander < Sidereal::Commander
+    command CommandsCmdA do |cmd|
+    end
+  end
+
+  it 'registers an existing commander class in the global registry' do
+    Class.new(Sidereal::App) { commands StandaloneCommander }
+
+    expect(Sidereal.registry[CommandsCmdA]).to eq(StandaloneCommander)
+  end
+
+  it 'builds and registers an anonymous commander from a block' do
+    app = Class.new(Sidereal::App) do
+      commands do
+        command CommandsCmdB do |cmd|
+        end
+      end
+    end
+
+    commander = Sidereal.registry[CommandsCmdB]
+    expect(commander).not_to be_nil
+    expect(commander).to be < Sidereal::Commander
+    # The default inline commander is untouched by `commands`.
+    expect(commander).not_to eq(app.commander)
+  end
+
+  it 'registers a subclass that extends a passed commander, without mutating it' do
+    Class.new(Sidereal::App) do
+      commands StandaloneCommander do
+        command CommandsExtra do |cmd|
+        end
+      end
+    end
+
+    registered = Sidereal.registry[CommandsExtra]
+    expect(registered).to be < StandaloneCommander
+    # Inherited command still routes to the same subclass.
+    expect(Sidereal.registry[CommandsCmdA]).to eq(registered)
+    # The passed class is never mutated.
+    expect(StandaloneCommander.handled_commands).not_to include(CommandsExtra)
+  end
+
+  it 'leaves the default inline commander as the target of .command' do
+    app = Class.new(Sidereal::App) do
+      commands StandaloneCommander
+      command CommandsCmdB do |cmd|
+      end
+    end
+
+    expect(Sidereal.registry[CommandsCmdB]).to eq(app.commander)
+    expect(Sidereal.registry[CommandsCmdA]).to eq(StandaloneCommander)
+  end
+
+  it 'raises DuplicateHandler when two commanders claim the same command' do
+    expect {
+      Class.new(Sidereal::App) do
+        command CommandsCmdA do |cmd|
+        end
+        commands StandaloneCommander
+      end
+    }.to raise_error(Sidereal::Registry::DuplicateHandler)
+  end
+
+  it 'raises ArgumentError when given neither a class nor a block' do
+    expect {
+      Class.new(Sidereal::App) { commands }
+    }.to raise_error(ArgumentError)
+  end
+end
+
+RSpec.describe 'Sidereal::App.command_helpers' do
+  CommandHelperCmd = Sidereal::Message.define('app_helpers.run')
+
+  it 'adds helper methods to the default inline commander' do
+    captured = []
+    app = Class.new(Sidereal::App) do
+      command CommandHelperCmd do |cmd|
+        captured << greeting
+      end
+      command_helpers do
+        private def greeting = 'hello from helper'
+      end
+    end
+
+    app.commander.handle(CommandHelperCmd.new, pubsub: Sidereal::PubSub::Memory.new)
+    expect(captured).to eq(['hello from helper'])
+  end
+end
+
 RSpec.describe 'Sidereal::App#component' do
   include Rack::Test::Methods
 

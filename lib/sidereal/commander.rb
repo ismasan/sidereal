@@ -14,6 +14,19 @@ module Sidereal
     class << self
       def commander = self
 
+      # Seed a subclass's command registry from its parent so that
+      # subclassing a Commander yields a real superset: the subclass
+      # handles everything the parent did, plus whatever it adds. Handler
+      # methods are already inherited (they're +define_method+'d), so only
+      # the type => class table needs copying. Mirrors {Router.inherited}.
+      #
+      # +super+ is required: {Scheduling} prepends a +SubclassHook#inherited+
+      # that sets up the per-subclass +Schedules+ namespace.
+      def inherited(subclass)
+        super
+        subclass.command_registry.merge!(command_registry)
+      end
+
       def command_registry
         @command_registry ||= {}
       end
