@@ -41,4 +41,31 @@ RSpec.describe Sidereal::Registry do
     expect(registry[RegistryCmdA]).to be_nil
     expect(registry[RegistryCmdB]).to be_nil
   end
+
+  describe '#commanders' do
+    it 'is empty for a fresh registry' do
+      expect(registry.commanders).to eq([])
+    end
+
+    it 'returns the distinct commander classes in first-seen order' do
+      registry[RegistryCmdA] = commander_a
+      registry[RegistryCmdB] = commander_b
+
+      expect(registry.commanders).to eq([commander_a, commander_b])
+    end
+
+    it 'de-duplicates a commander that handles more than one command' do
+      registry[RegistryCmdA] = commander_a
+      registry[RegistryCmdB] = commander_a
+
+      expect(registry.commanders).to eq([commander_a])
+    end
+
+    it 'reflects clear' do
+      registry[RegistryCmdA] = commander_a
+      registry.clear
+
+      expect(registry.commanders).to eq([])
+    end
+  end
 end

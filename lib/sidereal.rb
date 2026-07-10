@@ -16,6 +16,9 @@ module Sidereal
   # It's up to dispatcher implementations how to use the store to claim commands
   # Ex. Sourced's store has a more sophisticated claim mechanism than Sidereal::Store
   StoreWriterInterface = Types::Interface[:append]
+  # A backend integration self-applies to a Configuration via #setup(config, **opts).
+  # See Configuration#use.
+  IntegrationInterface = Types::Interface[:setup]
 
   def self.message_method_name(prefix, name)
     "__handle_#{prefix}_#{name.split('::').map(&:downcase).join('_')}"
@@ -71,6 +74,21 @@ module Sidereal
       self.store   = Store::FileSystem.new(root: File.join(dir, 'store'))
       self.pubsub  = PubSub::Unix.new(socket_path: File.join(dir, 'pubsub.sock'))
       self.elector = Elector::FileSystem.new(lock_path: File.join(dir, 'leader.lock'))
+      self
+    end
+
+    # Apply a backend integration in one call. The integration's +#setup+ wires
+    # whatever collaborators it provides (e.g. a store + dispatcher pair, plus any
+    # bridging). Like {#use_file_system!} it returns +self+ and can be called in or
+    # out of a {Sidereal.configure} block.
+    #
+    #   c.use Sidereal::Integrations::Sourced                  # reads Sourced.config.store
+    #   c.use Sidereal::Integrations::Sourced, store: sequel_db # configures Sourced too
+    #
+    # @param integration [#setup] responds to +setup(config, **opts)+
+    # @return [self]
+    def use(integration, **opts)
+      IntegrationInterface.parse(integration).setup(self, **opts)
       self
     end
   end
