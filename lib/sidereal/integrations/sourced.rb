@@ -24,7 +24,9 @@
 #
 # Under the forking Falcon environment each worker loads boot.rb in its own
 # process, so this registration (and Sourced's own store) is established fresh
-# per worker — there is nothing to re-apply across the fork.
+# per worker. The dispatcher factory also calls {Sourced.setup!} on start,
+# re-establishing connections for the current process — so a *callable* store
+# (below) stays fork-safe even if the app is preloaded in the parent.
 #
 # Require this at load time (top-level in boot.rb), then apply it with Sidereal's
 # integration hook — one call wires the store + dispatcher together:
@@ -39,11 +41,12 @@
 #     c.use Sidereal::Integrations::Sourced  # store + dispatcher + error bridge
 #   end
 #
-# Commander-only apps can let the integration configure Sourced's store too:
+# Commander-only apps can let the integration configure Sourced's store too.
+# Pass a callable factory so each forked worker opens its own connection:
 #
 #   Sidereal.configure do |c|
 #     c.use_file_system!
-#     c.use Sidereal::Integrations::Sourced, store: Sequel.sqlite('db/app.db')
+#     c.use Sidereal::Integrations::Sourced, store: -> { Sequel.sqlite('db/app.db') }
 #   end
 
 require 'sourced'
@@ -100,17 +103,37 @@ module Sidereal
     #   end
     #
     module Sourced
+      # Sidereal only ever calls #append on the store. Delegating to
+      # +::Sourced.store+ (rather than capturing it once) means a per-process
+      # reconnect — {::Sourced.setup!} re-running the store's configure block
+      # after a fork — is picked up automatically, so a forked worker appends
+      # through its own live connection.
+      module StoreProxy
+        module_function
+
+        def append(...) = ::Sourced.store.append(...)
+      end
+
       # Wire Sidereal's store + dispatcher to Sourced, and bridge Sourced's
       # retry/failure reporting to Sidereal's exception registry. Called by
       # {Sidereal::Configuration#use}.
       #
       # @param config [Sidereal::Configuration]
-      # @param store [Sequel::Database, nil] when given, configures Sourced's store;
-      #   otherwise the already-configured Sourced store is used.
+      # @param store [#call, Sequel::Database, nil] when given, configures
+      #   Sourced's store. Prefer a callable factory (e.g.
+      #   +-> { Sequel.sqlite(path) }+): it is registered as a Sourced configure
+      #   block, so {::Sourced.setup!} re-runs it to open a fresh connection per
+      #   process — fork-safe even if the app is preloaded in the parent. A bare
+      #   Sequel::Database is reused as-is (fine when each worker loads its config
+      #   fresh, but not fork-safe under preload). When nil, the already-configured
+      #   Sourced store is used.
       # @return [Sidereal::Configuration]
       def self.setup(config, store: nil)
-        ::Sourced.configure { |c| c.store = store } if store
-        config.store      = ::Sourced.store # runs Sourced setup! (default in-memory if unconfigured)
+        # A Proc is a store factory (re-run per process for fork-safety); a
+        # Sequel::Database is used as-is. (Don't use respond_to?(:call): a
+        # Sequel::Database responds to #call — prepared-statement invocation.)
+        ::Sourced.configure { |c| c.store = store.is_a?(Proc) ? store.call : store } if store
+        config.store      = StoreProxy
         config.dispatcher = Dispatcher
 
         # Report Sourced's retry / terminal-failure events to Sidereal's exception
@@ -131,6 +154,12 @@ module Sidereal
         # @param task [Async::Task]
         # @return [Sourced::Dispatcher] the running dispatcher (Host keeps it to #stop)
         def self.start(task)
+          # Re-establish Sourced's store/connections (and re-register reactors)
+          # for this — possibly just-forked — process before starting. With a
+          # callable store this opens a fresh connection per worker even when the
+          # app was preloaded in the parent; a redundant no-op reconnect when each
+          # worker already loaded its config fresh.
+          ::Sourced.setup!
           Sidereal.registry.commanders.each do |commander|
             ::Sourced.register(commander) unless ::Sourced.router.reactors.include?(commander)
           end

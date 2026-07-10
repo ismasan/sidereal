@@ -3,7 +3,6 @@
 require 'spec_helper'
 require 'sourced'
 require 'sourced/store'
-require 'sequel'
 require 'sidereal/integrations/sourced'
 
 # -- Test messages --
@@ -84,12 +83,19 @@ RSpec.describe 'Sidereal::Commander on the Sourced runtime' do
   describe 'config.use(Sidereal::Integrations::Sourced)' do
     after { Sourced.reset! }
 
-    it 'wires the store + dispatcher together in one call' do
+    it 'wires the dispatcher and a store proxy over the current Sourced store' do
       config = Sidereal::Configuration.new
       config.use(Sidereal::Integrations::Sourced, store: Sequel.sqlite)
 
-      expect(config.store).to be(Sourced.config.store)
       expect(config.dispatcher).to be(Sidereal::Integrations::Sourced::Dispatcher)
+
+      # config.store delegates #append to whatever Sourced.store is at call time,
+      # so a per-worker reconnect is picked up without re-pointing the config.
+      expect(config.store).to be(Sidereal::Integrations::Sourced::StoreProxy)
+      fake = double('sourced store')
+      allow(Sourced).to receive(:store).and_return(fake)
+      expect(fake).to receive(:append).with(:msg).and_return(:ok)
+      expect(config.store.append(:msg)).to eq(:ok)
     end
 
     it 'wires Sourced retry/fail reporting to Sidereal.exceptions' do
@@ -98,6 +104,32 @@ RSpec.describe 'Sidereal::Commander on the Sourced runtime' do
       expect(strategy).to receive(:on_fail).with(Sidereal.exceptions)
 
       Sidereal::Configuration.new.use(Sidereal::Integrations::Sourced, store: Sequel.sqlite)
+    end
+
+    it 'is fork-safe: a callable store yields a fresh connection when Sourced re-establishes' do
+      Sidereal::Configuration.new.use(
+        Sidereal::Integrations::Sourced,
+        store: -> { Sequel.sqlite }
+      )
+      store1 = Sourced.store
+
+      # Sourced.setup! re-runs the store's configure block (what the dispatcher
+      # factory does per worker) — a bare connection would be reused, a factory
+      # opens a new one.
+      Sourced.setup!
+
+      expect(Sourced.store).not_to be(store1)
+    end
+  end
+
+  describe 'Sidereal::Integrations::Sourced::Dispatcher.start' do
+    it 're-establishes connections (Sourced.setup!) before starting the Sourced runtime' do
+      task = double('task')
+      allow(Sidereal.registry).to receive(:commanders).and_return([])
+      expect(Sourced).to receive(:setup!).ordered
+      expect(Sourced::Dispatcher).to receive(:start).with(task).ordered.and_return(:running)
+
+      expect(Sidereal::Integrations::Sourced::Dispatcher.start(task)).to eq(:running)
     end
   end
 
