@@ -67,14 +67,8 @@ module Sidereal
     # @param dir [String] base directory for store files, socket, and lock
     # @return [self]
     def use_file_system!(dir: 'storage')
-      require 'sidereal/store/file_system'
-      require 'sidereal/pubsub/unix'
-      require 'sidereal/elector/file_system'
-
-      self.store   = Store::FileSystem.new(root: File.join(dir, 'store'))
-      self.pubsub  = PubSub::Unix.new(socket_path: File.join(dir, 'pubsub.sock'))
-      self.elector = Elector::FileSystem.new(lock_path: File.join(dir, 'leader.lock'))
-      self
+      require 'sidereal/integrations/file_system'
+      use(Integrations::FileSystem, dir:)
     end
 
     # Apply a backend integration in one call. The integration's +#setup+ wires
