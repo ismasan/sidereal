@@ -2,6 +2,7 @@
 
 require 'async'
 require 'console'
+require_relative 'sidereal/logging' # quiets benign SSE-disconnect task warnings
 require_relative 'sidereal/version'
 require_relative 'sidereal/types'
 require_relative 'sidereal/utils'
