@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require 'etc'
 require 'falcon/environment/server'
 require 'falcon/environment/rackup'
 require 'falcon/service/server'
@@ -35,7 +36,14 @@ module Sidereal
       #
       class Service < ::Falcon::Service::Server
         def run(instance, evaluator)
+          # make_server loads the rackup app (config.ru → boot.rb), which runs
+          # Sidereal.configure — so the config is populated by the time we check.
           server = evaluator.make_server(@bound_endpoint)
+
+          # Fail fast: refuse to boot in-process-only subsystems across forked
+          # workers (their in-memory state isn't shared, so SSE fan-out would
+          # silently fail). Logs a loud error and exits before serving anything.
+          Sidereal.check_topology!(worker_count(evaluator))
 
           @sidereal_host = Sidereal.new_host
 
@@ -47,6 +55,20 @@ module Sidereal
           end
 
           server
+        end
+
+        # Number of forked worker processes Falcon runs for this service.
+        # Falcon's managed environment returns +nil+ from +count+ to mean "one
+        # per processor" (+Etc.nprocessors+); resolve that so the topology check
+        # sees the real fork count. Defensive: any failure falls back to 1.
+        #
+        # @param evaluator [Object] the Falcon environment evaluator
+        # @return [Integer]
+        private def worker_count(evaluator)
+          count = evaluator.respond_to?(:count) ? evaluator.count : 1
+          (count || Etc.nprocessors).to_i
+        rescue StandardError
+          1
         end
 
         def stop(...)

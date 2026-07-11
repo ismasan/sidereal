@@ -1,11 +1,13 @@
 # frozen_string_literal: true
 
 require 'singleton'
+require 'sidereal/single_process'
 
 module Sidereal
   module Store
     class Memory
       include Singleton
+      include SingleProcess
 
       public_class_method :new
 

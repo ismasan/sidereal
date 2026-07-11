@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require 'sidereal/single_process'
+
 module Sidereal
   # Leader election. Modules that should run only on a single elected
   # process per host (or cluster, eventually) inject an Elector and react
@@ -74,6 +76,7 @@ module Sidereal
     # Memory pubsub default).
     class AlwaysLeader
       include Callbacks
+      include SingleProcess
 
       def initialize
         @leader = true

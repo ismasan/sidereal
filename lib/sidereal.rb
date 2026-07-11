@@ -1,9 +1,11 @@
 # frozen_string_literal: true
 
 require 'async'
+require 'console'
 require_relative 'sidereal/version'
 require_relative 'sidereal/types'
 require_relative 'sidereal/utils'
+require 'sidereal/single_process'
 
 module Sidereal
   class Error < StandardError; end
@@ -85,6 +87,19 @@ module Sidereal
       IntegrationInterface.parse(integration).setup(self, **opts)
       self
     end
+
+    # Labels of the configured subsystems whose state lives entirely within one
+    # process (they carry the {SingleProcess} marker). These break cross-process
+    # fan-out under a forking host, so the list drives the multi-process startup
+    # warning ({Sidereal.warn_unsafe_topology}). Empty once every subsystem is
+    # cross-process safe — e.g. after {#use_file_system!}.
+    #
+    # @return [Array<String>] e.g. +["pubsub", "elector"]+
+    def single_process_subsystems
+      { 'store' => @store, 'pubsub' => @pubsub, 'elector' => @elector }
+        .select { |_, impl| impl.is_a?(SingleProcess) }
+        .keys
+    end
   end
 
   def self.config
@@ -154,6 +169,50 @@ module Sidereal
   def self.store = config.store
   def self.dispatcher = config.dispatcher
   def self.elector = config.elector
+
+  # Fail fast at startup when in-process-only subsystems are configured in a
+  # multi-process (forked-worker) deployment, where their in-memory state isn't
+  # shared and cross-process SSE fan-out silently breaks. Logs a loud,
+  # multi-line error and terminates the process — refusing to boot into a
+  # broken topology is safer than serving requests that appear to work but
+  # never propagate updates across workers.
+  #
+  # A no-op for a single worker or once every subsystem is cross-process safe
+  # (e.g. after {Configuration#use_file_system!}). Hosts that fork (the Falcon
+  # environment) call this with their worker-process count; single-process
+  # hosts needn't.
+  #
+  # @param process_count [Integer] number of forked worker processes
+  # @param config [Configuration] the configuration to inspect (defaults to the
+  #   process-global {.config}; injected in tests)
+  # @return [void] returns only when the topology is safe; otherwise exits
+  def self.check_topology!(process_count, config: self.config)
+    return if process_count.to_i <= 1
+
+    subsystems = config.single_process_subsystems
+    return if subsystems.empty?
+
+    verb = subsystems.one? ? 'is' : 'are'
+    Console.error(self, <<~MSG.chomp, subsystems: subsystems, process_count: process_count)
+      Refusing to boot: in-process-only subsystem(s) in a multi-process deployment.
+
+      This host is starting #{process_count} worker processes, but these subsystems
+      keep their state in memory within a single process:
+
+          #{subsystems.join(', ')} #{verb} in-process-only
+
+      Across forked workers this silently breaks the app:
+        - SSE updates published in one worker never reach browsers on another worker.
+        - Every worker believes it is the leader, so background/scheduled work double-runs.
+
+      Fix (pick one):
+        - For single-node, multi-process: call `config.use_file_system!` in your `Sidereal.configure` block, BEFORE any
+          `use <backend>` — switches to the unix-socket pubsub + file-lock elector.
+        - Or run a single worker process (e.g. `count 1` in falcon.rb).
+    MSG
+
+    exit(1)
+  end
 
   # Build a {Host} wired to the process-global collaborators from
   # {.config} (plus the {.channels} / {.exceptions} registries). Call
