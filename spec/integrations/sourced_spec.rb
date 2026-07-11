@@ -266,13 +266,7 @@ RSpec.describe 'Sidereal::Commander on the Sourced runtime' do
     before { Sidereal.reset_channels! }
     after  { Sidereal.reset_channels! }
 
-    it 'defines a Projected signal from a single partition key' do
-      expect(IntgThingProjector.const_defined?(:Projected, false)).to be true
-
-      evt = IntgThingProjector::Projected.new(payload: { thing_id: 't1' })
-      expect(evt.payload.thing_id).to eq('t1')
-    end
-
+    # Auto-defines MyProjector::Projected (single key) and publishes it end-to-end.
     it 'publishes the Projected signal on the resolved channel after a batch' do
       Sidereal.channels.channel_name(IntgThingProjector::Projected) { |m| "things.#{m.payload.thing_id}" }
 
@@ -288,12 +282,9 @@ RSpec.describe 'Sidereal::Commander on the Sourced runtime' do
     end
 
     it 'carries every key for a multi-key partition (partition_values, not read-model state)' do
-      # The projector's evolve only writes student_id into state — the signal
-      # still carries BOTH keys, proving the payload comes from partition_values.
-      expect(IntgEnrollmentProjector.const_defined?(:Projected, false)).to be true
-      schema_evt = IntgEnrollmentProjector::Projected.new(payload: { student_id: 's1', course_id: 'c1' })
-      expect(schema_evt.payload.to_h).to include(student_id: 's1', course_id: 'c1')
-
+      # The projector's evolve only writes student_id into state — the published
+      # signal still carries BOTH keys, proving the payload comes from
+      # partition_values rather than read-model state.
       Sidereal.channels.channel_name(IntgEnrollmentProjector::Projected) do |m|
         "enroll.#{m.payload.student_id}.#{m.payload.course_id}"
       end

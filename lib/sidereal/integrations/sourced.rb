@@ -81,14 +81,10 @@ module Sidereal
       end
 
       # Publish the handled command and its dispatched events to Sidereal's
-      # pubsub. Mirrors Sidereal::Dispatcher#publish; runs post-commit via an
-      # :after_sync signal so nothing publishes if the append/delete rolls back.
+      # pubsub. Runs post-commit via an :after_sync signal so nothing publishes
+      # if the append/delete rolls back.
       def publish_result(result)
-        pubsub = Sidereal.config.pubsub
-        pubsub.publish(Sidereal.channels.for(result.msg), result.msg)
-        result.events.each { |evt| pubsub.publish(Sidereal.channels.for(evt), evt) }
-      rescue StandardError => ex
-        Sidereal.exceptions.report_fatal(exception: ex)
+        Integrations::Sourced.publish_messages([result.msg, *result.events])
       end
     end
   end
@@ -103,6 +99,18 @@ module Sidereal
     #   end
     #
     module Sourced
+      # Publish each message to Sidereal's pubsub on its resolved channel. The
+      # single publish body shared by every Sourced→Sidereal path (Commander
+      # action-signal, Decider/Projector after_sync). Publish/resolver failures
+      # are terminal here — the store transaction has already committed, so a
+      # retry would double-apply — hence they funnel to +report_fatal+ rather
+      # than raising into the worker fiber.
+      def self.publish_messages(messages)
+        messages.each { |msg| Sidereal.pubsub.publish(Sidereal.channels.for(msg), msg) }
+      rescue StandardError => ex
+        Sidereal.exceptions.report_fatal(exception: ex)
+      end
+
       # Sidereal only ever calls #append on the store. Delegating to
       # +::Sourced.store+ (rather than capturing it once) means a per-process
       # reconnect — {::Sourced.setup!} re-running the store's configure block
@@ -200,12 +208,9 @@ module Sidereal
 
           after_sync do |**|
             vals = partition_values # instance accessor: the full claimed tuple
-            next if vals.empty? || vals.values.any?(&:nil?)
+            next if vals.empty? || vals.each_value.any?(&:nil?)
 
-            evt = signal.new(payload: vals)
-            Sidereal.pubsub.publish(Sidereal.channels.for(evt), evt)
-          rescue StandardError => ex
-            Sidereal.exceptions.report_fatal(exception: ex)
+            Sidereal::Integrations::Sourced.publish_messages([signal.new(payload: vals)])
           end
         end
       end
@@ -217,11 +222,9 @@ end
 
 # Deciders: publish the domain events they emitted. Copied into every app decider
 # via +Sync::ClassMethods#inherited+ (registered here, before subclasses exist).
-# The reaction branch passes +events: []+ → no-op. Mirrors Commander#publish_result.
+# The reaction branch passes +events: []+ → no-op.
 ::Sourced::Decider.after_sync do |events: [], **|
-  events.each { |evt| Sidereal.pubsub.publish(Sidereal.channels.for(evt), evt) }
-rescue StandardError => ex
-  Sidereal.exceptions.report_fatal(exception: ex)
+  Sidereal::Integrations::Sourced.publish_messages(events)
 end
 
 # Projectors: auto-generate + publish a "projected" signal from partition_by.
