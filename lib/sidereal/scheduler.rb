@@ -310,7 +310,13 @@ module Sidereal
     def spawn_tick_fiber(task)
       return if @tick_fiber
 
-      @tick_fiber = task.async do
+      # Transient, like the elector's election fiber and the pubsub's
+      # client fiber: an infinite-loop child must not keep the parent
+      # task alive, or the process can't shut down — and on the FS
+      # backend a lingering process holds the leader flock, blocking
+      # the next boot's election. It dies with the task like the other
+      # subsystem fibers (see Host#start).
+      @tick_fiber = task.async(transient: true) do
         loop do
           tick
           sleep @tick_interval

@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'spec_helper'
+require 'timeout'
 
 # Test message classes used by the step-based Scheduler tests below.
 TestSchedFirst  = Sidereal::Message.define('test.sched_first')
@@ -383,6 +384,38 @@ RSpec.describe Sidereal::Scheduler do
       end
 
       expect(store.appended.count { |m| m.is_a?(TestSchedRun) }).to be >= 1
+    end
+
+    it 'spawns the tick fiber as a transient child that does not block task teardown' do
+      # Regression: a non-transient tick fiber keeps its parent task alive, so
+      # the process never shuts down — and on the FileSystem backend a lingering
+      # process holds the leader flock, blocking the next boot's election. Here
+      # we start the scheduler under a leader (so the tick fiber is spawned and
+      # looping) and then let the Sync block reach its end WITHOUT calling
+      # task.stop. With a transient tick fiber the block tears down promptly; a
+      # non-transient one would hang until Timeout fires the failure.
+      elector = Class.new do
+        include Sidereal::Elector::Callbacks
+        def initialize = @leader = true
+        def leader? = @leader
+        def start(_task) = self
+      end.new
+
+      sched = described_class.new(tick_interval: 0.02, store: store, elector: elector)
+      sched.schedule('Tick') { |sc| sc.at '* * * * * *', TestSchedRun, n: 1 }
+
+      # A transient tick fiber lets the Sync block tear down on its own; a
+      # non-transient one keeps the task alive forever, so Timeout fires and
+      # this raises. The assertion is "teardown completed without timing out".
+      expect do
+        Timeout.timeout(5) do
+          Sync do |task|
+            sched.start(task) # leader? == true -> tick fiber spawns immediately
+            sleep 0.1         # let it loop a few times
+            # no task.stop: only the transient tick fiber remains as a child
+          end
+        end
+      end.not_to raise_error
     end
   end
 
