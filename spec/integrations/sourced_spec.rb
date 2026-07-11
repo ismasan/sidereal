@@ -3,6 +3,7 @@
 require 'spec_helper'
 require 'sourced'
 require 'sourced/store'
+require 'sourced/testing/rspec'
 require 'sidereal/integrations/sourced'
 
 # -- Test messages --
@@ -51,6 +52,70 @@ class IntgFakePubSub
   def publish(channel, message)
     @published << { channel: channel, message: message }
     self
+  end
+end
+
+# -- Test Sourced reactors (Decider + Projectors) exercising the integration's
+#    auto-publish hooks. Defined after `require 'sidereal/integrations/sourced'`,
+#    so the Decider inherits the injected after_sync and the Projectors trigger
+#    the partition_by signal-generation hook. --
+
+class IntgWidget < Sourced::Decider
+  consumer_group 'intg_widget'
+  partition_by :widget_id
+
+  Create  = Sourced::Command.define('intg_widget.create') { attribute :widget_id, Sourced::Types::String }
+  Created = Sourced::Event.define('intg_widget.created')  { attribute :widget_id, Sourced::Types::String }
+
+  state do |init|
+    { widget_id: init[:widget_id], created: false }
+  end
+
+  evolve(Created) do |state, _evt|
+    state[:created] = true
+  end
+
+  command(Create) do |_state, cmd|
+    event Created, widget_id: cmd.payload.widget_id
+  end
+end
+
+IntgThingHappenedEvt = Sourced::Event.define('intg.thing_happened_evt') do
+  attribute :thing_id, Sourced::Types::String
+end
+
+# Single partition key.
+class IntgThingProjector < Sourced::Projector::StateStored
+  consumer_group 'intg_thing_projector'
+  partition_by :thing_id
+
+  state do |values|
+    { thing_id: values[:thing_id] }
+  end
+
+  evolve(IntgThingHappenedEvt) do |state, evt|
+    state[:thing_id] = evt.payload.thing_id
+  end
+end
+
+IntgEnrolledEvt = Sourced::Event.define('intg.enrolled') do
+  attribute :student_id, Sourced::Types::String
+  attribute :course_id, Sourced::Types::String
+end
+
+# Multiple partition keys (student_id + course_id).
+class IntgEnrollmentProjector < Sourced::Projector::StateStored
+  consumer_group 'intg_enrollment_projector'
+  partition_by :student_id, :course_id
+
+  # Deliberately keeps course_id OUT of state — the Projected signal must
+  # still carry it (sourced from partition_values, not read-model state).
+  state do |values|
+    { student_id: values[:student_id] }
+  end
+
+  evolve(IntgEnrolledEvt) do |state, evt|
+    state[:student_id] = evt.payload.student_id
   end
 end
 
@@ -167,5 +232,80 @@ RSpec.describe 'Sidereal::Commander on the Sourced runtime' do
     expect(db[:sourced_messages].where(message_type: 'intg.schedule_thing').count).to eq(0)
     expect(db[:sourced_messages].where(message_type: 'intg.do_next').count).to eq(0) # not appended yet
     expect(db[:sourced_scheduled_messages].count).to eq(1)                            # scheduled instead
+  end
+
+  # -- Auto-publish injected by the Sourced integration --
+
+  describe 'Sourced::Decider auto-publishes emitted events' do
+    include Sourced::Testing::RSpec
+
+    # Register resolvers on the global channels registry; reset around each
+    # example so nothing leaks (and so a booted Host's lock never bites here).
+    before { Sidereal.reset_channels! }
+    after  { Sidereal.reset_channels! }
+
+    it 'publishes each emitted event via Sidereal.channels.for — with no manual after_sync' do
+      Sidereal.channels.channel_name(IntgWidget::Created) { |m| "widgets.#{m.payload.widget_id}" }
+
+      # .then! (no block) runs Sync/AfterSync exactly once.
+      with_reactor(IntgWidget, widget_id: 'w1')
+        .when(IntgWidget::Create, widget_id: 'w1')
+        .then!(IntgWidget::Created, widget_id: 'w1')
+
+      expect(pubsub.published.size).to eq(1)
+      entry = pubsub.published.first
+      expect(entry[:channel]).to eq('widgets.w1')
+      expect(entry[:message]).to be_a(IntgWidget::Created)
+      expect(entry[:message].payload.widget_id).to eq('w1')
+    end
+  end
+
+  describe 'Sourced::Projector auto-generates + publishes a Projected signal' do
+    include Sourced::Testing::RSpec
+
+    before { Sidereal.reset_channels! }
+    after  { Sidereal.reset_channels! }
+
+    it 'defines a Projected signal from a single partition key' do
+      expect(IntgThingProjector.const_defined?(:Projected, false)).to be true
+
+      evt = IntgThingProjector::Projected.new(payload: { thing_id: 't1' })
+      expect(evt.payload.thing_id).to eq('t1')
+    end
+
+    it 'publishes the Projected signal on the resolved channel after a batch' do
+      Sidereal.channels.channel_name(IntgThingProjector::Projected) { |m| "things.#{m.payload.thing_id}" }
+
+      with_reactor(IntgThingProjector, thing_id: 't1')
+        .when(IntgThingHappenedEvt, thing_id: 't1')
+        .then!([])
+
+      expect(pubsub.published.size).to eq(1)
+      entry = pubsub.published.first
+      expect(entry[:channel]).to eq('things.t1')
+      expect(entry[:message]).to be_a(IntgThingProjector::Projected)
+      expect(entry[:message].payload.thing_id).to eq('t1')
+    end
+
+    it 'carries every key for a multi-key partition (partition_values, not read-model state)' do
+      # The projector's evolve only writes student_id into state — the signal
+      # still carries BOTH keys, proving the payload comes from partition_values.
+      expect(IntgEnrollmentProjector.const_defined?(:Projected, false)).to be true
+      schema_evt = IntgEnrollmentProjector::Projected.new(payload: { student_id: 's1', course_id: 'c1' })
+      expect(schema_evt.payload.to_h).to include(student_id: 's1', course_id: 'c1')
+
+      Sidereal.channels.channel_name(IntgEnrollmentProjector::Projected) do |m|
+        "enroll.#{m.payload.student_id}.#{m.payload.course_id}"
+      end
+
+      with_reactor(IntgEnrollmentProjector, student_id: 's1', course_id: 'c1')
+        .when(IntgEnrolledEvt, student_id: 's1', course_id: 'c1')
+        .then!([])
+
+      expect(pubsub.published.size).to eq(1)
+      entry = pubsub.published.first
+      expect(entry[:channel]).to eq('enroll.s1.c1')
+      expect(entry[:message].payload.to_h).to include(student_id: 's1', course_id: 'c1')
+    end
   end
 end

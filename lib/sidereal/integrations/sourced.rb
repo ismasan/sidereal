@@ -166,6 +166,63 @@ module Sidereal
           ::Sourced::Dispatcher.start(task)
         end
       end
+
+      # Auto-generate a "projected" signal event for every Sourced Projector and
+      # publish it after each committed batch — so Pages re-fetch the read model
+      # without the projector hand-writing an event class, an +after_sync+ block,
+      # or a channel string.
+      #
+      # Prepended onto +Sourced::Projector.singleton_class+, so it wraps the
+      # +partition_by+ macro for the base +StateStored+/+EventSourced+ classes and
+      # every subclass (singleton-class inheritance resolves the prepend live, even
+      # though those subclasses were defined before this integration loaded).
+      #
+      # The signal carries one attribute per partition key (any arity — e.g.
+      # +partition_by(:student_id, :course_id)+ yields a two-attribute signal), and
+      # its payload comes from the projector instance's +partition_values+ (the full
+      # claimed tuple), so the app's +channel_name+ resolver routes it exactly like
+      # the domain events it partitions by.
+      module ProjectorSignals
+        def partition_by(*keys)
+          super
+          __define_projection_signal(partition_keys)
+        end
+
+        # @param keys [Array<Symbol>] resolved partition keys (set by +super+)
+        def __define_projection_signal(keys)
+          return if keys.empty? || const_defined?(:Projected, false)
+
+          type = "#{Sidereal::Utils.snake_case(name)}.projected" # e.g. "campaigns_projector.projected"
+          signal = ::Sourced::Event.define(type) do
+            keys.each { |k| attribute k, ::Sourced::Types::Any }
+          end
+          const_set(:Projected, signal) # Pages reference MyProjector::Projected
+
+          after_sync do |**|
+            vals = partition_values # instance accessor: the full claimed tuple
+            next if vals.empty? || vals.values.any?(&:nil?)
+
+            evt = signal.new(payload: vals)
+            Sidereal.pubsub.publish(Sidereal.channels.for(evt), evt)
+          rescue StandardError => ex
+            Sidereal.exceptions.report_fatal(exception: ex)
+          end
+        end
+      end
     end
   end
 end
+
+# --- Auto-publish wiring (runs at require time, before domain reactors load) ---
+
+# Deciders: publish the domain events they emitted. Copied into every app decider
+# via +Sync::ClassMethods#inherited+ (registered here, before subclasses exist).
+# The reaction branch passes +events: []+ → no-op. Mirrors Commander#publish_result.
+::Sourced::Decider.after_sync do |events: [], **|
+  events.each { |evt| Sidereal.pubsub.publish(Sidereal.channels.for(evt), evt) }
+rescue StandardError => ex
+  Sidereal.exceptions.report_fatal(exception: ex)
+end
+
+# Projectors: auto-generate + publish a "projected" signal from partition_by.
+::Sourced::Projector.singleton_class.prepend(Sidereal::Integrations::Sourced::ProjectorSignals)
