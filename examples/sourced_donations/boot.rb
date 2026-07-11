@@ -32,9 +32,11 @@ unless ENV['TEST']
     # ./storage), so SSE updates fan out to subscribers on every worker via
     # one elected broker — required for count > 1.
     c.use_file_system!
-    # ...but keep Sourced's SQLite store + dispatcher, not the FS store.
-    c.store      = Sourced.config.store
-    c.dispatcher = Sourced::Dispatcher
+    # ...but keep Sourced's SQLite store + dispatcher, not the FS store. One call
+    # wires both (+ the error bridge). Sourced is already configured above, so no
+    # `store:` arg. The dispatcher also auto-registers any Sidereal Commanders
+    # with Sourced before starting the runtime (none in this demo yet).
+    c.use Sidereal::Integrations::Sourced
   end
 end
 
