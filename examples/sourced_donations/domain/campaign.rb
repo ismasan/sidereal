@@ -72,12 +72,4 @@ class Campaign < Sourced::Decider
 
     event CampaignClosed, campaign_id: cmd.payload.campaign_id
   end
-
-  # ---- Bridge to Sidereal SSE ----
-
-  after_sync do |state:, events:, **|
-    events.each do |evt|
-      Sidereal.pubsub.publish(Sidereal.channels.for(evt), evt)
-    end
-  end
 end

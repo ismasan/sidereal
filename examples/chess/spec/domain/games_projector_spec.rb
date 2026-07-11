@@ -143,17 +143,26 @@ RSpec.describe GamesProjector do
     end
   end
 
-  describe 'after_sync — pubsub' do
-    it 'publishes a GameProjected event on the per-game channel' do
+  describe 'auto-published Projected signal' do
+    # boot.rb doesn't load app.rb (where the resolver lives), so register the
+    # per-game channel here to assert the auto-injected after_sync routes
+    # through Sidereal.channels.for.
+    before do
+      Sidereal.channels.channel_name(GamesProjector::Projected) { |m| "games.#{m.payload.game_id}" }
+    end
+
+    it 'publishes a Projected signal on the per-game channel after each batch' do
       expect(Sidereal.pubsub).to receive(:publish) do |channel, evt|
         expect(channel).to eq("games.#{game_id}")
-        expect(evt).to be_a(GamesProjector::GameProjected)
+        expect(evt).to be_a(GamesProjector::Projected)
         expect(evt.payload.game_id).to eq(game_id)
       end
 
+      # No-block form runs Sync/AfterSync exactly once (the block form of
+      # `.then!` re-runs them via compute_state, double-firing the publish).
       with_reactor(GamesProjector, game_id:)
         .given(Game::GameCreated, game_id:, white_username: white, initial_fen: ChessEngine::INITIAL_FEN)
-        .then! { |_| }
+        .then!([])
     end
   end
 

@@ -52,18 +52,9 @@ class GamesProjector < Sourced::Projector::StateStored
     Sourced.store.db[:games].insert_conflict(:replace).insert(state)
   end
 
-  # Synthetic event published after each upsert so HomePage subscribers
-  # never read stale rows from the lobby table.
-  GameProjected = Sourced::Event.define('chess.games.projected') do
-    attribute :game_id, Sourced::Types::UUID::V4
-  end
-
-  after_sync do |state:, **|
-    next unless state[:game_id]
-
-    evt = GameProjected.new(payload: { game_id: state[:game_id] })
-    Sidereal.pubsub.publish("games.#{state[:game_id]}", evt)
-  end
+  # A `Projected` signal (attribute: game_id) is auto-generated from
+  # `partition_by` and published after each committed batch by
+  # Sidereal::Integrations::Sourced — routed via Sidereal.channels.for.
 
   def self.on_reset
     Sourced.store.db[:games].delete

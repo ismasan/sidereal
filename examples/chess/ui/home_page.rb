@@ -7,8 +7,8 @@ class HomePage < Sidereal::Page
   path '/'
 
   # Re-render the lobby whenever any game projector commits — that's the
-  # synthetic event the GamesProjector publishes after each upsert.
-  on GamesProjector::GameProjected do |_evt|
+  # synthetic Projected signal the GamesProjector auto-publishes after each upsert.
+  on GamesProjector::Projected do |_evt|
     browser.patch_elements load(params)
   end
 
@@ -28,7 +28,7 @@ class HomePage < Sidereal::Page
   end
 
   # Glob subscription: catches every game's events (per-game channels are
-  # named `games.<id>`) plus the synthetic GameProjected. Sidereal page
+  # named `games.<id>`) plus the synthetic Projected signal. Sidereal page
   # reactions only fire on declared `on` events, so the glob is safe.
   def channel_name = 'games.>'
 

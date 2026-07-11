@@ -209,14 +209,4 @@ class Game < Sourced::Decider
     return 'black' if username == state.black_username
     nil
   end
-
-  # ---- Bridge to Sidereal SSE ----
-
-  after_sync do |state:, events:, **|
-    events.each do |evt|
-      ch = Sidereal.channels.for(evt)
-      Console.info("[chess] publishing #{evt.type} → #{ch}")
-      Sidereal.pubsub.publish(ch, evt)
-    end
-  end
 end

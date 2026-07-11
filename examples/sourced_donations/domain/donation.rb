@@ -331,12 +331,4 @@ class Donation < Sourced::Decider
       campaign_id: evt.payload.campaign_id,
       payment_reference:
   end
-
-  # ---- Bridge to Sidereal SSE ----
-
-  after_sync do |state:, events:, **|
-    events.each do |evt|
-      Sidereal.pubsub.publish(Sidereal.channels.for(evt), evt)
-    end
-  end
 end
