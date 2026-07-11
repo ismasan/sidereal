@@ -1,9 +1,12 @@
 # frozen_string_literal: true
 
 require 'async'
+require 'console'
+require_relative 'sidereal/logging' # quiets benign SSE-disconnect task warnings
 require_relative 'sidereal/version'
 require_relative 'sidereal/types'
 require_relative 'sidereal/utils'
+require 'sidereal/single_process'
 
 module Sidereal
   class Error < StandardError; end
@@ -16,6 +19,9 @@ module Sidereal
   # It's up to dispatcher implementations how to use the store to claim commands
   # Ex. Sourced's store has a more sophisticated claim mechanism than Sidereal::Store
   StoreWriterInterface = Types::Interface[:append]
+  # A backend integration self-applies to a Configuration via #setup(config, **opts).
+  # See Configuration#use.
+  IntegrationInterface = Types::Interface[:setup]
 
   def self.message_method_name(prefix, name)
     "__handle_#{prefix}_#{name.split('::').map(&:downcase).join('_')}"
@@ -64,14 +70,36 @@ module Sidereal
     # @param dir [String] base directory for store files, socket, and lock
     # @return [self]
     def use_file_system!(dir: 'storage')
-      require 'sidereal/store/file_system'
-      require 'sidereal/pubsub/unix'
-      require 'sidereal/elector/file_system'
+      require 'sidereal/integrations/file_system'
+      use(Integrations::FileSystem, dir:)
+    end
 
-      self.store   = Store::FileSystem.new(root: File.join(dir, 'store'))
-      self.pubsub  = PubSub::Unix.new(socket_path: File.join(dir, 'pubsub.sock'))
-      self.elector = Elector::FileSystem.new(lock_path: File.join(dir, 'leader.lock'))
+    # Apply a backend integration in one call. The integration's +#setup+ wires
+    # whatever collaborators it provides (e.g. a store + dispatcher pair, plus any
+    # bridging). Like {#use_file_system!} it returns +self+ and can be called in or
+    # out of a {Sidereal.configure} block.
+    #
+    #   c.use Sidereal::Integrations::Sourced                  # reads Sourced.config.store
+    #   c.use Sidereal::Integrations::Sourced, store: sequel_db # configures Sourced too
+    #
+    # @param integration [#setup] responds to +setup(config, **opts)+
+    # @return [self]
+    def use(integration, **opts)
+      IntegrationInterface.parse(integration).setup(self, **opts)
       self
+    end
+
+    # Labels of the configured subsystems whose state lives entirely within one
+    # process (they carry the {SingleProcess} marker). These break cross-process
+    # fan-out under a forking host, so the list drives the multi-process startup
+    # warning ({Sidereal.warn_unsafe_topology}). Empty once every subsystem is
+    # cross-process safe — e.g. after {#use_file_system!}.
+    #
+    # @return [Array<String>] e.g. +["pubsub", "elector"]+
+    def single_process_subsystems
+      { 'store' => @store, 'pubsub' => @pubsub, 'elector' => @elector }
+        .select { |_, impl| impl.is_a?(SingleProcess) }
+        .keys
     end
   end
 
@@ -142,6 +170,50 @@ module Sidereal
   def self.store = config.store
   def self.dispatcher = config.dispatcher
   def self.elector = config.elector
+
+  # Fail fast at startup when in-process-only subsystems are configured in a
+  # multi-process (forked-worker) deployment, where their in-memory state isn't
+  # shared and cross-process SSE fan-out silently breaks. Logs a loud,
+  # multi-line error and terminates the process — refusing to boot into a
+  # broken topology is safer than serving requests that appear to work but
+  # never propagate updates across workers.
+  #
+  # A no-op for a single worker or once every subsystem is cross-process safe
+  # (e.g. after {Configuration#use_file_system!}). Hosts that fork (the Falcon
+  # environment) call this with their worker-process count; single-process
+  # hosts needn't.
+  #
+  # @param process_count [Integer] number of forked worker processes
+  # @param config [Configuration] the configuration to inspect (defaults to the
+  #   process-global {.config}; injected in tests)
+  # @return [void] returns only when the topology is safe; otherwise exits
+  def self.check_topology!(process_count, config: self.config)
+    return if process_count.to_i <= 1
+
+    subsystems = config.single_process_subsystems
+    return if subsystems.empty?
+
+    verb = subsystems.one? ? 'is' : 'are'
+    Console.error(self, <<~MSG.chomp, subsystems: subsystems, process_count: process_count)
+      Refusing to boot: in-process-only subsystem(s) in a multi-process deployment.
+
+      This host is starting #{process_count} worker processes, but these subsystems
+      keep their state in memory within a single process:
+
+          #{subsystems.join(', ')} #{verb} in-process-only
+
+      Across forked workers this silently breaks the app:
+        - SSE updates published in one worker never reach browsers on another worker.
+        - Every worker believes it is the leader, so background/scheduled work double-runs.
+
+      Fix (pick one):
+        - For single-node, multi-process: call `config.use_file_system!` in your `Sidereal.configure` block, BEFORE any
+          `use <backend>` — switches to the unix-socket pubsub + file-lock elector.
+        - Or run a single worker process (e.g. `count 1` in falcon.rb).
+    MSG
+
+    exit(1)
+  end
 
   # Build a {Host} wired to the process-global collaborators from
   # {.config} (plus the {.channels} / {.exceptions} registries). Call

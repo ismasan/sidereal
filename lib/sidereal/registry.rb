@@ -23,6 +23,10 @@ module Sidereal
 
     def [](cmd_class) = @table[cmd_class]
 
+    # The distinct commander classes registered, in first-seen order.
+    # @return [Array<Class>]
+    def commanders = @table.values.uniq
+
     def clear
       @table.clear
       self

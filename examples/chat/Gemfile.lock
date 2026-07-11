@@ -1,3 +1,15 @@
+GIT
+  remote: https://github.com/ismasan/sourced.git
+  revision: 4075bf0d5e12f956fd141df294ca53c39a7d7c68
+  branch: ccc
+  specs:
+    sourced (0.0.1)
+      async
+      plumb (>= 0.0.17)
+      sequel
+      sourced-message
+      sqlite3
+
 PATH
   remote: ../..
   specs:
@@ -7,7 +19,6 @@ PATH
       datastar (~> 1.0.4)
       fugit
       phlex
-      plumb (~> 0.0.17)
       rack (~> 3)
       rack-session
       sourced-message
@@ -167,9 +178,12 @@ GEM
     samovar (2.4.1)
       console (~> 1.0)
       mapping (~> 1.0)
+    sequel (5.106.0)
+      bigdecimal
     sourced-message (0.1.0)
       fugit
       plumb (>= 0.0.17)
+    sqlite3 (2.9.5-arm64-darwin)
     string-format (0.2.0)
     stringio (3.2.0)
     traces (0.18.2)
@@ -181,7 +195,6 @@ GEM
 
 PLATFORMS
   arm64-darwin-24
-  ruby
 
 DEPENDENCIES
   dotenv (~> 3.2)
@@ -190,6 +203,7 @@ DEPENDENCIES
   kramdown
   ruby_llm (~> 1.14)
   sidereal!
+  sourced!
 
 CHECKSUMS
   async (2.38.1) sha256=72ba6b7de04d852355458bfe891221226bb7d29f055f5cb043ae3345497f8cec
@@ -256,8 +270,11 @@ CHECKSUMS
   ruby_llm (1.14.0) sha256=57c6f7034fc4a44504ea137d70f853b07824f1c1cdbe774ab3ab3522e7098deb
   ruby_llm-schema (0.3.0) sha256=a591edc5ca1b7f0304f0e2261de61ba4b3bea17be09f5cf7558153adfda3dec6
   samovar (2.4.1) sha256=c3b91dd0580771e3bc600621c1111f29542529dcffafaac3b6bf068b3f309e80
+  sequel (5.106.0) sha256=0e6677f230e724ecbc9b4d5fc95ef9a69997cfb24c60fff84268185e0bb254cd
   sidereal (0.1.0)
+  sourced (0.0.1)
   sourced-message (0.1.0) sha256=e86f0e7c0e387d02c5811d2968dc48cb1e934c9244268974f78dc90714fab60d
+  sqlite3 (2.9.5-arm64-darwin) sha256=d0cf444a70fc9395d513cfbcc1e6719e224aa645314e3824cb0474c721425aa2
   string-format (0.2.0) sha256=bc981c14116b061f12134549f32fa2d61a17b5a35dd6fd36596c21722a789af6
   stringio (3.2.0) sha256=c37cb2e58b4ffbd33fe5cd948c05934af997b36e0b6ca6fdf43afa234cf222e1
   traces (0.18.2) sha256=80f1649cb4daace1d7174b81f3b3b7427af0b93047759ba349960cb8f315e214

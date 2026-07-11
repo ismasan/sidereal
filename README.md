@@ -936,6 +936,8 @@ Sidereal.configure do |c|
 end
 ```
 
+**Integrations.** Backends that provide several collaborators at once (e.g. a store + dispatcher pair, plus bridging) ship as *integrations*, applied with `c.use(SomeIntegration, **opts)` — `use_file_system!` is itself one. See [Using Sourced as a backend](#using-sourced-as-a-backend) for the canonical example.
+
 ### Filesystem store
 
 `Sidereal::Store::FileSystem` is a built-in durable store that survives process restarts and lets multiple worker processes on the same host share a queue. It also honors [scheduled commands](#scheduled-commands), unlike the default in-memory store.
@@ -1167,29 +1169,43 @@ end
 
 # Point Sidereal at Sourced's store and dispatcher
 Sidereal.configure do |c|
-  c.store      = Sourced.config.store
-  c.dispatcher = Sourced::Dispatcher
+  # Use file-system version of pubsub, elector
+  c.use_file_system!
+  # Use Sourced as message store and dispatcher
+  c.use Sidereal::Integrations::Sourced
 end
 ```
 
-`require 'sidereal/integrations/sourced'` wires two things for you:
+`c.use Sidereal::Integrations::Sourced` wires several things for you:
 
+- **Store + dispatcher** — Sourced becomes Sidereal's message store and dispatcher. Sidereal Commanders (`command` / `handle`) also register as Sourced reactors, so they run on the same runtime alongside your Deciders and Projectors. Instead of configuring `Sourced.configure { ... }` yourself, you can let the integration do it — pass a **callable** store so each forked worker opens its own connection:
+
+  ```ruby
+  c.use Sidereal::Integrations::Sourced, store: -> { Sequel.sqlite('db/app.db') }
+  ```
+
+- **Auto-publish to PubSub** — Deciders' emitted events and Projectors' updates are published to Sidereal's PubSub automatically (see [Auto-publish](#auto-publish) below), so Pages re-render over SSE with no hand-written bridge code in your reactors.
 - **Error toasts / reporting** — Sourced's retry and terminal-failure events are reported to `Sidereal.exceptions`, so the [default error toasts](#default-dev-ui-error-toasts) appear and any `on_retry` / `on_failure` / `on_fatal` subscribers (e.g. an APM hook) fire. When Sourced is the dispatcher it owns retry/fail orchestration, so Sidereal's *automatic* exception reporting doesn't run — this bridge is what surfaces failures in the UI.
-- **Fork safety** — under the default Falcon setup each worker loads `boot.rb` in its own process, so `Sourced.configure { c.store = Sequel.sqlite(...) }` opens a fresh SQLite connection per worker. Nothing is inherited across the fork, so there is no stale-connection problem and no post-fork reconnection step to wire up.
+- **Fork safety** — under the default Falcon setup each worker loads `boot.rb` in its own process, and the dispatcher calls `Sourced.setup!` on start, so a callable store (or a per-worker `Sourced.configure`) opens a fresh SQLite connection per worker. Nothing is inherited across the fork, so there is no stale-connection problem and no post-fork reconnection step to wire up.
+
+> **Multi-process:** `use_file_system!` (cross-process pubsub + file-lock election) is required whenever you run more than one worker — otherwise the in-process pubsub/elector can't fan SSE updates across processes. If you start multiple workers with the default in-process subsystems, Sidereal **refuses to boot** with a loud error telling you to add it (see [Running with Falcon](#running-with-falcon)).
 
 ### Defining messages and Deciders
 
 With Sourced as the backend, use Sourced messages and Deciders instead of `App.command`:
 
 ```ruby
-# Define messages using Sourced's message class
+# Define messages using Sourced's message class. AddTodo carries todo_id
+# because the Decider partitions by it (generate it client-side, or stamp it
+# in a `before_command` hook).
 AddTodo = Sourced::Message.define('todos.add') do
+  attribute :todo_id, String
   attribute :title, String
 end
 
 TodoAdded = Sourced::Message.define('todos.added') do
-  attribute :title, String
   attribute :todo_id, String
+  attribute :title, String
 end
 
 # Define a Decider (replaces App.command for async processing)
@@ -1197,25 +1213,55 @@ class TodoDecider < Sourced::Decider
   partition_by :todo_id
 
   command AddTodo do |state, cmd|
-    event TodoAdded, title: cmd.payload.title, todo_id: SecureRandom.uuid
-  end
-
-  # Publish events to Sidereal's PubSub for SSE streaming
-  after_sync do |state:, events:|
-    events.each do |evt|
-      Sidereal.pubsub.publish(Sidereal.channels.for(evt), evt)
-    end
+    event TodoAdded, todo_id: cmd.payload.todo_id, title: cmd.payload.title
   end
 end
 
 Sourced.register(TodoDecider)
 ```
 
-The `after_sync` block runs after the store transaction commits and pushes events into Sidereal's PubSub, where Page reactions pick them up and stream DOM updates via SSE. Sourced's dispatcher doesn't auto-publish to PubSub the way Sidereal's does, so the channel is resolved by looking up `Sidereal.channels.for(evt)` against whatever the App registered with the `channel_name` macro.
+You don't write any publishing code — that's the auto-publish below.
+
+### Auto-publish
+
+The integration publishes reactor output to Sidereal's PubSub for you, so Page reactions pick it up and stream DOM updates via SSE. Every path resolves its channel through your App's `channel_name` resolver (`Sidereal.channels.for(evt)`), and a publish/resolver failure is reported to `Sidereal.exceptions` (it's terminal — the store already committed).
+
+- **Deciders** publish the **events they emitted**. The integration injects one generic `after_sync` into every `Sourced::Decider` subclass, so no per-reactor wiring is needed.
+- **Projectors** publish a synthetic **"projected" signal** so Pages know to re-fetch their read model. You don't define or publish it: the integration wraps the `partition_by` macro to auto-define a `Projected` event class (one attribute per partition key) and register an `after_sync` that publishes it after each committed batch:
+
+  ```ruby
+  class TodosProjector < Sourced::Projector::StateStored
+    partition_by :todo_id
+
+    evolve TodoDecider::TodoAdded do |state, evt|
+      # update the read model...
+    end
+
+    sync do |state:, **|
+      # persist the read model...
+    end
+  end
+  # => auto-defines TodosProjector::Projected (with a `todo_id` attribute),
+  #    published after every batch via Sidereal.channels.for.
+
+  Sourced.register(TodosProjector)
+  ```
+
+  Pages react on the generated signal:
+
+  ```ruby
+  on TodosProjector::Projected do |_evt|
+    browser.patch_elements load(params)
+  end
+  ```
+
+  The signal's payload is the projector's full partition tuple, so multi-key partitions work too — `partition_by(:student_id, :course_id)` yields a two-attribute `Projected`, and your `channel_name` resolver routes it just like your domain events.
+
+Sidereal Commanders are unaffected — they're not `Decider`/`Projector` subclasses and keep publishing via their own path, so there's no double-publish.
 
 ### Pages and App
 
-Pages and the App work the same way. `handle` exposes commands to the browser, and Page `on` reactions respond to events from the Decider's `after_sync`:
+Pages and the App work the same way. `handle` exposes commands to the browser, and Page `on` reactions respond to the auto-published events:
 
 ```ruby
 class TodoPage < Sidereal::Page
@@ -1247,7 +1293,7 @@ end
 
 ### Synchronous Sourced handling
 
-You can also process a command synchronously during the HTTP request using `Sourced.handle!`, which loads history, runs the Decider, appends events, and returns immediately:
+You can also process a command synchronously during the HTTP request using `Sourced.handle!`, which loads history, runs the Decider, appends events, and returns immediately. Unlike the async dispatcher path, `handle!` does **not** run the reactor's `after_sync`, so the [auto-publish](#auto-publish) doesn't fire here — publish the returned events yourself if other connected browsers need them:
 
 ```ruby
 handle AddTodo do |cmd|

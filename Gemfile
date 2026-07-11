@@ -15,4 +15,5 @@ gem 'debug'
 
 group :development do
   gem 'docco', github: 'ismasan/docco'
+  gem 'sourced', path: '../sourced'
 end

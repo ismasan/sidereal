@@ -3,7 +3,7 @@
 class CampaignsListPage < Sidereal::Page
   path '/'
 
-  on CampaignsProjector::CampaignProjected do |_evt|
+  on CampaignsProjector::Projected do |_evt|
     browser.patch_elements load(params)
   end
 

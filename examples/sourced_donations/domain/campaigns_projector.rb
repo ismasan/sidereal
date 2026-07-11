@@ -34,18 +34,9 @@ class CampaignsProjector < Sourced::Projector::StateStored
     Sourced.store.db[:campaigns].insert_conflict(:replace).insert(state)
   end
 
-  # Published after the projector commits, so SSE subscribers reading from
-  # the read model never see stale data.
-  CampaignProjected = Sourced::Event.define('campaigns.projected') do
-    attribute :campaign_id, Sourced::Types::UUID::V4
-  end
-
-  after_sync do |state:, **|
-    next unless state[:campaign_id]
-
-    evt = CampaignProjected.new(payload: { campaign_id: state[:campaign_id] })
-    Sidereal.pubsub.publish("campaigns.#{state[:campaign_id]}", evt)
-  end
+  # A `Projected` signal (attribute: campaign_id) is auto-generated from
+  # `partition_by` and published after each committed batch by
+  # Sidereal::Integrations::Sourced — routed via Sidereal.channels.for.
 
   def self.on_reset
     Sourced.store.db[:campaigns].delete

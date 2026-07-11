@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'singleton'
+require 'sidereal/single_process'
 require_relative 'pattern'
 
 module Sidereal
@@ -12,6 +13,7 @@ module Sidereal
     # See {Pattern} for the wildcard subscription rules.
     class Memory
       include Singleton
+      include SingleProcess
 
       public_class_method :new
 

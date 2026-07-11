@@ -34,8 +34,8 @@ Sourced.register(GamesProjector)
 # no real store and the unit specs drive the decider directly.
 unless ENV['TEST']
   Sidereal.configure do |c|
-    c.store      = Sourced.config.store
-    c.dispatcher = Sourced::Dispatcher
+    c.use_file_system!
+    c.use Sidereal::Integrations::Sourced
   end
 end
 
