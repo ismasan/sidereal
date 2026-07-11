@@ -72,6 +72,14 @@ RSpec.describe 'Sidereal::Commander on the Sourced runtime' do
     router.register(IntgCommander)
   end
 
+  after do
+    # These specs open in-memory SQLite via Sequel; Sequel::DATABASES keeps a
+    # global ref so the connection stays open. Close them after each example so
+    # the fork-based specs (pubsub/unix_failover, store/file_system) don't inherit
+    # a live SQLite connection and trip sqlite3's fork-safety warning.
+    Sequel::DATABASES.each(&:disconnect)
+  end
+
   it 'registers a Commander as an exclusive, id-partitioned Sourced reactor' do
     expect(IntgCommander.exclusive?).to be true
     expect(IntgCommander.handled_messages).to include(IntgDoThing, IntgDoNext)
