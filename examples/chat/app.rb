@@ -3,16 +3,9 @@
 require 'dotenv'
 Dotenv.load '.env'
 
-require 'sidereal'
+# Sidereal is required and configured (Sourced store + dispatcher, filesystem
+# pubsub/elector) in boot.rb, which config.ru loads before this file.
 require 'ruby_llm'
-
-Sidereal.configure do |c|
-  c.workers = 3
-  # Filesystem store + unix-socket pubsub + file-lock elector under tmp/, so
-  # multiple worker processes share one store and one pubsub broker (only the
-  # elected leader runs scheduled blocks). Override any one with c.store= etc.
-  c.use_file_system!(dir: 'tmp')
-end
 
 RubyLLM.configure do |config|
   # Add keys ONLY for the providers you intend to use.
