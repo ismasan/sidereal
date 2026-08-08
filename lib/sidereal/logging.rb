@@ -23,8 +23,12 @@ module Sidereal
   # +config/console.rb+, but shipped in the gem so every Sidereal app gets it for
   # free.
   #
-  # Set +CONSOLE_LEVEL=debug+ (or +=info+) in the environment to re-enable full
-  # output while debugging.
+  # The filter is a subject-level disable, so it hides *every* unhandled-task
+  # exception, not only the disconnects — and at every severity, since
+  # +Console::Filter#disable+ sets the subject above the maximum level, which no
+  # +CONSOLE_LEVEL+ setting can lower. Code whose failures must stay visible
+  # therefore reports them itself rather than letting them end a task
+  # unhandled: see {Sidereal::Falcon::Environment::Service#boot_failed!}.
   module Logging
     # Prepended onto {Console::Config} so it wraps logger construction. Works
     # even though +Console::Config::DEFAULT+ is already frozen — freezing the
