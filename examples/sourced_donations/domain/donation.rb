@@ -99,7 +99,7 @@ class Donation < Sourced::Decider
   EmailVerified = Sourced::Event.define('donations.email_verified') do
     attribute :donation_id, Sourced::Types::UUID::V4
     attribute :campaign_id, Sourced::Types::UUID::V4
-    attribute :verified_at, Sourced::Types::Forms::Time
+    attribute :verified_at, Time
   end
 
   PaymentReady = Sourced::Event.define('donations.payment_ready') do
@@ -117,7 +117,7 @@ class Donation < Sourced::Decider
     attribute :campaign_id, Sourced::Types::UUID::V4
     attribute :amount, Integer
     attribute :payment_reference, String
-    attribute :paid_at, Sourced::Types::Forms::Time
+    attribute :paid_at, Time
   end
 
   # ---- Display ----
