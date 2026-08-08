@@ -21,7 +21,10 @@ class Campaign < Sourced::Decider
   CampaignCreated = Sourced::Event.define('campaigns.campaign_created') do
     attribute :campaign_id, Sourced::Types::UUID::V4
     attribute :name, String
-    attribute? :target_amount, Integer
+    # Nullable, not merely optional: a campaign with no target carries an
+    # explicit nil (see #create_campaign below), and the store decodes payloads
+    # against this schema on read.
+    attribute? :target_amount, Sourced::Types::Integer.nullable
   end
 
   CampaignClosed = Sourced::Event.define('campaigns.campaign_closed') do
