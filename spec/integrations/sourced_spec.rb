@@ -133,7 +133,9 @@ RSpec.describe 'Sidereal::Commander on the Sourced runtime' do
   end
 
   before do
-    store.install!
+    # setup! creates the tables and compiles the store's message codec, which
+    # serializes payloads on #append.
+    store.setup!
     router.register(IntgCommander)
   end
 

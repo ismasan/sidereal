@@ -190,6 +190,7 @@ module Sidereal
       # its payload comes from the projector instance's +partition_values+ (the full
       # claimed tuple), so the app's +channel_name+ resolver routes it exactly like
       # the domain events it partitions by.
+      #
       module ProjectorSignals
         def partition_by(*keys)
           super
@@ -202,7 +203,8 @@ module Sidereal
 
           type = "#{Sidereal::Utils.snake_case(name)}.projected" # e.g. "campaigns_projector.projected"
           signal = ::Sourced::Event.define(type) do
-            keys.each { |k| attribute k, ::Sourced::Types::Any }
+            # These events are dynamically defined here. Make sure attributes are serializable.
+            keys.each { |k| attribute k, ::Sourced::Types::Lax::String }
           end
           const_set(:Projected, signal) # Pages reference MyProjector::Projected
 
