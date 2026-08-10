@@ -34,7 +34,8 @@ Gem::Specification.new do |spec|
   spec.require_paths = ['lib']
 
   # Uncomment to register a new dependency of your gem
-  spec.add_dependency('sourced-message')
+  # 0.2.1 is where FormsCodec landed; Sidereal::FormsCodec subclasses it.
+  spec.add_dependency('sourced-message', '>= 0.2.1')
   spec.add_dependency('rack', '~> 3')
   spec.add_dependency('rack-session')
   spec.add_dependency('phlex')

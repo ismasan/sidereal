@@ -12,6 +12,14 @@ HandleTestOtherCmd = Sidereal::Message.define('app_test.do_other') do
   attribute :name, Sidereal::Types::String.present
 end
 
+# Declared in the types the app actually wants, not the Strings a form carries.
+HandleTestTypedCmd = Sidereal::Message.define('app_test.typed') do
+  attribute :title, Sidereal::Types::String.present
+  attribute :seats, Sidereal::Types::Integer
+  attribute :starts_on, Sidereal::Types::Date
+  attribute :published, Sidereal::Types::Boolean
+end
+
 RSpec.describe 'Sidereal::App.commander' do
   it 'does not auto-register handlers for system notifications' do
     # System notifications (NotifyRetry/NotifyFailure) are delivered to
@@ -447,6 +455,71 @@ RSpec.describe 'Sidereal::App.handle' do
       post '/commands', command: { type: 'app_test.unknown', payload: {} }
 
       expect(last_response.status).to eq(404)
+    end
+  end
+
+  # A form posts Strings whatever the schema declares; the app's FormsCodec
+  # types them. See spec/forms_codec_spec.rb for the codec itself.
+  describe 'typing form params' do
+    let(:handled) { [] }
+
+    let(:test_app) do
+      captured = handled
+      Class.new(Sidereal::App) do
+        session secret: 'a' * 64
+        handle(HandleTestTypedCmd) { |cmd| captured << cmd; status 200 }
+      end
+    end
+
+    def app
+      test_app
+    end
+
+    def post_payload(payload)
+      post '/commands', command: { type: 'app_test.typed', _cid: 'app_test_typed-cmd', payload: }
+    end
+
+    it 'coerces each param to the type its attribute declares' do
+      post_payload(title: 'Ruby 101', seats: '30', starts_on: '2026-09-01', published: '1')
+
+      expect(last_response.status).to eq(200)
+      payload = handled.first.payload
+      expect(payload.seats).to eq(30)
+      expect(payload.starts_on).to eq(Date.new(2026, 9, 1))
+      expect(payload.published).to be(true)
+    end
+
+    it "reads an unchecked check_box's '0' as false" do
+      post_payload(title: 'Ruby 101', seats: '30', starts_on: '2026-09-01', published: '0')
+
+      expect(handled.first.payload.published).to be(false)
+    end
+
+    it 'streams a field-level error for a param that cannot be typed' do
+      post_payload(title: 'Ruby 101', seats: 'lots', starts_on: '2026-09-01', published: '1')
+
+      expect(handled).to be_empty
+      expect(last_response.headers['content-type']).to include('text/event-stream')
+      expect(last_response.body).to include('id="app_test_typed-cmd-seats-errors"')
+      expect(last_response.body).to include('app_test_typed-cmd-seats-wrapper')
+    end
+
+    # The envelope is built server-side, so a request cannot date a command into
+    # the future and have the store schedule it.
+    it 'ignores envelope fields posted by the client' do
+      posted_id = SecureRandom.uuid
+      post '/commands', command: {
+        type: 'app_test.typed',
+        id: posted_id,
+        created_at: '2099-01-01T00:00:00.000000+00:00',
+        metadata: { admin: 'true' },
+        payload: { title: 'Ruby 101', seats: '30', starts_on: '2026-09-01', published: '1' }
+      }
+
+      cmd = handled.first
+      expect(cmd.id).not_to eq(posted_id)
+      expect(cmd.created_at).to be < Time.now + 60
+      expect(cmd.metadata).to eq({})
     end
   end
 end

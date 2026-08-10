@@ -541,6 +541,8 @@ def view_template
 end
 ```
 
+Field helpers: `text_field`, `number_field`, `date_field`, `check_box`, and `payload_fields` for values the user doesn't edit. Pass a **message instance** instead of a class to prefill the form. Values are converted to and from the payload's declared types on the way in and out — see [Serialization](#serialization).
+
 ## Layout
 
 Define a layout by subclassing `Sidereal::Components::Layout`. The base class overrides `head` and `body` to automatically inject the necessary Datastar wiring:
@@ -955,6 +957,8 @@ Sidereal.configure do |c|
 end
 ```
 
+File bodies are one JSON document per message, written by the shared transport codec — see [Serialization](#serialization) for the wire shape and for adding encoders for your own payload types.
+
 The store creates five sibling directories under `root/`: `tmp/`, `ready/`, `scheduled/`, `processing/`, and `dead/`. Producers append by atomic-renaming from `tmp/` into `ready/` (or `scheduled/` for future-dated messages). A poller fiber claims into `processing/`; a scheduler fiber promotes due files from `scheduled/` to `ready/`; a sweeper recovers anything left in `processing/` by a crashed worker. Permanently-failed messages land in `dead/` along with a `<f>.error.json` sidecar — see [Failure handling](#failure-handling-retries-and-dead-lettering).
 
 Constructor options:
@@ -1112,6 +1116,219 @@ Defining via `Notification.define(...)` registers it under the `Notification` re
 - add the corresponding `Page.on(...)` reaction;
 - optionally, add a UI component to render it.
 
+## Serialization
+
+A command crosses two boundaries with very different shapes. It goes over the wire to a store or a pub/sub socket, where it must become bytes; and it goes through an HTML form, where every value — a date, a number, a checkbox — is a String in both directions.
+
+Sidereal compiles a [codec](https://ismasan.github.io/plumb/#encoders-and-codecs) for each, from your command payload schemas. You never call either one directly. The point is that **you declare payload attributes in the types you actually want to work with**, and each boundary translates:
+
+| Codec | Crosses | Encodes | Compiled by |
+|---|---|---|---|
+| `Sourced::Message::JSONCodec` | `Store::FileSystem` file bodies, `PubSub::Unix` frames | the **whole message**, envelope included | `Store#start` / `#append`, `PubSub#start` / `#publish` |
+| `Sidereal::FormsCodec` | `POST /commands` params, `<input value="...">` | the **payload alone**, every scalar a String | `App.handle` |
+
+Both are built on [Plumb](https://github.com/ismasan/plumb)'s codecs — `Plumb::Codec::JSON` and `Plumb::Codec::Forms` — which rewrite a schema into a decoder/encoder pair by resolving an encoder for every leaf type.
+
+### Typed payloads from HTML forms
+
+A browser submits `seats=30` as the String `"30"`, `published` as `"1"`, and a date as `"2026-09-01"`. Without a codec you would either coerce by hand in every handler, or write your schemas in lax types and lose the guarantee. Instead, declare what you mean:
+
+```ruby
+BookCourse = Sidereal::Message.define('courses.book') do
+  attribute :course_name, Sidereal::Types::String.present
+  attribute :seats, Sidereal::Types::Integer
+  attribute :starts_on, Sidereal::Types::Date
+  attribute :published, Sidereal::Types::Boolean
+end
+
+class CoursesApp < Sidereal::App
+  handle BookCourse
+
+  command BookCourse do |cmd|
+    cmd.payload.seats        # => 30            (Integer)
+    cmd.payload.starts_on    # => #<Date 2026-09-01>
+    cmd.payload.published    # => true          (TrueClass)
+
+    # so this just works, with nothing parsed by hand
+    dispatch Reminder.at(cmd.payload.starts_on - 7) if cmd.payload.published
+  end
+end
+```
+
+Only commands that are web-facing (via `.handle`) are form-decoded. A command registered only with `command` is never reachable from a form and is never compiled.
+
+What `Plumb::Codec::Forms` knows out of the box:
+
+| Attribute type | Accepts from a form | Renders back as |
+|---|---|---|
+| `Types::String` | any string | itself |
+| `Types::Integer` | `"30"`, `"-4"` | `"30"` |
+| `Types::Float` / `Types::Decimal` | `"1.5"`, `"9.99"`, `"1e3"` | `"1.5"` |
+| `Types::Boolean` | `"true"`/`"1"`, `"false"`/`"0"` (case-insensitive) | `"true"` / `"false"` |
+| `Types::Date` | `"2026-09-01"` | `"2026-09-01"` |
+| `Types::Time` | ISO 8601 | `"2026-09-01T10:00:00.000000+01:00"` |
+| `Types::Symbol` | any string | itself |
+| `Types::URI::Generic` / `::HTTP` / `::File` | an RFC 3986 URI | itself |
+| anything `.nullable` | `""`, or an absent field | `""` |
+
+### Rendering values back into a form
+
+The same translation runs backwards, so `command` accepts a **message instance** as well as a class. A class renders a blank form; an instance prefills each field:
+
+```ruby
+# A class — every field renders empty
+command BookCourse do |f|
+  f.text_field :course_name   # <input type="text" name="command[payload][course_name]">
+  f.number_field :seats
+  f.date_field :starts_on
+  f.check_box :published
+end
+
+# An instance — every set attribute renders its encoded value
+command BookCourse.new(payload: {
+  course_name: 'Ruby 101', seats: 30,
+  starts_on: Date.new(2026, 9, 1), published: true
+}) do |f|
+  f.text_field :course_name   # <input type="text" ... value="Ruby 101">
+  f.date_field :starts_on     # <input type="date" ... value="2026-09-01">
+  f.check_box :published      # checked
+end
+```
+
+An attribute that is unset renders no `value` attribute at all, so the same form definition serves both cases — including the one in between, a command half-filled from a previous attempt, where the attributes that are set render and the rest come out blank.
+
+The payload is encoded **once per render**, not once per field, and per key rather than all-or-nothing. That is what lets a blank or partial command render at all: a strict conversion would reject one outright.
+
+Encoding also happens **only at an input's `value=`**. The command object itself keeps its Ruby values, so logic inside the form block sees what you'd expect:
+
+```ruby
+command course_cmd do |f|
+  f.date_field :starts_on
+  # a real Date and a real boolean — not "2026-09-01" and "1"
+  p { "Starts in #{(f.command.payload.starts_on - Date.today).to_i} days" }
+  f.check_box :published unless f.command.payload.published
+end
+```
+
+`check_box` renders a hidden `0` alongside the checkbox, because an unchecked box submits nothing at all. Rack keeps the last value for a repeated name, so a checked box sends `"1"` and an unchecked one `"0"`.
+
+`payload_fields` carries values the command doesn't hold — an id from a loop variable, a preset amount. Those are encoded as attributes *of that command*, so a hidden field and a visible one for the same attribute always agree, and a key the payload doesn't declare raises rather than rendering an empty input.
+
+When decoding fails, the result is a flat `{attribute => message}` hash, which `POST /commands` streams straight back to the offending field over SSE — see [Command forms](#command-forms):
+
+```
+command[payload][seats]=lots
+# => the "seats" field gets: Must match /\A-?\d+\z/
+```
+
+Two behaviours worth knowing:
+
+* `Types::Integer.default(0)` plus a **blank** input errors. `.default` fires for an *absent* key, and `""` is a present value that no Integer encoder accepts. Use `Types::Integer.nullable` for optional numeric fields.
+* A union reports every branch, so a malformed `Types::Boolean` reads `Must match /\Atrue\z/i, Must be equal to 1, ...`.
+
+### Transport
+
+Stores and pub/sub serialize the **whole** message — envelope included — because a file body or a socket frame has nowhere else to put an `id`, a `created_at` or a correlation chain. That is `Sidereal.message_codec`, shared by `Store::FileSystem` and `PubSub::Unix`:
+
+```json
+{
+  "id": "97b72e83-c27c-4a0f-b8e7-19abbea9f70e",
+  "causation_id": "97b72e83-c27c-4a0f-b8e7-19abbea9f70e",
+  "correlation_id": "97b72e83-c27c-4a0f-b8e7-19abbea9f70e",
+  "created_at": "2026-08-10T19:51:35.032711+01:00",
+  "metadata": {},
+  "type": "courses.book",
+  "payload": {
+    "course_name": "Ruby 101",
+    "seats": 30,
+    "starts_on": "2026-09-01",
+    "published": true
+  }
+}
+```
+
+Note that the two formats disagree, correctly, about the same schema: `seats` is a JSON number here and the String `"30"` in a form, and `starts_on` is an ISO date string in both but a `Date` at rest in Ruby. Each codec keeps its own compiled pair per message class, which is what makes that possible.
+
+Nothing compiles on first use. Each transport calls `compile!` when it starts (and again on the first write, since `Sidereal.dispatch!` from a CLI can append with no dispatcher running), so a schema the format cannot represent fails at boot rather than on the message that happens to carry it.
+
+The web boundary never reads the envelope. A form supplies `command[type]` and the payload; `id`, `created_at`, `metadata` and the correlation chain are built server-side, so a request cannot date a command into the future and have the store schedule it.
+
+### Custom types
+
+Sooner or later a payload carries something neither format knows — a `Money`, a `Coordinate`, a domain enum. Declare an `Encoder` for it and register it on each codec it will cross. Both are separate registries: teaching one does not teach the other.
+
+An encoder is a class declaring `Input => Output` plus the two conversions. `Output` is your Ruby type; `Input` is the shape the format can carry:
+
+```ruby
+# money.rb
+Money = Data.define(:cents, :currency) do
+  def self.euros(units) = new(cents: units * 100, currency: 'EUR')
+  def to_s = "€#{cents / 100}"
+end
+
+# A form field is a String and nothing else, so both parts are packed into one.
+# The `Types::` form is needed here because it is a *refinement* — String, but
+# only strings matching that pattern.
+class MoneyFormsEncoder < Plumb::Encoder[
+  Plumb::Types::String[/\A\d+ [A-Z]{3}\z/] => Money
+]
+  def encode(money) = "#{money.cents} #{money.currency}"
+
+  def decode(str)
+    cents, currency = str.split
+    Money.new(cents: cents.to_i, currency:)
+  end
+end
+
+# JSON has objects, so the parts can stay addressable on the wire. A plain class
+# is enough where no refinement is involved.
+class MoneyJSONEncoder < Plumb::Encoder[
+  Plumb::Types::Hash[cents: Integer, currency: String] => Money
+]
+  def encode(money) = { cents: money.cents, currency: money.currency }
+
+  def decode(hash) = Money.new(cents: hash[:cents], currency: hash[:currency])
+end
+
+Plumb::Codec::Forms.encoder(MoneyFormsEncoder)
+Plumb::Codec::JSON.encoder(MoneyJSONEncoder)
+```
+
+The two need not agree on a shape, and here they deliberately don't. One Ruby type reaches each wire in the form that wire can carry:
+
+```ruby
+SelectAmount = Sidereal::Message.define('donations.select_amount') do
+  attribute :amount, Sidereal::Types::Any[Money]
+end
+```
+
+```
+hidden form field     value="3000 EUR"
+store file / frame    "amount": { "cents": 3000, "currency": "EUR" }
+command handler       Money[cents: 3000, currency: "EUR"]
+```
+
+Rendering and submitting both go through the encoder, so a preset-amount button is just:
+
+```ruby
+command SelectAmount, key: amount.cents do |f|
+  f.payload_fields(amount:)   # => <input type="hidden" value="3000 EUR">
+  button(type: :submit) { amount.to_s }
+end
+```
+
+**Register encoders at load time**, before any message type is defined. Every compile walks the whole message registry, so a format missing an encoder for a type *any* message uses cannot compile at all. `require` the file at the top of your boot sequence — see [`examples/donations1/money.rb`](https://github.com/ismasan/sidereal/tree/main/examples/donations1/money.rb).
+
+If you get it wrong you find out immediately, and the error names the attribute path:
+
+```
+cannot apply Plumb::Codec::Forms[...] (decode) to Booking::Payload:
+field `window` (Range[Integer]) matches no encoder and is not covered by its
+noop types. Register an encoder for it, or declare it with .noop.
+```
+
+A type can be representable in one format and not the other, and that is fine — it just means the command cannot be web-facing. `Types::Range` is the built-in example: `Plumb::Codec::JSON` encodes it as `{from:, to:, exclusive:}`, while `Plumb::Codec::Forms` deliberately does not register it, since a single form field has no sensible shape for it. Such a command serializes for transport, and raises at `handle` if you try to expose it to the browser.
+
 ## How it works
 
 <img width="935" height="783" alt="CleanShot 2026-04-21 at 14 37 31" src="https://github.com/user-attachments/assets/cbe698e6-3343-4873-aabd-65959ceb9051" />
@@ -1234,18 +1451,18 @@ The integration publishes reactor output to Sidereal's PubSub for you, so Page r
   ```ruby
   class TodosProjector < Sourced::Projector::StateStored
     partition_by :todo_id
-
+  
     evolve TodoDecider::TodoAdded do |state, evt|
       # update the read model...
     end
-
+  
     sync do |state:, **|
       # persist the read model...
     end
   end
   # => auto-defines TodosProjector::Projected (with a `todo_id` attribute),
   #    published after every batch via Sidereal.channels.for.
-
+  
   Sourced.register(TodosProjector)
   ```
 

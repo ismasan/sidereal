@@ -327,6 +327,7 @@ module Sidereal
 end
 
 require_relative 'sidereal/message'
+require_relative 'sidereal/forms_codec'
 require_relative 'sidereal/system'
 require_relative 'sidereal/channels'
 require_relative 'sidereal/exceptions'
