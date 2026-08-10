@@ -135,20 +135,20 @@ class DonationPage < Sidereal::Page
   end
 
   class AmountPicker < Sidereal::Components::BaseComponent
-    AMOUNTS = [5, 10, 30, 50].freeze
-
     def view_template
       div(class: 'step-screen') do
         h2 { 'Choose an amount' }
         p(class: 'lede') { 'Select a preset amount to begin a donation.' }
 
         div(class: 'amount-grid') do
-          AMOUNTS.each do |amount|
-            command SelectAmount, class: 'amount-form', key: amount do |f|
+          DONATION_AMOUNTS.each do |amount|
+            command SelectAmount, class: 'amount-form', key: amount.cents do |f|
+              # A Money goes in; the codec's MoneyFormsEncoder writes it into the
+              # hidden field as "3000 EUR" and reads it back as a Money on submit.
               f.payload_fields(amount:)
               button(type: :submit, class: 'amount-button') do
-                span(class: 'amount-button__currency') { '€' }
-                span(class: 'amount-button__value') { amount.to_s }
+                span(class: 'amount-button__currency') { amount.symbol }
+                span(class: 'amount-button__value') { amount.units }
               end
             end
           end
@@ -165,7 +165,7 @@ class DonationPage < Sidereal::Page
     def view_template
       div(class: 'step-screen') do
         h2 { 'Your details' }
-        p(class: 'lede') { "We will send a verification link before taking €#{@donation.amount}." }
+        p(class: 'lede') { "We will send a verification link before taking #{@donation.amount}." }
 
         command EnterDonorDetails, class: 'details-form', autocomplete: 'off' do |f|
           f.payload_fields(donation_id: @donation.donation_id)
@@ -182,6 +182,19 @@ class DonationPage < Sidereal::Page
               inputmode: 'email',
               placeholder: 'ada@example.com'
           end
+          # A Types::Date attribute: the browser submits '1815-12-10' and the
+          # codec hands the handler a Date.
+          label do
+            span { 'Date of birth' }
+            f.date_field :dob, max: Date.today.to_s
+          end
+          # A Types::Boolean attribute. The checkbox posts '1'; the hidden '0'
+          # the helper renders alongside it is what an unchecked box posts,
+          # since an unchecked box otherwise submits nothing at all.
+          label(class: 'checkbox-label') do
+            f.check_box :newsletter
+            span { 'Email me about future campaigns' }
+          end
           button(type: :submit, class: 'primary-button') { 'Send verification email' }
         end
       end
@@ -197,10 +210,16 @@ class DonationPage < Sidereal::Page
       div(class: 'step-screen') do
         h2 { 'Check your email' }
         p(class: 'lede') { "We sent a verification link to #{@donation.email}." }
+        # Reads as a Date and a boolean, not as the strings the form submitted:
+        # #strftime and a plain ternary need no parsing here.
+        p(class: 'lede') do
+          "Born #{@donation.dob.strftime('%-d %B %Y')} — " +
+            (@donation.newsletter ? 'subscribed to campaign updates.' : 'not subscribed to updates.')
+        end
 
         div(class: 'email-preview') do
           p(class: 'email-preview__label') { 'Email preview' }
-          p { "Hello #{@donation.name}, confirm your €#{@donation.amount} donation with this link:" }
+          p { "Hello #{@donation.name}, confirm your #{@donation.amount} donation with this link:" }
           a(href: @donation.verification_link) { @donation.verification_link }
         end
       end
@@ -250,7 +269,7 @@ class DonationPage < Sidereal::Page
     def view_template
       div(class: 'step-screen') do
         h2 { 'Email verified' }
-        p(class: 'lede') { "Preparing the payment screen for your €#{@donation.amount} donation." }
+        p(class: 'lede') { "Preparing the payment screen for your #{@donation.amount} donation." }
         div(class: 'loading-bar') do
           span
         end
@@ -265,13 +284,13 @@ class DonationPage < Sidereal::Page
 
     def view_template
       div(class: 'step-screen payment-screen') do
-        h2 { "Pay €#{@donation.amount}" }
+        h2 { "Pay #{@donation.amount}" }
         p(class: 'lede') { 'Use the simulated contactless pad to complete the donation.' }
 
         div(class: 'card-pad') do
           div(class: 'card-pad__screen') do
             span { 'READY' }
-            strong { "€#{@donation.amount}" }
+            strong { "#{@donation.amount}" }
           end
           command PresentCard, class: 'tap-form' do |f|
             f.payload_fields(donation_id: @donation.donation_id)
@@ -307,7 +326,7 @@ class DonationPage < Sidereal::Page
       div(class: 'step-screen thank-you') do
         p(class: 'success-mark') { '✓' }
         h2 { 'Thank you' }
-        p(class: 'lede') { "Your €#{@donation.amount} donation has been confirmed." }
+        p(class: 'lede') { "Your #{@donation.amount} donation has been confirmed." }
         dl(class: 'receipt') do
           div do
             dt { 'Donor' }
@@ -343,7 +362,7 @@ class DonationPage < Sidereal::Page
             if @donation.amount
               div do
                 dt { 'Amount' }
-                dd { "€#{@donation.amount}" }
+                dd { "#{@donation.amount}" }
               end
             end
             if @donation.name

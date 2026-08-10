@@ -263,6 +263,30 @@ h2 {
   background: #fff;
 }
 
+/* The checkbox sits beside its caption rather than under it, so the label
+   switches from a stacked grid to a two-column one. */
+.details-form label.checkbox-label {
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 12px;
+  font-weight: 600;
+}
+
+.command-field input[type='checkbox'] {
+  width: 22px;
+  height: 22px;
+  min-height: 22px;
+  padding: 0;
+  accent-color: var(--accent);
+}
+
+/* The checkbox's error span would otherwise reserve a line of its own between
+   the box and its caption. */
+.checkbox-label .command-field__errors {
+  min-height: 0;
+  margin-top: 0;
+}
+
 .command-field.errors input {
   border-color: #c83c31;
 }
