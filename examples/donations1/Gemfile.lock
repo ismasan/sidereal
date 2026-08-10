@@ -7,17 +7,9 @@ PATH
       datastar (~> 1.0.4)
       fugit
       phlex
-      plumb (~> 0.0.17)
       rack (~> 3)
       rack-session
-      sourced-message
-
-PATH
-  remote: /Users/ismasan/code/personal/gems/sourced-message
-  specs:
-    sourced-message (0.1.0)
-      fugit
-      plumb (>= 0.0.17)
+      sourced-message (>= 0.2.1)
 
 GEM
   remote: https://rubygems.org/
@@ -52,9 +44,9 @@ GEM
     async-utilization (0.3.2)
       console (~> 1.0)
     base64 (0.3.0)
-    bigdecimal (4.0.1)
+    bigdecimal (4.1.2)
     brotli (0.8.0)
-    concurrent-ruby (1.3.6)
+    concurrent-ruby (1.3.8)
     console (1.34.3)
       fiber-annotation
       fiber-local (~> 1.1)
@@ -65,7 +57,7 @@ GEM
       rack (>= 3.2)
     date (3.5.1)
     erb (6.0.4)
-    et-orbi (1.4.0)
+    et-orbi (1.4.1)
       tzinfo
     falcon (0.55.2)
       async
@@ -84,7 +76,7 @@ GEM
     fiber-local (1.1.0)
       fiber-storage
     fiber-storage (1.0.1)
-    fugit (1.12.1)
+    fugit (1.13.0)
       et-orbi (~> 1.4)
       raabro (~> 1.4)
     io-console (0.8.2)
@@ -105,7 +97,7 @@ GEM
     phlex (2.4.1)
       refract (~> 1.0)
       zeitwerk (~> 2.7)
-    plumb (0.0.17)
+    plumb (0.2.0.beta.2)
       bigdecimal
       concurrent-ruby
     pp (0.6.3)
@@ -128,7 +120,7 @@ GEM
     psych (5.3.1)
       date
       stringio
-    raabro (1.4.0)
+    raabro (1.5.0)
     rack (3.2.5)
     rack-session (2.1.1)
       base64 (>= 0.1.0)
@@ -145,6 +137,9 @@ GEM
     samovar (2.4.1)
       console (~> 1.0)
       mapping (~> 1.0)
+    sourced-message (0.2.1)
+      fugit
+      plumb (= 0.2.0.beta.2)
     string-format (0.2.0)
     stringio (3.2.0)
     traces (0.18.2)
@@ -162,7 +157,6 @@ DEPENDENCIES
   irb
   pstore
   sidereal!
-  sourced-message!
 
 CHECKSUMS
   async (2.38.1) sha256=72ba6b7de04d852355458bfe891221226bb7d29f055f5cb043ae3345497f8cec
@@ -173,19 +167,19 @@ CHECKSUMS
   async-service (0.21.0) sha256=3bc9e0f8dc293ba8855bc790959db7f981ae22bbb731456d221d93b388e9706f
   async-utilization (0.3.2) sha256=201a27e0948fe23fc14a01a0ecbe5e420e27cebae3a51f36e56fc45fb31df3b4
   base64 (0.3.0) sha256=27337aeabad6ffae05c265c450490628ef3ebd4b67be58257393227588f5a97b
-  bigdecimal (4.0.1) sha256=8b07d3d065a9f921c80ceaea7c9d4ae596697295b584c296fe599dd0ad01c4a7
+  bigdecimal (4.1.2) sha256=53d217666027eab4280346fba98e7d5b66baaae1b9c3c1c0ffe89d48188a3fbd
   brotli (0.8.0) sha256=0c5a42046b3b603fb109656881147fd76064c034b7d19c1b4fcc32a093a4d55d
-  concurrent-ruby (1.3.6) sha256=6b56837e1e7e5292f9864f34b69c5a2cbc75c0cf5338f1ce9903d10fa762d5ab
+  concurrent-ruby (1.3.8) sha256=b2f1be836e968ccc78ccfce277ea79c72a88633f22306782c16ff23fb415d1e1
   console (1.34.3) sha256=869fbd74697efc4c606f102d2812b0b008e4e7fd738a91c591e8577140ec0dcc
   datastar (1.0.4) sha256=46ac43193e2018f16bd3596531dbee5c59427b7797f03c17792bbc9ebdbb92eb
   date (3.5.1) sha256=750d06384d7b9c15d562c76291407d89e368dda4d4fff957eb94962d325a0dc0
   erb (6.0.4) sha256=38e3803694be357fe2bfe312487c74beaf9fb4e5beb3e22498952fe1645b95d9
-  et-orbi (1.4.0) sha256=6c7e3c90779821f9e3b324c5e96fda9767f72995d6ae435b96678a4f3e2de8bc
+  et-orbi (1.4.1) sha256=007e2685b1d873415a7587ef889336c6dcdf8a47fc9c9a63547582b21660a11b
   falcon (0.55.2) sha256=dfcdd8e4c3a18827a5ca7e346df67ebdaf873ac61a5f7d20ad4923c4d6b180cb
   fiber-annotation (0.2.0) sha256=7abfadf1d119f508867d4103bf231c0354d019cc39a5738945dec2edadaf6c03
   fiber-local (1.1.0) sha256=c885f94f210fb9b05737de65d511136ea602e00c5105953748aa0f8793489f06
   fiber-storage (1.0.1) sha256=f48e5b6d8b0be96dac486332b55cee82240057065dc761c1ea692b2e719240e1
-  fugit (1.12.1) sha256=5898f478ede9b415f0804e42b8f3fd53f814bd85eebffceebdbc34e1107aaf68
+  fugit (1.13.0) sha256=a4f093fce740da52f216740a5041e2a594ea763cdb89e8b2754ca4399634ab18
   io-console (0.8.2) sha256=d6e3ae7a7cc7574f4b8893b4fca2162e57a825b223a177b7afa236c5ef9814cc
   io-endpoint (0.17.2) sha256=3feaf766c116b35839c11fac68b6aaadc47887bb488902a57bf8e1d288fb3338
   io-event (1.14.4) sha256=455a9e4fb4613d12867b90461c297af6993b400a521bf62046f83b27f9c6aa3d
@@ -198,7 +192,7 @@ CHECKSUMS
   metrics (0.15.0) sha256=61ded5bac95118e995b1bc9ed4a5f19bc9814928a312a85b200abbdac9039072
   openssl (4.0.1) sha256=e27974136b7b02894a1bce46c5397ee889afafe704a839446b54dc81cb9c5f7d
   phlex (2.4.1) sha256=e596717fbfe38b5271840266758779ebe75092e02629f0c170287e6290a70b12
-  plumb (0.0.17) sha256=434138323bde29cefbec136bdd2f23f3e37d5ea9eca72fafb5bce6801d64a56d
+  plumb (0.2.0.beta.2) sha256=f575c5b92ea47a986c0dcda5155c1277ed40b95c3e041edf8ef66cafe0ffe0da
   pp (0.6.3) sha256=2951d514450b93ccfeb1df7d021cae0da16e0a7f95ee1e2273719669d0ab9df6
   prettyprint (0.2.0) sha256=2bc9e15581a94742064a3cc8b0fb9d45aae3d03a1baa6ef80922627a0766f193
   prism (1.9.0) sha256=7b530c6a9f92c24300014919c9dcbc055bf4cdf51ec30aed099b06cd6674ef85
@@ -210,7 +204,7 @@ CHECKSUMS
   protocol-url (0.4.0) sha256=64d4c03b6b51ad815ac6fdaf77a1d91e5baf9220d26becb846c5459dacdea9e1
   pstore (0.2.1) sha256=03904d0f2c66579e96d1e6704cdabc0c88df7ea8ed8782d9f3569f6f6c702c1a
   psych (5.3.1) sha256=eb7a57cef10c9d70173ff74e739d843ac3b2c019a003de48447b2963d81b1974
-  raabro (1.4.0) sha256=d4fa9ff5172391edb92b242eed8be802d1934b1464061ae5e70d80962c5da882
+  raabro (1.5.0) sha256=3f998a7bc84f9c84df3ab580634d2e0a5bda4f0841168d56035f529c9877440a
   rack (3.2.5) sha256=4cbd0974c0b79f7a139b4812004a62e4c60b145cba76422e288ee670601ed6d3
   rack-session (2.1.1) sha256=0b6dc07dea7e4b583f58a48e8b806d4c9f1c6c9214ebc202ec94562cbea2e4e9
   rdoc (7.2.0) sha256=8650f76cd4009c3b54955eb5d7e3a075c60a57276766ebf36f9085e8c9f23192
@@ -218,7 +212,7 @@ CHECKSUMS
   reline (0.6.3) sha256=1198b04973565b36ec0f11542ab3f5cfeeec34823f4e54cebde90968092b1835
   samovar (2.4.1) sha256=c3b91dd0580771e3bc600621c1111f29542529dcffafaac3b6bf068b3f309e80
   sidereal (0.1.0)
-  sourced-message (0.1.0)
+  sourced-message (0.2.1) sha256=39d24cd6474ce8643eac7ec51d85cc5c9168253077d942d301444420866359c5
   string-format (0.2.0) sha256=bc981c14116b061f12134549f32fa2d61a17b5a35dd6fd36596c21722a789af6
   stringio (3.2.0) sha256=c37cb2e58b4ffbd33fe5cd948c05934af997b36e0b6ca6fdf43afa234cf222e1
   traces (0.18.2) sha256=80f1649cb4daace1d7174b81f3b3b7427af0b93047759ba349960cb8f315e214
