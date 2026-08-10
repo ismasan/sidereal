@@ -115,8 +115,6 @@ RSpec.describe Sidereal::Channels do
   end
 
   describe 'Sidereal.channels (process-global)' do
-    before { Sidereal.reset_channels! }
-
     it 'routes System::NotifyRetry/NotifyFailure to DEFAULT_CHANNEL regardless of metadata' do
       retry_msg = Sidereal::System::NotifyRetry.new(
         payload: { command_type: 'x', command_id: 'id', retry_count: 1, retry_at: Time.now.iso8601, error_class: 'E', error_message: 'boom' },

@@ -20,4 +20,7 @@ gem 'falcon'
 group :development do
   gem 'docco', github: 'ismasan/docco'
   gem 'sourced', path: '../sourced'
+  # Local sourced tracks the local plumb; the published 0.2.0.beta.1 gem lacks
+  # the Codec#register/#encode/#decode instance API sourced's MessageCodec uses.
+  gem 'plumb', path: '../plumb'
 end

@@ -12,6 +12,14 @@ end
 
 FsStoreOther = Sidereal::Message.define('fs_store_spec.other')
 
+# Payload of non-JSON-native types — the codec has to carry these through the
+# file and back.
+FsStoreRich = Sidereal::Message.define('fs_store_spec.rich') do
+  attribute :at, Sidereal::Types::Time
+  attribute :on, Sidereal::Types::Date
+  attribute :kind, Sidereal::Types::Symbol
+end
+
 RSpec.describe Sidereal::Store::FileSystem do
   around(:each) do |example|
     Dir.mktmpdir('sidereal-fs-test') do |root|
@@ -40,6 +48,15 @@ RSpec.describe Sidereal::Store::FileSystem do
     end
   end
 
+  describe '#start' do
+    it 'compiles the codec it serializes with, so an unrepresentable type fails at boot' do
+      codec = Sidereal::MessageCodec.new
+      store = described_class.new(root: @root, codec: codec)
+
+      Sync { |task| expect { store.start(task) }.to change(codec, :compiled?).from(false).to(true) }
+    end
+  end
+
   describe '#claim_next' do
     it 'yields appended messages' do
       msg = FsStoreCmd.new(payload: { name: 'hello' })
@@ -48,6 +65,17 @@ RSpec.describe Sidereal::Store::FileSystem do
       claimed = claim_one(store)
       expect(claimed).to be_a(FsStoreCmd)
       expect(claimed.payload.name).to eq('hello')
+    end
+
+    it 'round-trips payload values as the types their schema declares' do
+      msg = FsStoreRich.new(payload: { at: Time.at(1_735_689_600).utc, on: Date.new(2026, 1, 2), kind: :urgent })
+      store.append(msg)
+
+      claimed = claim_one(store)
+      expect(claimed.payload.at).to be_a(Time).and eq(msg.payload.at)
+      expect(claimed.payload.on).to be_a(Date).and eq(Date.new(2026, 1, 2))
+      expect(claimed.payload.kind).to eq(:urgent)
+      expect(claimed.created_at).to be_a(Time)
     end
 
     it 'yields messages in append order' do

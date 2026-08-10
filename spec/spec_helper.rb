@@ -11,6 +11,8 @@ require "sidereal"
 # out the rspec progress otherwise. Set CONSOLE_LEVEL=debug to re-enable.
 Console.logger.level = Logger::FATAL unless ENV['CONSOLE_LEVEL']
 
+Dir[File.expand_path('support/**/*.rb', __dir__)].sort.each { |f| require f }
+
 module SiderealSpecHelpers
   # Drain `count` messages from a store and return them.
   # `claim_next` now loops indefinitely, so tests that just want to
@@ -53,5 +55,8 @@ RSpec.configure do |config|
 
   config.include SiderealSpecHelpers
 
-  config.before(:each) { Sidereal.reset_registry! }
+  # Start each example with empty process-global registries, so nothing a
+  # previous example registered — a commander, a channel resolver, an exception
+  # subscriber, a compiled message type — leaks into this one.
+  config.before(:each) { Sidereal.reload! }
 end

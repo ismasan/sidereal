@@ -301,8 +301,6 @@ RSpec.describe 'Sidereal::App.handle' do
   end
 
   describe '.channel_name macro' do
-    before { Sidereal.reset_channels! }
-
     it 'registers a catch-all resolver via Sidereal.channels' do
       Class.new(Sidereal::App) do
         session secret: 'a' * 64
