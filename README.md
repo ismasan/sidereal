@@ -1,5 +1,7 @@
 # Sidereal
 
+[![Ruby Users Forum](https://img.shields.io/discourse/topics?server=https%3A%2F%2Fwww.rubyforum.org&style=flat&logo=discourse&label=Ruby%20Users%20Forum)](https://www.rubyforum.org/tag/sidereal)
+
 A Ruby gem for building server-driven, reactive web applications. Sidereal combines a Rack-compatible router with an event-driven architecture using typed messages, commands, pages, SSE, and pub/sub.
 
 * All commands are handled by an asynchronous runtime. No distinction between "controllers" and "background jobs".
@@ -1324,6 +1326,10 @@ end
 ## Development
 
 After checking out the repo, run `bin/setup` to install dependencies. Then, run `bundle exec rspec` to run the tests. You can also run `bin/console` for an interactive prompt.
+
+## Community
+
+Join us in the `sidereal` tag on the [Ruby Users Forum](https://www.rubyforum.org/tag/sidereal).
 
 ## Contributing
 
