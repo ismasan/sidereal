@@ -154,6 +154,13 @@ module Sidereal
         Pattern.validate_publish!(channel_name)
         ensure_started
 
+        # Publishing is reachable without {#start}: +ensure_started+ is a no-op
+        # outside an Async reactor, and a publisher may sit between EOF and
+        # reconnect during a failover. The codec never compiles itself, so this is
+        # the other place that has to ask. Idempotent, so it costs one guard per
+        # publish once compiled.
+        codec.compile!
+
         deliver_local(channel_name, event)
 
         frame = encode_frame(channel_name, event)

@@ -117,6 +117,12 @@ module Sidereal
       # @param message [Sidereal::Message]
       # @return [true]
       def append(message)
+        # Appending is reachable without {#start} — a CLI or rake task calling
+        # Sidereal.dispatch! enqueues a command with no dispatcher running — and the
+        # codec never compiles itself, so this is the other place that has to ask.
+        # Idempotent, so it costs one guard per append once compiled.
+        codec.compile!
+
         now_ns = Process.clock_gettime(Process::CLOCK_REALTIME, :nanosecond)
         created_at_ns = message.created_at.tv_sec * 1_000_000_000 + message.created_at.tv_nsec
         not_before_ns = [created_at_ns, now_ns].max

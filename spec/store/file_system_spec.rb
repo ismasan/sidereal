@@ -50,7 +50,7 @@ RSpec.describe Sidereal::Store::FileSystem do
 
   describe '#start' do
     it 'compiles the codec it serializes with, so an unrepresentable type fails at boot' do
-      codec = Sidereal::MessageCodec.new
+      codec = Sourced::Message::JSONCodec.new
       store = described_class.new(root: @root, codec: codec)
 
       Sync { |task| expect { store.start(task) }.to change(codec, :compiled?).from(false).to(true) }

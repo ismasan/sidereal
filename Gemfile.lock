@@ -7,18 +7,11 @@ GIT
       kramdown-parser-gfm
 
 PATH
-  remote: ../plumb
-  specs:
-    plumb (0.2.0.beta.1)
-      bigdecimal
-      concurrent-ruby
-
-PATH
   remote: ../sourced
   specs:
     sourced (0.0.1)
       async
-      plumb (= 0.2.0.beta.1)
+      plumb (= 0.2.0.beta.2)
       sequel
       sourced-message
       sqlite3
@@ -132,6 +125,9 @@ GEM
     phlex (2.4.1)
       refract (~> 1.0)
       zeitwerk (~> 2.7)
+    plumb (0.2.0.beta.2)
+      bigdecimal
+      concurrent-ruby
     pp (0.6.3)
       prettyprint
     prettyprint (0.2.0)
@@ -186,9 +182,9 @@ GEM
       console (~> 1.0)
     sequel (5.106.0)
       bigdecimal
-    sourced-message (0.1.1)
+    sourced-message (0.2.1)
       fugit
-      plumb (>= 0.0.18)
+      plumb (= 0.2.0.beta.2)
     sqlite3 (2.9.5-arm64-darwin)
     string-format (0.2.0)
     stringio (3.2.0)
@@ -206,7 +202,6 @@ DEPENDENCIES
   docco!
   falcon
   irb
-  plumb!
   rack-test (~> 2.2)
   rake (~> 13.0)
   rspec (~> 3.0)
@@ -252,7 +247,7 @@ CHECKSUMS
   metrics (0.15.0) sha256=61ded5bac95118e995b1bc9ed4a5f19bc9814928a312a85b200abbdac9039072
   openssl (4.0.2) sha256=1037ad2868ae58df9ad917891c0c0f9815a1172f6846d4bcdd508e4c2ee747c2
   phlex (2.4.1) sha256=e596717fbfe38b5271840266758779ebe75092e02629f0c170287e6290a70b12
-  plumb (0.2.0.beta.1)
+  plumb (0.2.0.beta.2) sha256=f575c5b92ea47a986c0dcda5155c1277ed40b95c3e041edf8ef66cafe0ffe0da
   pp (0.6.3) sha256=2951d514450b93ccfeb1df7d021cae0da16e0a7f95ee1e2273719669d0ab9df6
   prettyprint (0.2.0) sha256=2bc9e15581a94742064a3cc8b0fb9d45aae3d03a1baa6ef80922627a0766f193
   prism (1.9.0) sha256=7b530c6a9f92c24300014919c9dcbc055bf4cdf51ec30aed099b06cd6674ef85
@@ -281,7 +276,7 @@ CHECKSUMS
   sequel (5.106.0) sha256=0e6677f230e724ecbc9b4d5fc95ef9a69997cfb24c60fff84268185e0bb254cd
   sidereal (0.1.0)
   sourced (0.0.1)
-  sourced-message (0.1.1) sha256=2f618e1671fd1af463a5578509d8bbe30cd67c9b46938e37f18b42c9def14bd7
+  sourced-message (0.2.1) sha256=39d24cd6474ce8643eac7ec51d85cc5c9168253077d942d301444420866359c5
   sqlite3 (2.9.5-arm64-darwin) sha256=d0cf444a70fc9395d513cfbcc1e6719e224aa645314e3824cb0474c721425aa2
   string-format (0.2.0) sha256=bc981c14116b061f12134549f32fa2d61a17b5a35dd6fd36596c21722a789af6
   stringio (3.2.0) sha256=c37cb2e58b4ffbd33fe5cd948c05934af997b36e0b6ca6fdf43afa234cf222e1

@@ -59,7 +59,7 @@ RSpec.describe Sidereal::PubSub::Unix do
 
   describe '#start' do
     it 'compiles the codec it serializes with, so an unrepresentable type fails at boot' do
-      codec = Sidereal::MessageCodec.new
+      codec = Sourced::Message::JSONCodec.new
       pubsub = build_pubsub(codec: codec)
 
       Sync { |task| expect { pubsub.start(task) }.to change(codec, :compiled?).from(false).to(true) }

@@ -192,15 +192,21 @@ module Sidereal
   end
 
   # Process-global serializer for Sidereal's own transports ({Store::FileSystem},
-  # {PubSub::Unix}), shared so they compile their pairs once. {Host#start}
-  # compiles it at boot, which is where a message type the format cannot
+  # {PubSub::Unix}), shared so they compile their pairs once. Each of them compiles
+  # it from its own +#start+, which is where a message type the format cannot
   # represent fails.
+  #
+  # {Sourced::Message::JSONCodec} comes from the sourced-message gem and encodes whole
+  # messages — envelope included — which is what a file body or a socket frame needs.
+  # Sourced's store subclasses it to encode payloads alone, keeping its envelope in
+  # columns; the two compile separately over the same +Plumb::Codec::JSON+ format, so
+  # an encoder registered there serves both.
   def self.message_codec
-    MessageCodec.default
+    Sourced::Message::JSONCodec.default
   end
 
   def self.reset_message_codec!
-    MessageCodec.reset!
+    Sourced::Message::JSONCodec.reset!
   end
 
   def self.register(commander)
@@ -321,7 +327,6 @@ module Sidereal
 end
 
 require_relative 'sidereal/message'
-require_relative 'sidereal/message_codec'
 require_relative 'sidereal/system'
 require_relative 'sidereal/channels'
 require_relative 'sidereal/exceptions'
