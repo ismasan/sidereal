@@ -33,9 +33,13 @@ Gem::Specification.new do |spec|
   spec.executables = spec.files.grep(%r{\Aexe/}) { |f| File.basename(f) }
   spec.require_paths = ['lib']
 
-  # Uncomment to register a new dependency of your gem
-  # 0.2.1 is where FormsCodec landed; Sidereal::FormsCodec subclasses it.
-  spec.add_dependency('sourced-message', '>= 0.2.1')
+  # FormsCodec landed in 0.2.1, which Sidereal::FormsCodec subclasses; 0.2.2 is
+  # the first release built on plumb 0.3.
+  spec.add_dependency('sourced-message', '>= 0.2.2')
+  # Direct, not transitive. Sidereal requires plumb itself (Sidereal::Types),
+  # and app authors register their own encoders on Plumb::Codec::JSON and
+  # Plumb::Codec::Forms, so the codec API is part of Sidereal's public surface.
+  spec.add_dependency('plumb', '~> 0.3')
   spec.add_dependency('rack', '~> 3')
   spec.add_dependency('rack-session')
   spec.add_dependency('phlex')
