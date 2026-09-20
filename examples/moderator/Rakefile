@@ -2,7 +2,10 @@
 
 require_relative 'boot'
 require 'sequel/core'
+require 'yaml'
 Sequel.extension :migration
+
+FIXTURES_PATH = ENV.fetch('FIXTURES', 'config/fixtures.yml')
 
 namespace :db do
   desc 'Run database migrations'
@@ -24,5 +27,28 @@ namespace :db do
     Sourced.store.clear!
     Sourced.store.db[:comments].delete
     puts 'All events and projections deleted.'
+  end
+
+  # Appends the commands to the store; it does not run them. The decider and
+  # projector consume them from a worker, so run this against a live server to
+  # watch the board fill, or before booting one and they are picked up on
+  # startup. Override the file with FIXTURES=path/to/other.yml
+  desc "Dispatch the commands in #{FIXTURES_PATH} (comments land in the inbox)"
+  task :seed do
+    entries = YAML.load_file(FIXTURES_PATH)
+
+    commands = entries.map.with_index(1) do |entry, line|
+      type = entry['type'] or raise "entry #{line} in #{FIXTURES_PATH} has no 'type'"
+      payload = (entry['payload'] || {}).transform_keys(&:to_sym)
+      # Raises Sourced::Message::UnknownMessageError for a type no message
+      # class registers, and Plumb::ParseError for a payload that fails its
+      # schema — both before anything is appended.
+      Sourced::Message.from(type:, payload:)
+    end
+
+    commands.each { |cmd| Sidereal.dispatch!(cmd) }
+
+    puts "Dispatched #{commands.length} commands from #{FIXTURES_PATH}."
+    puts 'Start the server (bundle exec falcon host) to see them processed.'
   end
 end
