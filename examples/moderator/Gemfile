@@ -6,6 +6,7 @@ gem "sidereal", path: "../.."
 gem "falcon"
 gem 'sourced', github: 'ismasan/sourced', branch: 'ccc'
 gem 'sourced-ui', github: 'ismasan/sourced-ui', branch: 'ccc'
+gem 'dotenv', '~> 3.2'
 gem 'sequel'
 gem 'sqlite3'
 gem 'rake'

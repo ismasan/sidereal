@@ -1,6 +1,7 @@
 #!/usr/bin/env falcon-host
 # frozen_string_literal: true
 
+require_relative 'config/env'
 require 'sourced'
 require 'sidereal'
 require 'sidereal/falcon/environment'
