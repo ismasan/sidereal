@@ -32,6 +32,16 @@ class ModeratorApp < Sidereal::App
     end
   end
 
+  # Frozen-snapshot view: the detail page with the comment replayed up to the
+  # Nth message of its stream. Static — no SSE subscription. The step links
+  # and arrows in the event feed point here.
+  get '/comments/:comment_id/:step' do |comment_id:, step:|
+    page = CommentDetailPage.load(params, self)
+    halt 404, 'Not found' unless page.valid_step?
+
+    component page
+  end
+
   # The comment box: append the command, then send the commenter back to a
   # fresh form carrying the new id, so the page can offer a link into the
   # pipeline for that comment.

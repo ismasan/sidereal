@@ -24,6 +24,7 @@ Then:
 - <http://localhost:9297/> — the comment box (`ui:CommentBox`)
 - <http://localhost:9297/comments> — the pipeline board (`ui:PipelineView`)
 - <http://localhost:9297/comments/:comment_id> — one comment's detail card over the board (`ui:DetailView`)
+- <http://localhost:9297/comments/:comment_id/:step> — that comment replayed up to the Nth message of its stream
 - <http://localhost:9297/sourced> — the Sourced event-store dashboard
 
 Runs three Falcon workers by default (`COUNT=1` for one), so two moderators on different processes still see each other's moves through the Unix-socket pubsub.
@@ -48,7 +49,15 @@ Clicking an inbox card only navigates to the detail view. The "Start moderating"
 | `domain/subjects.rb` | hard-coded list of things being commented on |
 | `ui/pipeline_page.rb` | the board, subscribed to `comments.>` |
 | `ui/comment_detail_page.rb` | subclass of the board with the detail card in the middle column |
-| `ui/components/event_feed.rb` | recent messages from `Sourced.store.read_all` |
+| `ui/components/event_feed.rb` | the global log (`read_all`) on the board, one comment's stream (`read_partition`) with step links on the detail view |
+
+## Time travel
+
+The detail view's event feed lists only that comment's own stream, read from its partition. Each row links to `/comments/:comment_id/:step`, which rebuilds the comment from the first N messages of its log and renders that frozen state; arrows in the feed header step back and forward one message at a time. The sidebar always shows the whole history, so you can jump in either direction from any snapshot.
+
+A snapshot subscribes to nothing (`channel_name` is `static`) and suppresses its `page_key`, so `Page.subscribe` returns early and live events never overwrite the frozen render. The card drops its buttons too: the past is not moderatable.
+
+The replay runs through the `Comment` decider itself rather than a separate view class. A decider is already the event-sourced model of one comment, and its `State` struct carries exactly the fields the card reads, so `Comment.new(comment_id:).evolve(messages)` *is* the projection. The chess and donations demos add a `GameView` / `DonationView` because they need derived fields or a merge of two streams; this one does not.
 
 ## Concurrency
 

@@ -54,6 +54,14 @@ class PipelinePage < Sidereal::Page
 
   def detail? = !@detail.nil?
 
+  # Labels the feed when it is showing one comment rather than the whole log.
+  def feed_scope = nil
+
+  # The board's feed is the global log: no step links, no snapshot.
+  def feed_comment_id = nil
+  def current_step = nil
+  def historic? = false
+
   def view_template
     div(
       id: 'pipeline-page',
@@ -66,6 +74,13 @@ class PipelinePage < Sidereal::Page
           nav(class: 'topbar__nav') do
             a(href: "/comments?subject_id=#{@subject.id}", class: 'back') { '← Back' } if detail?
             a(href: "/?subject_id=#{@subject.id}") { 'Comment box →' }
+          end
+        end
+
+        if historic?
+          p(class: 'historic-tag') do
+            plain "Viewing this comment at step #{current_step} — "
+            a(href: "/comments/#{feed_comment_id}") { 'back to live' }
           end
         end
 
@@ -93,7 +108,7 @@ class PipelinePage < Sidereal::Page
               h2(class: 'column__title') { label }
               div(class: 'column__body') do
                 if key == :moderating && detail?
-                  render DetailCard.new(@detail)
+                  render DetailCard.new(@detail, historic: historic?)
                 else
                   render_cards(@board[key])
                 end
@@ -108,7 +123,12 @@ class PipelinePage < Sidereal::Page
         end
       end
 
-      render EventFeed.new(@feed)
+      render EventFeed.new(
+        @feed,
+        scope: feed_scope,
+        comment_id: feed_comment_id,
+        current_step: current_step
+      )
     end
   end
 
