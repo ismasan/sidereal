@@ -296,13 +296,96 @@ button { font: inherit; color: inherit; }
 .spam-count__number { color: var(--spam); font-weight: 900; }
 
 /* Feed */
+.feed__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+.feed__pagination {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-bottom: 0.75rem;
+}
+.feed__position {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.pager-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  border: var(--border) solid var(--line);
+  border-radius: var(--radius-sm);
+  font-weight: 900;
+  line-height: 1;
+  text-decoration: none;
+  background: var(--paper);
+}
+.pager-button:hover { background: var(--paper-2); }
+.pager-button--disabled {
+  border-color: #d5d6dd;
+  color: #d5d6dd;
+  cursor: default;
+}
+.feed__item--current { background: var(--paper-2); }
+.feed__step {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.5rem;
+  padding: 0 0.3rem;
+  border: 1px solid var(--muted);
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 900;
+  color: var(--muted);
+  text-decoration: none;
+  font-variant-numeric: tabular-nums;
+}
+a.feed__step:hover { color: var(--accent); border-color: var(--accent); }
+.feed__item--current .feed__step { color: var(--accent); border-color: var(--accent); }
+.historic-tag {
+  font-weight: 700;
+  color: var(--muted);
+  background: var(--neutral-bg);
+  border: var(--border) solid var(--neutral);
+  border-radius: var(--radius-sm);
+  padding: 0.5rem 0.8rem;
+}
+.historic-tag a { font-weight: 900; color: var(--ink); }
+
 .feed {
   border-left: var(--border) solid var(--line);
   padding: 1.5rem 1.25rem;
   background: var(--paper);
   min-width: 0;
 }
-.feed__title { font-size: 1rem; font-weight: 900; color: var(--muted); margin-bottom: 0.75rem; }
+.feed__title {
+  font-size: 1rem;
+  font-weight: 900;
+  color: var(--muted);
+  margin-bottom: 0.75rem;
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+.feed__scope {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  padding: 0 0.45rem;
+}
 .feed__empty { color: var(--muted); font-weight: 700; }
 .feed__list { list-style: none; margin: 0; padding: 0; }
 
