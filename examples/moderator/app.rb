@@ -8,8 +8,9 @@ require_relative 'ui/comment_detail_page'
 
 class ModeratorApp < Sidereal::App
   # Scoped cookie name so this demo's session doesn't collide with the other
-  # examples on localhost.
-  session secret: 'm' * 64, key: 'sidereal_moderator.session'
+  # examples on localhost. The fallback keeps the demo runnable with no .env;
+  # set SESSION_SECRET to anything else and existing cookies stop validating.
+  session secret: ENV.fetch('SESSION_SECRET', 'm' * 64), key: 'sidereal_moderator.session'
   layout ModeratorLayout
 
   # Stamps the session's commenter id onto every command. Only CreateComment
