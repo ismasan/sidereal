@@ -9,6 +9,7 @@ Based on this Event Lanes model: [Moderator](https://eventlanes.app/models/aad4b
 ```bash
 cd examples/moderator
 bundle install
+cp .env.example .env   # optional — every value has a default
 bundle exec rake db:migrate
 bundle exec falcon host
 ```
@@ -76,6 +77,21 @@ bundle exec rspec
 ```
 
 Decider and projector specs use Sourced's Given/When/Then helpers; no server or SQLite file needed.
+
+## Configuration
+
+Settings come from the environment, loaded from a local `.env` by [dotenv](https://github.com/bkeepers/dotenv). The file is optional: with no `.env` at all every setting falls back to the same default, and a real environment variable always beats the file, so `PORT=8080 bundle exec falcon host` wins regardless. `.env` is gitignored; `.env.example` is the template.
+
+| Variable | Default | Used by |
+| --- | --- | --- |
+| `HOST` | `localhost` | `falcon.rb` |
+| `PORT` | `9297` | `falcon.rb` |
+| `COUNT` | `3` | `falcon.rb` — worker processes; needs to be > 1 to exercise cross-process pubsub |
+| `DATABASE_PATH` | `storage/moderator.db` | `boot.rb` |
+| `SESSION_SECRET` | a fixed dev value | `app.rb` — Rack wants 64+ bytes |
+| `FIXTURES` | `config/fixtures.yml` | `rake db:seed` |
+
+`config/env.rb` does the loading and is required from **both** `falcon.rb` and `boot.rb`, because they run in different processes. The Falcon controller loads `falcon.rb` for the host and port and never loads the app; each forked worker loads `boot.rb` through `config.ru`. Having `falcon.rb` require `boot.rb` instead would open a SQLite connection in the controller, which the fork model deliberately avoids. The path is resolved against the file rather than the working directory, so a rake task or console started from elsewhere still finds it.
 
 ## Fixtures
 

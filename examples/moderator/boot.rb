@@ -1,12 +1,13 @@
 # frozen_string_literal: true
 
+require_relative 'config/env'
 require 'fileutils'
 require 'sequel'
 require 'sqlite3'
 require 'sidereal'
 require 'sidereal/integrations/sourced'
 
-DB_PATH = File.expand_path('storage/moderator.db', __dir__)
+DB_PATH = File.expand_path(ENV.fetch('DATABASE_PATH', 'storage/moderator.db'), __dir__)
 FileUtils.mkdir_p(File.dirname(DB_PATH))
 
 require_relative 'domain/subjects'
