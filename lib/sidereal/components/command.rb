@@ -175,6 +175,24 @@ module Sidereal
         end
       end
 
+      # A +<textarea>+ bound to +command[payload][name]+, wrapped for error
+      # streaming.
+      #
+      # A textarea carries its value as element content rather than a +value+
+      # attribute, so the encoded value is rendered inside the tag; an unset
+      # attribute renders an empty element.
+      #
+      # @param name [Symbol, String] the payload attribute name
+      # @param args [Hash] extra attributes merged onto the +<textarea>+
+      # @return [void]
+      # @example
+      #   f.text_area :body, rows: 6, placeholder: 'Say something'
+      def text_area(name, args = {})
+        with_errors(name) do |id|
+          textarea(**args.merge(id:, name: "command[payload][#{name}]")) { form_value(name) }
+        end
+      end
+
       # A number input bound to +command[payload][name]+, wrapped for error
       # streaming.
       #

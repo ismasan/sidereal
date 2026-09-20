@@ -541,7 +541,7 @@ def view_template
 end
 ```
 
-Field helpers: `text_field`, `number_field`, `date_field`, `check_box`, and `payload_fields` for values the user doesn't edit. Pass a **message instance** instead of a class to prefill the form. Values are converted to and from the payload's declared types on the way in and out — see [Serialization](#serialization).
+Field helpers: `text_field`, `text_area`, `number_field`, `date_field`, `check_box`, and `payload_fields` for values the user doesn't edit. Pass a **message instance** instead of a class to prefill the form. Values are converted to and from the payload's declared types on the way in and out — see [Serialization](#serialization).
 
 ## Layout
 
@@ -1179,6 +1179,7 @@ The same translation runs backwards, so `command` accepts a **message instance**
 # A class — every field renders empty
 command BookCourse do |f|
   f.text_field :course_name   # <input type="text" name="command[payload][course_name]">
+  f.text_area :description    # <textarea name="command[payload][description]"></textarea>
   f.number_field :seats
   f.date_field :starts_on
   f.check_box :published

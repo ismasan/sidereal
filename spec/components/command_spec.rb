@@ -112,6 +112,25 @@ RSpec.describe Sidereal::Components::Command do
       expect(html[/<input[^>]*name="command\[payload\]\[course_name\]"[^>]*>/]).not_to include('value=')
     end
 
+    describe 'text_area' do
+      it 'renders the encoded value as the element content, inside the error wrapper' do
+        html = render_course(command) { |f| f.text_area :course_name, rows: 4 }
+
+        expect(html).to include('id="command_spec_book_course-cmd-course_name-wrapper"')
+        expect(html).to include(
+          '<textarea rows="4" id="command_spec_book_course-cmd-course_name" ' \
+          'name="command[payload][course_name]">Ruby 101</textarea>'
+        )
+        expect(html).to include('id="command_spec_book_course-cmd-course_name-errors"')
+      end
+
+      it 'renders an empty element for a blank command' do
+        html = render_course(CommandSpecBookCourse) { |f| f.text_area :course_name }
+
+        expect(html).to include('name="command[payload][course_name]"></textarea>')
+      end
+    end
+
     it 'encodes payload_fields values, so a Date reaches the browser decodable' do
       html = render_course(command) { |f| f.payload_fields(starts_on: Date.new(2026, 9, 1)) }
 
