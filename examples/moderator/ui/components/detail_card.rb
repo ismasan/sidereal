@@ -11,8 +11,11 @@ class DetailCard < Sidereal::Components::BaseComponent
     ['negative', 'Negative', Comment::MarkNegative]
   ].freeze
 
-  def initialize(comment)
+  # @param historic [Boolean] a frozen snapshot: show the state at that step,
+  #   never the controls — you cannot moderate the past.
+  def initialize(comment, historic: false)
     @c = comment
+    @historic = historic
   end
 
   def view_template
@@ -24,8 +27,9 @@ class DetailCard < Sidereal::Components::BaseComponent
         p(class: 'detail__content') { @c[:content] }
         hr(class: 'detail__rule')
         case @c[:status]
-        when 'pending' then render_pending
-        when 'moderating' then render_moderating
+        when nil then render_not_yet
+        when 'pending' then @historic ? render_status('In the inbox.') : render_pending
+        when 'moderating' then @historic ? render_status('Being moderated.') : render_moderating
         when 'approved' then render_approved
         when 'spam' then render_spam
         end
@@ -41,6 +45,16 @@ class DetailCard < Sidereal::Components::BaseComponent
     article(class: 'detail detail--missing') do
       p(class: 'detail__content') { 'Waiting for this comment to arrive…' }
     end
+  end
+
+  # Step 1 of a comment's history is the command, before the event that
+  # created it — so there is a stream but no comment yet.
+  def render_not_yet
+    p(class: 'detail__hint') { 'This comment did not exist yet at this step.' }
+  end
+
+  def render_status(text)
+    p(class: 'detail__verdict') { text }
   end
 
   def render_pending
