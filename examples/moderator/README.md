@@ -13,6 +13,12 @@ bundle exec rake db:migrate
 bundle exec falcon host
 ```
 
+Optionally fill the inbox with 50 sample comments before or while the server runs:
+
+```bash
+bundle exec rake db:seed
+```
+
 Then:
 
 - <http://localhost:9297/> — the comment box (`ui:CommentBox`)
@@ -61,6 +67,12 @@ bundle exec rspec
 ```
 
 Decider and projector specs use Sourced's Given/When/Then helpers; no server or SQLite file needed.
+
+## Fixtures
+
+`config/fixtures.yml` holds 50 `Comment::CreateComment` commands across the three subjects: a mix of positive, neutral and negative comments plus some spam, from a dozen recurring commenters. `rake db:seed` builds each one through the message registry and appends it with `Sidereal.dispatch!`.
+
+The task appends but does not run the commands. The decider and projector consume them from a worker, so seed against a live server to watch the board fill, or seed first and they are picked up when the server boots. Point it at another file with `FIXTURES=path/to/other.yml`.
 
 ## Reset
 
