@@ -40,6 +40,19 @@ module Sidereal
         @handled_commands ||= {}
       end
 
+      # This app's form serializer, compiled over {.handled_commands} — the
+      # commands a form submission is allowed to name. See {Sidereal::FormsCodec}.
+      #
+      # Reading it compiles, so a subclass that inherits its parent's
+      # +handled_commands+ without calling {.handle} itself still has a working
+      # codec. That compile cannot introduce a new failure: every pair it needs
+      # was already built (and cached) when the parent declared the command.
+      #
+      # @return [Sidereal::FormsCodec]
+      def forms_codec
+        @forms_codec ||= FormsCodec.new(registry: FormsCodec::HandledCommands.new(self)).compile!
+      end
+
       def layout(ly = nil)
         @layout = ly if ly
         @layout || Components::BasicLayout
@@ -238,6 +251,10 @@ module Sidereal
           define_method(method_name, &block)
           private(method_name)
         end
+        # Exposing a command to the web is also the claim that its payload can be
+        # carried by a form, so this is where that is proved. Compiled pairs are
+        # cached per class, so only the commands just added actually build.
+        forms_codec.recompile!
         self
       end
     end
@@ -262,15 +279,20 @@ module Sidereal
       end
     end
 
+    # Form params arrive as Strings, whatever the payload schema declares. The
+    # app's {FormsCodec} types them from that schema — and only the payload:
+    # the envelope is built here, so a request cannot set its own +id+ or date
+    # the command into the future.
     post '/commands' do
-      payload = Types::SymbolizedHash.parse(request.params['command'])
-      cmd_class = self.class.handled_commands[payload[:type]]
+      params = Types::SymbolizedHash.parse(request.params['command'])
+      cmd_class = self.class.handled_commands[params[:type]]
       halt 404, 'unknown command' unless cmd_class
-      cmd = cmd_class.new(payload)
-      if cmd.valid?
-        handle_local_command(cmd)
+
+      result = self.class.forms_codec.resolve(params[:type], params[:payload])
+      if result.valid?
+        handle_local_command(cmd_class.new(payload: result.value))
       else
-        patch_command_errors(cmd.payload.errors)
+        patch_command_errors(result.errors)
       end
     end
 
@@ -336,6 +358,12 @@ module Sidereal
     def pubsub
       Sidereal.pubsub
     end
+
+    # This app's form serializer. Components render through it, reaching it as
+    # +context.forms_codec+.
+    #
+    # @return [Sidereal::FormsCodec]
+    def forms_codec = self.class.forms_codec
 
     private def store
       Sidereal.store

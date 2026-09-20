@@ -133,7 +133,9 @@ RSpec.describe 'Sidereal::Commander on the Sourced runtime' do
   end
 
   before do
-    store.install!
+    # setup! creates the tables and compiles the store's message codec, which
+    # serializes payloads on #append.
+    store.setup!
     router.register(IntgCommander)
   end
 
@@ -169,6 +171,32 @@ RSpec.describe 'Sidereal::Commander on the Sourced runtime' do
       allow(Sourced).to receive(:store).and_return(fake)
       expect(fake).to receive(:append).with(:msg).and_return(:ok)
       expect(config.store.append(:msg)).to eq(:ok)
+    end
+
+    it 'carries an app-registered encoder into Sourced\'s store' do
+      # CodecMoneyEncoder is registered on the global Plumb::Codec::JSON (see
+      # spec/support/codec_fixtures.rb), the way an app registers one. Sourced
+      # knows the type because it compiles against that same global.
+      config = Sidereal::Configuration.new
+      config.use(Sidereal::Integrations::Sourced, store: Sequel.sqlite)
+      Sourced.store.setup!
+
+      msg = CodecPriced.new(payload: { price: CodecMoney.new(cents: 250, currency: 'GBP') })
+      expect(Sourced.store.message_codec.encode(msg)).to eq(price: '250 GBP')
+    end
+
+    it 'keeps the two serializers apart: payload-only for Sourced, whole message for Sidereal' do
+      # Compiled explicitly: nothing compiles a codec on first use, and neither
+      # transport nor store has started here.
+      sourced_codec = Sourced::Store::MessageCodec.default.compile!
+      sidereal_codec = Sourced::Message::JSONCodec.default.compile!
+      expect(sourced_codec).not_to be(sidereal_codec)
+
+      msg = CodecPriced.new(payload: { price: CodecMoney.new(cents: 250, currency: 'GBP') })
+      # Same global encoders, different envelope handling: Sourced encodes the
+      # payload alone (its envelope goes to columns), Sidereal the whole document.
+      expect(sourced_codec.encode(msg).keys).to eq([:price])
+      expect(sidereal_codec.encode(msg)).to include(:type, :id, :created_at, payload: { price: '250 GBP' })
     end
 
     it 'wires Sourced retry/fail reporting to Sidereal.exceptions' do
@@ -239,11 +267,9 @@ RSpec.describe 'Sidereal::Commander on the Sourced runtime' do
   describe 'Sourced::Decider auto-publishes emitted events' do
     include Sourced::Testing::RSpec
 
-    # Register resolvers on the global channels registry; reset around each
-    # example so nothing leaks (and so a booted Host's lock never bites here).
-    before { Sidereal.reset_channels! }
-    after  { Sidereal.reset_channels! }
-
+    # Resolvers go on the global channels registry, which the suite empties
+    # before each example — so nothing leaks between them, and a booted Host's
+    # lock never bites here.
     it 'publishes each emitted event via Sidereal.channels.for — with no manual after_sync' do
       Sidereal.channels.channel_name(IntgWidget::Created) { |m| "widgets.#{m.payload.widget_id}" }
 
@@ -262,9 +288,6 @@ RSpec.describe 'Sidereal::Commander on the Sourced runtime' do
 
   describe 'Sourced::Projector auto-generates + publishes a Projected signal' do
     include Sourced::Testing::RSpec
-
-    before { Sidereal.reset_channels! }
-    after  { Sidereal.reset_channels! }
 
     # Auto-defines MyProjector::Projected (single key) and publishes it end-to-end.
     it 'publishes the Projected signal on the resolved channel after a batch' do

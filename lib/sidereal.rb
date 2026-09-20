@@ -125,6 +125,29 @@ module Sidereal
     @registry = nil
   end
 
+  # Drop every process-global that application classes register into as they
+  # load — the commander registry, the channel-name resolvers, the exception
+  # subscribers, and the compiled message codec. Each is rebuilt empty (or with
+  # its defaults), ready to be filled again by the next generation of classes.
+  #
+  # Call it after (re)loading app classes: tests do so between examples, and it
+  # is the hook a development-mode class reloader would use, so a redefined
+  # commander or message type doesn't leave the previous one registered.
+  #
+  # {.config} is deliberately untouched. It holds deployment wiring — an open
+  # store, a connected pubsub, an elected leader — none of which is derived from
+  # app classes, and all of which would be expensive and disruptive to rebuild
+  # every time code changes.
+  #
+  # @return [self]
+  def self.reload!
+    reset_registry!
+    reset_channels!
+    reset_exceptions!
+    reset_message_codec!
+    self
+  end
+
   def self.scheduler
     @scheduler ||= Scheduler.new
   end
@@ -147,6 +170,14 @@ module Sidereal
     @channels = nil
   end
 
+  # Install a channel-name registry. For hosts and tests that need resolution to
+  # go through a registry they control; {.reset_channels!} restores the default.
+  #
+  # @param channels [Sidereal::Channels]
+  def self.channels=(channels)
+    @channels = channels
+  end
+
   # Process-global exception-subscriber registry. Backends call
   # +report_retry+ / +report_failure+ when their retry/fail policy
   # fires; pre-installed default publishers turn each report into
@@ -158,6 +189,24 @@ module Sidereal
 
   def self.reset_exceptions!
     @exceptions = nil
+  end
+
+  # Process-global serializer for Sidereal's own transports ({Store::FileSystem},
+  # {PubSub::Unix}), shared so they compile their pairs once. Each of them compiles
+  # it from its own +#start+, which is where a message type the format cannot
+  # represent fails.
+  #
+  # {Sourced::Message::JSONCodec} comes from the sourced-message gem and encodes whole
+  # messages — envelope included — which is what a file body or a socket frame needs.
+  # Sourced's store subclasses it to encode payloads alone, keeping its envelope in
+  # columns; the two compile separately over the same +Plumb::Codec::JSON+ format, so
+  # an encoder registered there serves both.
+  def self.message_codec
+    Sourced::Message::JSONCodec.default
+  end
+
+  def self.reset_message_codec!
+    Sourced::Message::JSONCodec.reset!
   end
 
   def self.register(commander)
@@ -278,6 +327,7 @@ module Sidereal
 end
 
 require_relative 'sidereal/message'
+require_relative 'sidereal/forms_codec'
 require_relative 'sidereal/system'
 require_relative 'sidereal/channels'
 require_relative 'sidereal/exceptions'

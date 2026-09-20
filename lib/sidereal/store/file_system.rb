@@ -53,8 +53,13 @@ module Sidereal
         sweep_interval: 60,
         stale_threshold: 300,
         scheduler_interval: DEFAULT_SCHEDULER_INTERVAL,
-        max_in_flight: DEFAULT_MAX_IN_FLIGHT
+        max_in_flight: DEFAULT_MAX_IN_FLIGHT,
+        codec: nil
       )
+        # Resolved on first use, so the store follows whichever instance is
+        # current: {Sidereal.reload!} replaces the shared one, and a codec held
+        # from construction serializes against a stale registry.
+        @codec = codec
         @root = root
         @tmp_dir = File.join(root, 'tmp')
         @ready_dir = File.join(root, 'ready')
@@ -112,6 +117,12 @@ module Sidereal
       # @param message [Sidereal::Message]
       # @return [true]
       def append(message)
+        # Appending is reachable without {#start} — a CLI or rake task calling
+        # Sidereal.dispatch! enqueues a command with no dispatcher running — and the
+        # codec never compiles itself, so this is the other place that has to ask.
+        # Idempotent, so it costs one guard per append once compiled.
+        codec.compile!
+
         now_ns = Process.clock_gettime(Process::CLOCK_REALTIME, :nanosecond)
         created_at_ns = message.created_at.tv_sec * 1_000_000_000 + message.created_at.tv_nsec
         not_before_ns = [created_at_ns, now_ns].max
@@ -141,6 +152,12 @@ module Sidereal
       # Idempotent — safe to call repeatedly.
       def start(task)
         return self if @poller
+
+        # Compile before claiming anything: a message type the format cannot
+        # represent fails here, at boot, instead of when a worker first meets
+        # one. Idempotent, so the pubsub sharing this codec compiles it too
+        # without either needing to know about the other.
+        codec.compile!
 
         # transient: true so these fibers do not keep their parent alive —
         # they are stopped when the parent's other (non-transient)
@@ -414,18 +431,17 @@ module Sidereal
         "#{not_before_ns}-#{first_append_ns}-#{retry_count}-#{Process.pid}-#{SecureRandom.hex(4)}.json"
       end
 
+      def codec = @codec ||= Sidereal.message_codec
+
       def serialize(message)
-        attrs = message.to_h
-        attrs.each do |k, v|
-          attrs[k] = v.iso8601(6) if v.is_a?(Time)
-        end
-        JSON.dump(attrs)
+        JSON.dump(codec.encode(message))
       end
 
       def deserialize(json_str)
-        attrs = JSON.parse(json_str, symbolize_names: true)
-        # Resolve from the shared root registry (sees Sidereal + Sourced types).
-        Sourced::Message.from(attrs)
+        # The codec resolves the class from the shared root registry (so it sees
+        # Sidereal and Sourced types alike) and decodes the whole message,
+        # payload included, back into the types its schema declares.
+        codec.decode(JSON.parse(json_str, symbolize_names: true))
       end
     end
   end

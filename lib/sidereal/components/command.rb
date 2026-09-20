@@ -83,8 +83,10 @@ module Sidereal
         end
       end
 
-      # @param command_class [Class<Sidereal::Message>] the command to submit;
-      #   instantiated to read its {Sidereal::Message#type}
+      # @param command [Class<Sidereal::Message>, Sidereal::Message] the command
+      #   to submit. A class renders a blank form; an instance renders its
+      #   payload into the fields, each value encoded to the String an +<input>+
+      #   carries by +context.forms_codec+ (see {Sidereal::FormsCodec}).
       # @param attrs [Hash] form attributes; the following keys are consumed and
       #   the rest are passed through to the +<form>+ element:
       # @option attrs [String, Array<String>] :on ('submit') DOM event(s) that
@@ -95,12 +97,12 @@ module Sidereal
       # @option attrs [#to_s] :key ('cmd') discriminator for the id prefix — pass
       #   a stable, per-instance value when the same command type is rendered
       #   multiple times on one page
-      def initialize(command_class, attrs = {})
+      def initialize(command, attrs = {})
         @on = [attrs.delete(:on) || 'submit'].flatten
         @href = attrs.delete(:href) || '/commands'
         @ajax = attrs.key?(:ajax) ? attrs.delete(:ajax) : true
         @key = attrs.delete(:key) || 'cmd'
-        @command = command_class.new
+        @command = command.is_a?(Class) ? command.new : command
         @attrs = attrs
         # Deterministic id prefix so the same form morphs in place across
         # re-renders (random ids would make idiomorph replace the elements).
@@ -138,13 +140,23 @@ module Sidereal
       # have no wrapper or error +<span>+ — use {#text_field} et al. for fields
       # that need validation feedback.
       #
+      # Values are given as Ruby values and encoded on the way into the +value+
+      # attribute, so a Date or Time reaches the browser in the form the codec
+      # decodes rather than in whatever +#to_s+ happens to render. They are
+      # encoded as attributes *of this command* — merged into it and run through
+      # the same pass that renders the visible fields — so a hidden field and a
+      # text field carrying the same attribute always agree.
+      #
       # @param fields [Hash{Symbol=>Object}] payload key/value pairs
+      # @raise [ArgumentError] if the payload declares no such attribute
       # @return [void]
       # @example
       #   f.payload_fields(todo_id: todo.todo_id, done: true)
       def payload_fields(fields = {})
-        fields.each do |key, value|
-          input(type: 'hidden', name: "command[payload][#{key}]", value:)
+        encoded = encode_payload(command.with_payload(fields), declared: fields.keys)
+
+        fields.each_key do |key|
+          input(type: 'hidden', name: "command[payload][#{key}]", value: encoded[key.to_sym])
         end
       end
 
@@ -152,13 +164,14 @@ module Sidereal
       # streaming.
       #
       # @param name [Symbol, String] the payload attribute name
-      # @param args [Hash] extra attributes merged onto the +<input>+
+      # @param args [Hash] extra attributes merged onto the +<input>+; an
+      #   explicit +:value+ wins over the command's own
       # @return [void]
       # @example
       #   f.text_field :title, placeholder: 'What needs doing?'
       def text_field(name, args = {})
         with_errors(name) do |id|
-          input **args.merge(id:, type: 'text', name: "command[payload][#{name}]")
+          input(value: form_value(name), **args.merge(id:, type: 'text', name: "command[payload][#{name}]"))
         end
       end
 
@@ -170,21 +183,53 @@ module Sidereal
       # @return [void]
       def number_field(name, args = {})
         with_errors(name) do |id|
-          input **args.merge(id:, type: 'number', name: "command[payload][#{name}]")
+          input(value: form_value(name), **args.merge(id:, type: 'number', name: "command[payload][#{name}]"))
+        end
+      end
+
+      # A date input bound to +command[payload][name]+, wrapped for error
+      # streaming.
+      #
+      # The browser submits +YYYY-MM-DD+, which is the form the codec decodes
+      # into a Date and the form it encodes one back to — so a +Types::Date+
+      # attribute round-trips with no conversion of your own.
+      #
+      # @param name [Symbol, String] the payload attribute name
+      # @param args [Hash] extra attributes merged onto the +<input>+
+      # @return [void]
+      def date_field(name, args = {})
+        with_errors(name) do |id|
+          input(value: form_value(name), **args.merge(id:, type: 'date', name: "command[payload][#{name}]"))
         end
       end
 
       # A checkbox bound to +command[payload][name]+, wrapped for error
       # streaming.
       #
+      # Two inputs share the name, because an unchecked box submits nothing at
+      # all. Rack keeps the last value for a repeated key, so a checked box
+      # sends +"1"+ and an unchecked one the hidden +"0"+ — the two strings
+      # Plumb's Forms codec reads as +true+ and +false+.
+      #
       # @param name [Symbol, String] the payload attribute name
       # @param args [Hash] extra attributes merged onto the +<input>+
       # @return [void]
       def check_box(name, args = {})
         with_errors(name) do |id|
-          input **args.merge(id: ,type: 'checkbox', name: "command[payload][#{name}]")
+          input(type: 'hidden', name: "command[payload][#{name}]", value: '0')
+          input(
+            checked: payload_value(name) == true,
+            **args.merge(id:, type: 'checkbox', value: '1', name: "command[payload][#{name}]")
+          )
         end
       end
+
+      # The command being rendered, holding its Ruby values — a Boolean is
+      # +true+, a Date a Date. Only what an +<input>+ literally carries is ever a
+      # String, so form blocks can branch on this directly.
+      #
+      # @return [Sidereal::Message]
+      attr_reader :command
 
       private
 
@@ -217,7 +262,53 @@ module Sidereal
         end
       end
 
-      attr_reader :command, :hidden_payload
+      # One attribute's Ruby value, for the field helpers that branch on a value
+      # rather than render it (a checkbox's +checked+).
+      #
+      # @param name [Symbol, String] the payload attribute name
+      # @return [Object, nil] nil when the command declares no payload, or the
+      #   attribute is unset
+      def payload_value(name)
+        command.payload&.to_h&.[](name.to_sym)
+      end
+
+      # The same value as the String the +value+ attribute carries, from the one
+      # encode pass. An attribute that is unset — or that the command holds in a
+      # form the codec cannot render — is absent, so no +value+ is emitted at all,
+      # which is what a blank field wants.
+      #
+      # @param name [Symbol, String] the payload attribute name
+      # @return [String, nil]
+      def form_value(name)
+        form_values[name.to_sym]
+      end
+
+      # Encoded once per render, not once per field. The codec resolves the whole
+      # payload in a single pass, which shares work across attributes and — being
+      # non-raising and per-key — copes with the blank and half-filled commands
+      # every form is rendered from.
+      def form_values
+        @form_values ||= encode_payload(command)
+      end
+
+      # @param message [Sidereal::Message] the command whose payload to encode
+      # @param declared [Array<Symbol>, nil] attribute names to verify against the
+      #   payload schema first. +#with_payload+ drops keys the payload does not
+      #   declare, which would silently render an empty hidden field.
+      # @return [Hash{Symbol => String}] only the attributes that could be encoded
+      def encode_payload(message, declared: nil)
+        if declared
+          unknown = declared.map(&:to_sym) - message.class.payload_attribute_names
+          unless unknown.empty?
+            raise ArgumentError, "#{message.type} declares no payload attribute #{unknown.join(', ')}"
+          end
+        end
+
+        encoded = context.forms_codec.encode_payload(message).value
+        # A command declaring no payload encodes to the empty string the Forms
+        # codec renders nil as, not to a hash of attributes. It has no fields.
+        encoded.is_a?(Hash) ? encoded : BLANK_HASH
+      end
     end
   end
 end

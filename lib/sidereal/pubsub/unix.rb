@@ -40,8 +40,13 @@ module Sidereal
         reconnect_min: 0.05,
         reconnect_max: 0.5,
         write_queue_size: DEFAULT_WRITE_QUEUE,
-        elector: nil
+        elector: nil,
+        codec: nil
       )
+        # Resolved on first use, so the pubsub follows whichever instance is
+        # current: {Sidereal.reload!} replaces the shared one, and a codec held
+        # from construction serializes against a stale registry.
+        @codec = codec
         @socket_path = File.expand_path(socket_path)
         validate_socket_path!(@socket_path)
 
@@ -85,6 +90,12 @@ module Sidereal
           return self if @started
           @started = true
         end
+
+        # Compile before any frame is written or read: a message type the format
+        # cannot represent fails here, at boot, instead of on the first publish.
+        # Idempotent, so the store sharing this codec compiles it too without
+        # either needing to know about the other.
+        codec.compile!
 
         elector = @elector || Sidereal.elector
         elector.on_promote { setup_broker(task) }
@@ -142,6 +153,13 @@ module Sidereal
       def publish(channel_name, event)
         Pattern.validate_publish!(channel_name)
         ensure_started
+
+        # Publishing is reachable without {#start}: +ensure_started+ is a no-op
+        # outside an Async reactor, and a publisher may sit between EOF and
+        # reconnect during a failover. The codec never compiles itself, so this is
+        # the other place that has to ask. Idempotent, so it costs one guard per
+        # publish once compiled.
+        codec.compile!
 
         deliver_local(channel_name, event)
 
@@ -225,17 +243,18 @@ module Sidereal
         targets&.each { |ch| ch << event }
       end
 
+      def codec = @codec ||= Sidereal.message_codec
+
       def encode_frame(channel_name, event)
-        attrs = event.to_h
-        attrs.transform_values! { |v| v.is_a?(Time) ? v.iso8601(6) : v }
-        JSON.generate(channel: channel_name, msg: attrs) << "\n"
+        JSON.generate(channel: channel_name, msg: codec.encode(event)) << "\n"
       end
 
       def decode_frame(line)
         parsed = JSON.parse(line, symbolize_names: true)
-        # Resolve from the shared root registry so frames carrying Sourced types
-        # (not just Sidereal's) decode on the receiving process.
-        [parsed[:channel], Sourced::Message.from(parsed[:msg])]
+        # The codec resolves the class from the shared root registry, so frames
+        # carrying Sourced types (not just Sidereal's) decode on the receiving
+        # process, with payload values restored to their declared types.
+        [parsed[:channel], codec.decode(parsed[:msg])]
       end
 
       def validate_socket_path!(path)

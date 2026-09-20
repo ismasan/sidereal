@@ -6,6 +6,8 @@ require 'sidereal/pubsub/unix'
 require 'sidereal/elector/file_system'
 require 'pstore'
 require 'securerandom'
+# Teaches both codecs the Money type, before any message declares one.
+require_relative 'money'
 
 Sidereal.configure do |c|
   c.elector = Sidereal::Elector::FileSystem.new(lock_path: 'storage/sidereal-leader.lock')
@@ -15,15 +17,22 @@ end
 
 # -- Messages --
 
+# :amount is a Money, an app type neither wire format knows natively — see
+# money.rb for the encoder each one gets.
 SelectAmount = Sidereal::Message.define('donations.select_amount') do
   attribute :donation_id, Sidereal::Types::AutoUUID
-  attribute :amount, Sidereal::Types::Lax::Integer.present
+  attribute :amount, Sidereal::Types::Any[Money]
 end
 
+# Declared in the types the app wants to work with — a real Date, a real
+# Boolean — not the Strings the form carries. Sidereal::FormsCodec translates at
+# the boundary, in both directions.
 EnterDonorDetails = Sidereal::Message.define('donations.enter_donor_details') do
   attribute :donation_id, Sidereal::Types::UUID::V4
   attribute :name, Sidereal::Types::String.present
   attribute :email, Sidereal::Types::Email.present
+  attribute :dob, Sidereal::Types::Date
+  attribute :newsletter, Sidereal::Types::Boolean
 end
 
 SendVerificationEmail = Sidereal::Message.define('donations.send_verification_email') do
@@ -66,6 +75,8 @@ Donation = Struct.new(
   :amount,
   :name,
   :email,
+  :dob,
+  :newsletter,
   :status,
   :verification_token,
   :verification_link,
@@ -125,7 +136,7 @@ module DonationStore
   end
 end
 
-DONATION_AMOUNTS = [5, 10, 30, 50].freeze
+DONATION_AMOUNTS = [5, 10, 30, 50].map { |units| Money.euros(units) }.freeze
 DONATION_TIMEOUT_SECONDS = 60
 
 module MockPaymentService
@@ -139,8 +150,10 @@ end
 module StripeGateway
   module_function
 
+  # A real gateway wants minor units and a currency code as separate fields,
+  # which is what a Money already is.
   def authorize(amount:, email:)
-    digest = [amount, email, Time.now.to_f, SecureRandom.hex(2)].join(':')
+    digest = [amount.cents, amount.currency, email, Time.now.to_f, SecureRandom.hex(2)].join(':')
     "stripe_mock_#{digest.hash.abs.to_s(36)}"
   end
 end
@@ -198,6 +211,10 @@ class DonationsApp < Sidereal::App
 
     donation.name = cmd.payload.name
     donation.email = cmd.payload.email
+    # Already a Date and a true/false by the time the handler sees them, so
+    # date arithmetic and a plain `if` work without parsing anything.
+    donation.dob = cmd.payload.dob
+    donation.newsletter = cmd.payload.newsletter
     donation.status = 'details_entered'
     DonationStore.upsert(donation)
 

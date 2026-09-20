@@ -387,8 +387,6 @@ RSpec.describe Sidereal::Commander do
   end
 
   describe '#broadcast' do
-    before { Sidereal.reset_channels! }
-
     it 'publishes to the channel resolved by Sidereal.channels.for' do
       Sidereal.channels.channel_name(TestNotification) { |_| 'test-ch' }
 

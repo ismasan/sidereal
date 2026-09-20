@@ -10,6 +10,14 @@ UnixPubSubMsg = Sidereal::Message.define('unix_pubsub_spec.event') do
   attribute :tag, Sidereal::Types::String
 end
 
+# Payload of non-JSON-native types — the codec has to carry these over the
+# socket and back.
+UnixPubSubRich = Sidereal::Message.define('unix_pubsub_spec.rich') do
+  attribute :at, Sidereal::Types::Time
+  attribute :on, Sidereal::Types::Date
+  attribute :kind, Sidereal::Types::Symbol
+end
+
 RSpec.describe Sidereal::PubSub::Unix do
   around(:each) do |example|
     # Use /tmp directly so socket paths fit inside the 104-byte sun_path limit
@@ -49,11 +57,31 @@ RSpec.describe Sidereal::PubSub::Unix do
     received
   end
 
+  describe '#start' do
+    it 'compiles the codec it serializes with, so an unrepresentable type fails at boot' do
+      codec = Sourced::Message::JSONCodec.new
+      pubsub = build_pubsub(codec: codec)
+
+      Sync { |task| expect { pubsub.start(task) }.to change(codec, :compiled?).from(false).to(true) }
+    end
+  end
+
   describe 'exact-match subscription' do
     it 'delivers messages published to the exact channel name' do
       evt = UnixPubSubMsg.new(payload: { tag: 'a' })
       received = collect_from('donations.111', ->(p) { p.publish('donations.111', evt) })
       expect(received.map { |m| m.payload.tag }).to eq(['a'])
+    end
+
+    it 'round-trips payload values as the types their schema declares' do
+      evt = UnixPubSubRich.new(payload: { at: Time.at(1_735_689_600).utc, on: Date.new(2026, 1, 2), kind: :urgent })
+      received = collect_from('rich.1', ->(p) { p.publish('rich.1', evt) })
+
+      expect(received.size).to eq(1)
+      payload = received.first.payload
+      expect(payload.at).to be_a(Time).and eq(evt.payload.at)
+      expect(payload.on).to be_a(Date).and eq(Date.new(2026, 1, 2))
+      expect(payload.kind).to eq(:urgent)
     end
 
     it 'does not deliver messages from other channels' do
