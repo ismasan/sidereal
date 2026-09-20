@@ -76,6 +76,15 @@ class Comment < Sourced::Decider
     attribute :comment_id, Sourced::Types::UUID::V4
   end
 
+  # ---- Display ----
+
+  # Message types that belong to one comment's stream: its commands and its
+  # events. Used as the filter for the per-comment partition read behind the
+  # detail view's event feed.
+  def self.display_types
+    (handled_messages + handled_messages_for_evolve).uniq.map(&:type)
+  end
+
   # ---- State ----
 
   State = Struct.new(
