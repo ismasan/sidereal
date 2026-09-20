@@ -1,0 +1,124 @@
+# frozen_string_literal: true
+
+require_relative 'components/subject_picker'
+require_relative 'components/comment_card'
+require_relative 'components/detail_card'
+require_relative 'components/event_feed'
+
+# ui:PipelineView — the three-column moderation board for one subject, plus
+# the global event feed. Re-rendered whole on every comment event (so the
+# feed stays live) and on every projector commit (so the columns do).
+class PipelinePage < Sidereal::Page
+  path '/comments'
+
+  on CommentsProjector::Projected,
+     Comment::CommentCreated,
+     Comment::ModerationStarted,
+     Comment::MarkedPositive,
+     Comment::MarkedNeutral,
+     Comment::MarkedNegative,
+     Comment::MarkedSpam do |_evt|
+    browser.patch_elements load(params)
+  end
+
+  COLUMNS = [
+    [:pending, 'Inbox'],
+    [:moderating, 'Moderating'],
+    [:approved, 'Moderated']
+  ].freeze
+
+  def self.load(params, _ctx)
+    subject = Subjects.find(params[:subject_id]) || Subjects.first
+    new(
+      subject: subject,
+      board: CommentsProjector.board_for(subject.id),
+      spam_count: CommentsProjector.spam_count(subject.id),
+      feed: EventFeed.recent
+    )
+  end
+
+  def initialize(subject:, board:, spam_count:, feed:, detail: nil)
+    @subject = subject
+    @board = board
+    @spam_count = spam_count
+    @feed = feed
+    @detail = detail
+  end
+
+  # Every comment's channel plus the projector's Projected signal.
+  def channel_name = 'comments.>'
+
+  # Which column the phone layout opens on. `__ifmissing` keeps a tab the
+  # moderator picked across SSE re-renders.
+  def default_tab = 'pending'
+
+  def detail? = !@detail.nil?
+
+  def view_template
+    div(
+      id: 'pipeline-page',
+      class: 'pipeline',
+      data: { 'signals__ifmissing' => { tab: default_tab }.to_json }
+    ) do
+      div(class: 'pipeline__main') do
+        header(class: 'topbar') do
+          a(href: '/', class: 'brand') { 'Moderator' }
+          nav(class: 'topbar__nav') do
+            a(href: "/comments?subject_id=#{@subject.id}", class: 'back') { '← Back' } if detail?
+            a(href: "/?subject_id=#{@subject.id}") { 'Comment box →' }
+          end
+        end
+
+        render SubjectPicker.new(subject: @subject, action: '/comments')
+
+        nav(class: 'tabs', aria_label: 'Pipeline stage') do
+          COLUMNS.each do |key, label|
+            button(
+              type: 'button',
+              class: 'tab',
+              data: { 'on:click' => "$tab = '#{key}'", 'class:is-active' => "$tab === '#{key}'" }
+            ) do
+              plain label
+              span(class: 'tab__count') { @board[key].length.to_s }
+            end
+          end
+        end
+
+        div(class: 'board') do
+          COLUMNS.each do |key, label|
+            section(
+              class: "column column--#{key}",
+              data: { 'class:is-active' => "$tab === '#{key}'" }
+            ) do
+              h2(class: 'column__title') { label }
+              div(class: 'column__body') do
+                if key == :moderating && detail?
+                  render DetailCard.new(@detail)
+                else
+                  render_cards(@board[key])
+                end
+              end
+            end
+          end
+        end
+
+        footer(class: 'spam-count') do
+          strong(class: 'spam-count__number') { @spam_count.to_s }
+          plain ' classified as spam.'
+        end
+      end
+
+      render EventFeed.new(@feed)
+    end
+  end
+
+  private def render_cards(comments)
+    if comments.empty?
+      p(class: 'column__empty') { 'Nothing here.' }
+    else
+      comments.each do |c|
+        render CommentCard.new(c, current: !@detail.nil? && @detail[:comment_id] == c[:comment_id])
+      end
+    end
+  end
+end
