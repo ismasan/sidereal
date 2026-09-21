@@ -60,7 +60,7 @@ class DetailCard < Sidereal::Components::BaseComponent
   def render_pending
     p(class: 'detail__hint') { 'This comment is in the inbox. Take it to start moderating.' }
     command Comment::StartModeration, class: 'detail__action', key: @c[:comment_id] do |f|
-      f.payload_fields(comment_id: @c[:comment_id])
+      f.payload_fields(comment_id: @c[:comment_id], started_by: 'moderator')
       button(type: :submit, class: 'button button--primary') { 'Start moderating' }
     end
   end
