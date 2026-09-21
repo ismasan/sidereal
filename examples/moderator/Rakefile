@@ -52,3 +52,23 @@ namespace :db do
     puts 'Start the server (bundle exec falcon host) to see them processed.'
   end
 end
+
+# boot.rb is already loaded at the top of this file, so the session comes up
+# with the domain (Comment, CommentsProjector, Subjects) and a configured
+# Sourced store. The UI (app.rb, the pages) is not loaded — require it from
+# the prompt if you want it.
+desc 'Start an IRB session with boot.rb loaded'
+task :console do
+  require 'irb'
+
+  puts <<~BANNER
+    Moderator console — store: #{DB_PATH}
+      Subjects.all                               # the things people comment on
+      CommentsProjector.board_for(Subjects.first.id)
+      Sidereal.dispatch!(Comment::CreateComment.new(payload: { ... }))
+  BANNER
+
+  # IRB parses ARGV itself, and rake's own arguments are still in there.
+  ARGV.clear
+  IRB.start
+end
