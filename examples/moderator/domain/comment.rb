@@ -14,6 +14,10 @@ class Comment < Sourced::Decider
 
   STATUSES = %w[pending moderating approved spam].freeze
   VIBES = %w[unknown positive neutral negative].freeze
+  # Who took the comment into moderation. Both the human clicking "Start
+  # moderating" and the Classifier automation emit the same event, so the
+  # actor has to be recorded on it for either side to tell them apart.
+  STARTED_BY = %w[moderator classifier].freeze
 
   # ---- Commands ----
 
@@ -29,6 +33,7 @@ class Comment < Sourced::Decider
 
   StartModeration = Sourced::Command.define('comments.start_moderation') do
     attribute :comment_id, Sourced::Types::UUID::V4
+    attribute :started_by, Sourced::Types::String.options(STARTED_BY)
   end
 
   MarkPositive = Sourced::Command.define('comments.mark_positive') do
@@ -58,6 +63,7 @@ class Comment < Sourced::Decider
 
   ModerationStarted = Sourced::Event.define('comments.moderation_started') do
     attribute :comment_id, Sourced::Types::UUID::V4
+    attribute :started_by, Sourced::Types::String.options(STARTED_BY)
   end
 
   MarkedPositive = Sourced::Event.define('comments.marked_positive') do
@@ -153,7 +159,9 @@ class Comment < Sourced::Decider
   command(StartModeration) do |state, cmd|
     return unless state.status == 'pending'
 
-    event ModerationStarted, comment_id: cmd.payload.comment_id
+    event ModerationStarted,
+      comment_id: cmd.payload.comment_id,
+      started_by: cmd.payload.started_by
   end
 
   command(MarkPositive) do |state, cmd|
