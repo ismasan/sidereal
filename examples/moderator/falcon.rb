@@ -11,14 +11,13 @@ require 'sidereal/falcon/environment'
 #   HOST=0.0.0.0 PORT=80 bundle exec falcon host falcon.rb
 HOST = ENV.fetch('HOST', 'localhost')
 PORT = ENV.fetch('PORT', '9297')
-# One process, because the event store is SQLite and every Falcon worker runs
-# its own Sourced dispatcher: more processes means more concurrent writers to
-# one file, which at boot shows up as `database is locked`. Raise COUNT when
-# the store can take it — the Unix-socket pubsub (see boot.rb) already carries
-# SSE updates across processes, so nothing else needs to change. Computed out
-# here: the service block is instance_eval'd on a builder where Kernel#Integer
-# isn't available.
-COUNT = Integer(ENV.fetch('COUNT', '1'))
+# Worker processes. The Sourced runtime (dispatcher, reactors, the classifier)
+# runs on the elected leader only (see boot.rb); the other workers serve pages
+# and append commands, so there is still one set of SQLite writers however many
+# processes serve HTTP. The Unix-socket pubsub carries SSE updates across all
+# of them. Computed out here: the service block is instance_eval'd on a builder
+# where Kernel#Integer isn't available.
+COUNT = Integer(ENV.fetch('COUNT', '3'))
 
 service "sidereal-moderator" do
   include Sidereal::Falcon::Environment

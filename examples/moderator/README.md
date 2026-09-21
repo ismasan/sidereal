@@ -28,7 +28,7 @@ Then:
 - <http://localhost:9297/comments/:comment_id/:step> — that comment replayed up to the Nth message of its stream
 - <http://localhost:9297/sourced> — the Sourced event-store dashboard
 
-Runs a single Falcon process by default, because the event store is SQLite (see below). The Unix-socket pubsub is wired up regardless, so raising `COUNT` is all it takes to fan SSE updates across processes.
+Runs three Falcon processes by default. The Sourced runtime runs on the elected leader only; the other two serve pages and append commands, and the Unix-socket pubsub fans SSE updates across all of them (see below). Set `COUNT` to change it.
 
 ## Flow
 
@@ -158,13 +158,13 @@ Decider and projector specs use Sourced's Given/When/Then helpers; no server or 
 
 ## SQLite and worker processes
 
-Every Falcon worker loads `boot.rb` and starts its own Sourced dispatcher, so the process count is also the dispatcher count. SQLite takes one write lock at a time, and at boot — when every consumer group is discovering partitions and draining the backlog at once — a writer that waits past its busy timeout raises `SQLite3::BusyException: database is locked`. With three workers, each running two worker fibers with a connection apiece, that happened reliably.
+Every Falcon worker loads `boot.rb`, but only the elected leader starts the Sourced dispatcher: `Sidereal::Integrations::Sourced` sets `dispatcher_process = :leader`, and `Sidereal::Host` starts the dispatcher from the elector's promote callback instead of at boot. The other workers serve HTTP, append commands to the store, and receive SSE updates over the Unix-socket pubsub. If the leader dies, its successor is promoted and starts its own dispatcher.
 
-So `falcon.rb` runs one process. Concurrency comes from worker fibers inside it instead (see the classifier section), which share one process's connections rather than spreading across three processes'. `boot.rb` additionally begins transactions as `IMMEDIATE` and allows a 15s wait for the lock.
+That matters because the event store is SQLite, which takes one write lock at a time. When every worker ran its own dispatcher, boot — with every consumer group discovering partitions and draining the backlog at once — reliably raised `SQLite3::BusyException: database is locked` at three processes. With one dispatcher there is one set of reactor writers, and the only extra contention from more processes is the appends their HTTP requests make.
 
-Raising `COUNT` is a supported experiment rather than a recommendation: the pubsub and leader election are already cross-process, so SSE fan-out works, but the store becomes the bottleneck. For genuinely concurrent workers, use Postgres.
+Concurrency inside the leader comes from Sourced worker fibers (see the classifier section), each with its own connection. `boot.rb` additionally begins transactions as `IMMEDIATE` and allows a 15s wait for the lock, which covers the appends arriving from the other workers.
 
-The structural alternative is to run the dispatcher in only one process while serving HTTP from several. Sidereal already elects a leader for the pubsub broker (`Sidereal.config.elector.leader?`), but `Host#start` starts the dispatcher in every worker regardless.
+For genuinely concurrent dispatchers across processes, use Postgres and set `c.dispatcher_process = :all` after `c.use Sidereal::Integrations::Sourced`.
 
 ## Configuration
 
@@ -174,7 +174,7 @@ Settings come from the environment, loaded from a local `.env` by [dotenv](https
 | --- | --- | --- |
 | `HOST` | `localhost` | `falcon.rb` |
 | `PORT` | `9297` | `falcon.rb` |
-| `COUNT` | `1` | `falcon.rb` — Falcon worker processes; each runs its own Sourced dispatcher, so more than one contends on SQLite |
+| `COUNT` | `3` | `falcon.rb` — Falcon worker processes; the Sourced dispatcher runs on the elected leader only |
 | `DATABASE_PATH` | `storage/moderator.db` | `boot.rb` |
 | `SESSION_SECRET` | a fixed dev value | `app.rb` — Rack wants 64+ bytes |
 | `FIXTURES` | `config/fixtures.yml` | `rake db:seed` |

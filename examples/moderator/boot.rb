@@ -18,9 +18,11 @@ require_relative 'domain/comments_projector'
 # Each forked Falcon worker loads this file in its own process, so the
 # Sourced store and reactors are established fresh per worker (SQLite
 # connections aren't fork-safe, but nothing is inherited across the fork).
-# SQLite settings. `falcon.rb` runs one process, so there is one dispatcher,
-# but Sourced's `fiber_concurrency` extension still gives each of its worker
-# fibers its own connection — a handful of writers against one file.
+# SQLite settings. The Sourced dispatcher runs on the elected leader only, so
+# there is one dispatcher however many Falcon processes serve HTTP, but
+# Sourced's `fiber_concurrency` extension still gives each of its worker
+# fibers its own connection — a handful of writers against one file, plus the
+# appends coming in from the other workers' HTTP requests.
 #
 # Sourced's store already begins its own writes as IMMEDIATE. Setting the mode
 # on the connection covers the transactions that don't go through that helper
@@ -28,7 +30,6 @@ require_relative 'domain/comments_projector'
 # room to wait for the lock rather than raising `database is locked`. Sequel
 # applies `timeout` to every connection it opens, unlike a bare
 # `PRAGMA busy_timeout`, which only reaches whichever pooled connection ran it.
-# Both matter more if you raise COUNT.
 Sourced.configure do |config|
   # Worker fibers are shared by every consumer group, and a fiber is occupied
   # for the whole of a reaction — including the Classifier's model call, which
@@ -63,7 +64,9 @@ unless ENV['TEST']
     # COUNT > 1 in falcon.rb.
     c.use_file_system!
     # Sourced's SQLite store + dispatcher instead of the FS store, plus the
-    # error bridge that turns Sourced retries/failures into UI toasts.
+    # error bridge that turns Sourced retries/failures into UI toasts. Also
+    # pins the dispatcher to the elected leader, so only one process runs
+    # reactors against SQLite; the rest append commands and serve pages.
     c.use Sidereal::Integrations::Sourced
   end
 end
