@@ -931,6 +931,17 @@ end
 
 A custom store must respond to `#append(message)`. A custom dispatcher must respond to `.start(task)` (class-level) and `#stop`.
 
+**Which process runs the dispatcher.** `c.dispatcher_process` is `:all` by default: every process starts a dispatcher at boot. Set it to `:leader` and only the process holding `Sidereal.elector` starts one — the same rule the [Scheduler](#multi-process-only-the-leader-runs-the-scheduler) follows. The dispatcher is stopped if that process is demoted, and the next leader starts its own. Web requests keep appending commands from every process; only the consuming side is pinned. That is the right shape for a backend that serializes writers (Sourced on SQLite, where the [Sourced integration](#using-sourced-as-a-backend) sets it for you): reads scale across workers while handler and projection writes come from one.
+
+```ruby
+Sidereal.configure do |c|
+  c.use_file_system!            # a cross-process elector is what makes :leader meaningful
+  c.dispatcher_process = :leader
+end
+```
+
+With the default `Elector::AlwaysLeader` every process is leader, so the two modes coincide. A dispatcher that fails to start on a *later* promotion (after a failover) is logged by the elector's callback guard rather than failing the boot, since promotion happens after boot.
+
 **Multi-process shortcut.** `c.use_file_system!` switches the store, pubsub, **and** elector to their filesystem / unix-socket implementations in one call — the combination needed to run across multiple Falcon workers on one host (a shared on-disk queue, a unix-socket pubsub broker, and file-lock leader election). Files and the socket live under `dir:` (default `./storage`, relative to the working directory). Override any individual collaborator afterward:
 
 ```ruby
@@ -1406,7 +1417,9 @@ end
 
 - **Auto-publish to PubSub** — Deciders' emitted events and Projectors' updates are published to Sidereal's PubSub automatically (see [Auto-publish](#auto-publish) below), so Pages re-render over SSE with no hand-written bridge code in your reactors.
 - **Error toasts / reporting** — Sourced's retry and terminal-failure events are reported to `Sidereal.exceptions`, so the [default error toasts](#default-dev-ui-error-toasts) appear and any `on_retry` / `on_failure` / `on_fatal` subscribers (e.g. an APM hook) fire. When Sourced is the dispatcher it owns retry/fail orchestration, so Sidereal's *automatic* exception reporting doesn't run — this bridge is what surfaces failures in the UI.
-- **Fork safety** — under the default Falcon setup each worker loads `boot.rb` in its own process, and the dispatcher calls `Sourced.setup!` on start, so a callable store (or a per-worker `Sourced.configure`) opens a fresh SQLite connection per worker. Nothing is inherited across the fork, so there is no stale-connection problem and no post-fork reconnection step to wire up.
+- **Leader-only runtime** — the integration sets `c.dispatcher_process = :leader` (see [Custom backends](#custom-backends)), so only the elected process runs the Sourced runtime — commanders, deciders and projectors. SQLite serializes writers, so N runtimes on N workers would queue on each other; with one, the other workers serve pages and queries in parallel. Every worker still appends commands (a form post appends from whichever worker served it); it is the claiming, handling and projecting that runs in one place. Set `c.dispatcher_process = :all` after `use` to run a runtime on every worker again.
+- **Cross-process wake-ups** — Sourced's store announces appends through a notifier that its dispatcher listens on, so a worker picks new messages up at once rather than on the next catch-up poll. Sourced's default notifier is in-process, which a leader-only runtime would defeat: an append on another worker would wait for the poll. The integration configures Sourced with `Sidereal::Integrations::Sourced::Notifier`, which carries those announcements over `Sidereal.pubsub` — with the unix-socket pubsub, an append on any worker wakes the leader immediately. Appends made outside an Async reactor (a rake task calling `Sidereal.dispatch!`) cannot reach the socket and fall back to the catch-up poll, which stays the safety net in every case.
+- **Fork safety** — under the default Falcon setup each worker loads `boot.rb` in its own process, and the dispatcher calls `Sourced.setup!` on start, so a callable store (or a per-worker `Sourced.configure`) opens a fresh SQLite connection per worker. Nothing is inherited across the fork, so there is no stale-connection problem and no post-fork reconnection step to wire up. Under `--preload` only the leader runs the dispatcher factory, so a preloaded app must call `Sourced.setup!` per worker itself, as described under [Preload vs lazy loading](#preload-vs-lazy-loading-production).
 
 > **Multi-process:** `use_file_system!` (cross-process pubsub + file-lock election) is required whenever you run more than one worker — otherwise the in-process pubsub/elector can't fan SSE updates across processes. If you start multiple workers with the default in-process subsystems, Sidereal **refuses to boot** with a loud error telling you to add it (see [Running with Falcon](#running-with-falcon)).
 

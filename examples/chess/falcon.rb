@@ -10,11 +10,16 @@ require 'sidereal/falcon/environment'
 #   HOST=0.0.0.0 PORT=80 bundle exec falcon host falcon.rb
 HOST = ENV.fetch('HOST', 'localhost')
 PORT = ENV.fetch('PORT', '9296')
+# Worker processes. With COUNT > 1 the Sourced runtime runs on the elected
+# leader only (see boot.rb); the other workers serve pages and append moves.
+# Computed out here: the service block is instance_eval'd on a builder where
+# Kernel#Integer isn't available.
+COUNT = Integer(ENV.fetch('COUNT', '1'))
 
 service "sidereal-chess" do
   include Sidereal::Falcon::Environment
   include Falcon::Environment::Rackup
 
   url "http://#{HOST}:#{PORT}"
-  count 1
+  count COUNT
 end

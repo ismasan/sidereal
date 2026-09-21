@@ -66,7 +66,7 @@ class Game < Sourced::Decider
     attribute :to, Sourced::Types::String.present
     attribute :san, Sourced::Types::String.present
     attribute :fen_after, Sourced::Types::String.present
-    attribute? :captured_piece, Sourced::Types::String
+    attribute :captured_piece, Sourced::Types::String.nullable
     attribute :check, Sourced::Types::Boolean.default(false)
     attribute :checkmate, Sourced::Types::Boolean.default(false)
     attribute :stalemate, Sourced::Types::Boolean.default(false)
@@ -75,7 +75,7 @@ class Game < Sourced::Decider
   GameEnded = Sourced::Event.define('chess.game_ended') do
     attribute :game_id, Sourced::Types::UUID::V4
     attribute :reason, Sourced::Types::String.present
-    attribute? :winner, Sourced::Types::String
+    attribute :winner, Sourced::Types::String.nullable
   end
 
   # ---- State ----

@@ -36,6 +36,12 @@ unless ENV['TEST']
     # wires both (+ the error bridge). Sourced is already configured above, so no
     # `store:` arg. The dispatcher also auto-registers any Sidereal Commanders
     # with Sourced before starting the runtime (none in this demo yet).
+    #
+    # This also pins the Sourced runtime to the elected leader
+    # (dispatcher_process = :leader): with COUNT > 1 the other workers only
+    # serve pages and append commands, so SQLite sees one writer for handler
+    # and projection work. Appends on any worker wake the leader through the
+    # unix-socket pubsub.
     c.use Sidereal::Integrations::Sourced
   end
 end
