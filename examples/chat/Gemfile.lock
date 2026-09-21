@@ -1,11 +1,11 @@
 GIT
   remote: https://github.com/ismasan/sourced.git
-  revision: 4075bf0d5e12f956fd141df294ca53c39a7d7c68
+  revision: b26fa5401f8eee79215a6585c6d109fd2090b893
   branch: ccc
   specs:
     sourced (0.0.1)
       async
-      plumb (>= 0.0.17)
+      plumb (= 0.3.0)
       sequel
       sourced-message
       sqlite3
