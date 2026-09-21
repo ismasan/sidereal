@@ -13,13 +13,16 @@ class ModeratorApp < Sidereal::App
   session secret: ENV.fetch('SESSION_SECRET', 'm' * 64), key: 'sidereal_moderator.session'
   layout ModeratorLayout
 
-  # Stamps the session's commenter id onto every command. Only CreateComment
-  # declares `commenter_id`; Plumb drops the key for the others.
+  # Stamps the session's commenter id onto every command, and marks anything
+  # arriving over HTTP as a moderator's doing — the Classifier dispatches its
+  # own commands inside a reaction, which never passes through here, so a
+  # crafted POST cannot claim to be the automation.
+  # Both keys are dropped by Plumb for commands that don't declare them.
   before_command do |cmd|
     session[:commenter_id] ||= SecureRandom.uuid
     cmd
       .with_metadata(producer: 'UI')
-      .with_payload(commenter_id: session[:commenter_id])
+      .with_payload(commenter_id: session[:commenter_id], started_by: 'moderator')
   end
 
   # One channel per comment. Both pipeline pages subscribe with the

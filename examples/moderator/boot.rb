@@ -12,17 +12,47 @@ FileUtils.mkdir_p(File.dirname(DB_PATH))
 
 require_relative 'domain/subjects'
 require_relative 'domain/comment'
+require_relative 'domain/classifier'
 require_relative 'domain/comments_projector'
 
 # Each forked Falcon worker loads this file in its own process, so the
 # Sourced store and reactors are established fresh per worker (SQLite
 # connections aren't fork-safe, but nothing is inherited across the fork).
+# SQLite settings. `falcon.rb` runs one process, so there is one dispatcher,
+# but Sourced's `fiber_concurrency` extension still gives each of its worker
+# fibers its own connection — a handful of writers against one file.
+#
+# Sourced's store already begins its own writes as IMMEDIATE. Setting the mode
+# on the connection covers the transactions that don't go through that helper
+# (partition discovery at boot), and a longer `timeout` gives a writer more
+# room to wait for the lock rather than raising `database is locked`. Sequel
+# applies `timeout` to every connection it opens, unlike a bare
+# `PRAGMA busy_timeout`, which only reaches whichever pooled connection ran it.
+# Both matter more if you raise COUNT.
 Sourced.configure do |config|
-  config.store = Sequel.sqlite(DB_PATH) unless ENV['TEST']
+  # Worker fibers are shared by every consumer group, and a fiber is occupied
+  # for the whole of a reaction — including the Classifier's model call, which
+  # takes the best part of a second. At the default of 2 both fibers sit in
+  # model calls and nothing is left to apply the verdicts they produce, so
+  # comments cross the board in one late batch instead of moving one by one.
+  # Size this by how much slow work runs concurrently, not by CPU.
+  config.worker_count = 30
+
+  next if ENV['TEST']
+
+  config.store = Sequel.sqlite(DB_PATH, timeout: 15_000).tap do |db|
+    db.transaction_mode = :immediate
+  end
 end
 
 Sourced.register(Comment)
 Sourced.register(CommentsProjector)
+
+if ENV['TYPESAFE_API_KEY']
+  Sourced.register(Classifier) 
+else
+  Console.warn "No TYPESAFE_API_KEY in the environment. Auto classifier not registered."
+end
 
 # Only bridge Sidereal to the Sourced store at runtime — in TEST mode there's
 # no real store and the unit specs drive the decider directly.
@@ -36,6 +66,15 @@ unless ENV['TEST']
     # error bridge that turns Sourced retries/failures into UI toasts.
     c.use Sidereal::Integrations::Sourced
   end
+end
+
+# The classifier keeps its own retry policy (see domain/classifier.rb), so it
+# needs the Sidereal bridge wired onto that strategy too — the integration
+# above only wires the global one. This is what turns a rate-limited model
+# call into an amber retry toast on the board.
+unless ENV['TEST']
+  Classifier::RETRY_STRATEGY.on_retry Sidereal.exceptions
+  Classifier::RETRY_STRATEGY.on_fail Sidereal.exceptions
 end
 
 # Server-side log of terminal failures (e.g. an optimistic-lock conflict

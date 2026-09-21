@@ -41,7 +41,7 @@ RSpec.describe CommentsProjector do
     it 'moves to moderating on ModerationStarted' do
       with_reactor(CommentsProjector, comment_id:)
         .given(Comment::CommentCreated, **created)
-        .and(Comment::ModerationStarted, comment_id:)
+        .and(Comment::ModerationStarted, comment_id:, started_by: 'moderator')
         .then { |result| expect(result.state[:status]).to eq('moderating') }
     end
 
@@ -54,7 +54,7 @@ RSpec.describe CommentsProjector do
       it "#{evt.name.split('::').last} sets status #{status} and vibe #{vibe}" do
         with_reactor(CommentsProjector, comment_id:)
           .given(Comment::CommentCreated, **created)
-          .and(Comment::ModerationStarted, comment_id:)
+          .and(Comment::ModerationStarted, comment_id:, started_by: 'moderator')
           .and(evt, comment_id:)
           .then { |result| expect(result.state).to include(status:, vibe:) }
       end
@@ -65,7 +65,7 @@ RSpec.describe CommentsProjector do
     it 'writes and updates the row' do
       with_reactor(CommentsProjector, comment_id:)
         .given(Comment::CommentCreated, **created)
-        .and(Comment::ModerationStarted, comment_id:)
+        .and(Comment::ModerationStarted, comment_id:, started_by: 'moderator')
         .and(Comment::MarkedPositive, comment_id:)
         .then! { |_|
           row = test_db[:comments].where(comment_id:).first
@@ -75,10 +75,13 @@ RSpec.describe CommentsProjector do
   end
 
   describe 'class-level queries' do
+    # ModerationStarted is the one event here that needs more than a comment_id.
+    EXTRA_ATTRS = { Comment::ModerationStarted => { started_by: 'moderator' } }.freeze
+
     def project(id, *events)
       with_reactor(CommentsProjector, comment_id: id)
         .given(Comment::CommentCreated, **created, comment_id: id)
-        .tap { |t| events.each { |e| t.and(e, comment_id: id) } }
+        .tap { |t| events.each { |e| t.and(e, comment_id: id, **EXTRA_ATTRS.fetch(e, {})) } }
         .then! { |_| }
     end
 
