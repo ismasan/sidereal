@@ -43,31 +43,46 @@ RSpec.describe Comment do
     it 'moves a pending comment into moderation' do
       with_reactor(Comment, comment_id:)
         .given(Comment::CommentCreated, **created)
-        .when(Comment::StartModeration, comment_id:)
-        .then(Comment::ModerationStarted, comment_id:)
+        .when(Comment::StartModeration, comment_id:, started_by: 'moderator')
+        .then(Comment::ModerationStarted, comment_id:, started_by: 'moderator')
     end
 
     it 'silently no-ops when moderation already started (two moderators race)' do
       with_reactor(Comment, comment_id:)
         .given(Comment::CommentCreated, **created)
-        .and(Comment::ModerationStarted, comment_id:)
-        .when(Comment::StartModeration, comment_id:)
+        .and(Comment::ModerationStarted, comment_id:, started_by: 'moderator')
+        .when(Comment::StartModeration, comment_id:, started_by: 'moderator')
         .then
     end
 
     it 'silently no-ops on an already moderated comment' do
       with_reactor(Comment, comment_id:)
         .given(Comment::CommentCreated, **created)
-        .and(Comment::ModerationStarted, comment_id:)
+        .and(Comment::ModerationStarted, comment_id:, started_by: 'moderator')
         .and(Comment::MarkedSpam, comment_id:)
-        .when(Comment::StartModeration, comment_id:)
+        .when(Comment::StartModeration, comment_id:, started_by: 'moderator')
         .then
     end
 
     it 'silently no-ops a comment that does not exist' do
       with_reactor(Comment, comment_id:)
-        .when(Comment::StartModeration, comment_id:)
+        .when(Comment::StartModeration, comment_id:, started_by: 'moderator')
         .then
+    end
+
+    # The Classifier reads this off the event to decide whether the verdict is
+    # its to give, so the actor has to survive the command→event hop.
+    it 'carries started_by onto the event' do
+      with_reactor(Comment, comment_id:)
+        .given(Comment::CommentCreated, **created)
+        .when(Comment::StartModeration, comment_id:, started_by: 'classifier')
+        .then(Comment::ModerationStarted, comment_id:, started_by: 'classifier')
+    end
+
+    it 'rejects an unknown actor' do
+      expect {
+        Comment::StartModeration.parse(payload: { comment_id:, started_by: 'nobody' })
+      }.to raise_error(Plumb::ParseError, /must be included in/)
     end
   end
 
@@ -81,7 +96,7 @@ RSpec.describe Comment do
       it "#{cmd.name.split('::').last} on a moderating comment emits #{evt.name.split('::').last}" do
         with_reactor(Comment, comment_id:)
           .given(Comment::CommentCreated, **created)
-          .and(Comment::ModerationStarted, comment_id:)
+          .and(Comment::ModerationStarted, comment_id:, started_by: 'moderator')
           .when(cmd, comment_id:)
           .then(evt, comment_id:)
       end
@@ -96,7 +111,7 @@ RSpec.describe Comment do
       it "#{cmd.name.split('::').last} silently no-ops a comment that already has a verdict (stale page)" do
         with_reactor(Comment, comment_id:)
           .given(Comment::CommentCreated, **created)
-          .and(Comment::ModerationStarted, comment_id:)
+          .and(Comment::ModerationStarted, comment_id:, started_by: 'moderator')
           .and(Comment::MarkedPositive, comment_id:)
           .when(cmd, comment_id:)
           .then
@@ -114,7 +129,7 @@ RSpec.describe Comment do
     it 'tracks status and vibe through the pipeline' do
       with_reactor(Comment, comment_id:)
         .given(Comment::CommentCreated, **created)
-        .and(Comment::ModerationStarted, comment_id:)
+        .and(Comment::ModerationStarted, comment_id:, started_by: 'moderator')
         .and(Comment::MarkedNegative, comment_id:)
         .then { |result|
           expect(result.state.status).to eq('approved')
@@ -126,7 +141,7 @@ RSpec.describe Comment do
     it 'leaves vibe unknown for spam' do
       with_reactor(Comment, comment_id:)
         .given(Comment::CommentCreated, **created)
-        .and(Comment::ModerationStarted, comment_id:)
+        .and(Comment::ModerationStarted, comment_id:, started_by: 'moderator')
         .and(Comment::MarkedSpam, comment_id:)
         .then { |result|
           expect(result.state.status).to eq('spam')

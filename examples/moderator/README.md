@@ -28,7 +28,7 @@ Then:
 - <http://localhost:9297/comments/:comment_id/:step> — that comment replayed up to the Nth message of its stream
 - <http://localhost:9297/sourced> — the Sourced event-store dashboard
 
-Runs three Falcon workers by default (`COUNT=1` for one), so two moderators on different processes still see each other's moves through the Unix-socket pubsub.
+Runs a single Falcon process by default, because the event store is SQLite (see below). The Unix-socket pubsub is wired up regardless, so raising `COUNT` is all it takes to fan SSE updates across processes.
 
 ## Flow
 
@@ -47,10 +47,69 @@ Clicking an inbox card only navigates to the detail view. The "Start moderating"
 | --- | --- |
 | `domain/comment.rb` | `Sourced::Decider` — commands, events, state, guards |
 | `domain/comments_projector.rb` | `StateStored` projector → `comments` table; its auto-generated `Projected` signal drives board re-renders |
+| `domain/classifier.rb` | the automation — an `EventSourced` projector with no `sync`, classifying each comment's vibe and dispatching the verdict |
 | `domain/subjects.rb` | hard-coded list of things being commented on |
 | `ui/pipeline_page.rb` | the board, subscribed to `comments.>` |
 | `ui/comment_detail_page.rb` | subclass of the board with the detail card in the middle column |
 | `ui/components/event_feed.rb` | the global log (`read_all`) on the board, one comment's stream (`read_partition`) with step links on the detail view |
+
+## The classifier automation
+
+`Classifier` takes each new comment into moderation and gives it a vibe, using the [feelings](https://github.com/ismasan/feelings) gem to pick the closest of four descriptions. It is a `Projector::EventSourced` with no `sync` block rather than a decider, for two reasons.
+
+It owns no stream. It handles no commands and emits no events; it watches a comment's events and dispatches the next command. That is an automation, and the projector base is the fit.
+
+More importantly, an event-sourced projector rebuilds its state from the comment's full partition history on every batch, so `state.content` is always the comment's text no matter where the consumer group's offset is. Nothing is persisted, since there is no `sync` block — the state lives for the length of one batch and is thrown away.
+
+The history it evolves is the *whole* partition, including messages later than the one being reacted to. So when the classifier runs behind a moderator who already took a comment, `state.taken` is already true while it reacts to `CommentCreated`, and `return if state.taken` keeps the redundant command out of the log.
+
+### Who took the comment
+
+A moderator clicking "Start moderating" and the classifier taking one itself emit the same `ModerationStarted`, so the event records the actor in `started_by` (`moderator` or `classifier`, non-nullable). The classifier only judges what it started; a comment a human claimed is left for that human to judge. The app stamps `started_by: 'moderator'` in `before_command`, which only runs for commands arriving over HTTP, so a crafted POST cannot claim to be the automation.
+
+### When the model call fails
+
+Two layers. The HTTP client inside `ruby_decision_model` already retries twice on 408, 429, 5xx, connection errors and timeouts, with exponential backoff and a 30s total budget, so a brief blip never reaches Sourced at all.
+
+What escapes that budget hits `Classifier.on_exception`, which splits by cause:
+
+| Cause | Policy |
+| --- | --- |
+| Rate limited, overloaded, timeout, dropped connection | retry the reaction after 10s, 20s, 40s, 80s, then stop the group |
+| Rejected or missing key, unusable payload, a judge that cannot answer, a vibe the case statement has no branch for | stop the group immediately |
+
+The second row would fail identically on every attempt, so retrying it only burns model calls to arrive at the same place. Retrying is safe because re-reacting re-runs the classification and a verdict the decider has already applied is a no-op the second time, the comment no longer being `moderating`.
+
+`RETRY_STRATEGY` is a `Sourced::ErrorStrategy` of the classifier's own, since the global one is shared with the decider, where a rejected command is deterministic and should not be retried at all. `boot.rb` subscribes `Sidereal.exceptions` to it so a retry raises an amber toast on the board and a give-up raises a red one, exactly as the global strategy does.
+
+### Why verdicts used to arrive all at once
+
+Worker fibers are shared by every consumer group, and a fiber is held for the
+whole of a reaction. The classifier's model call takes the best part of a
+second, so at Sourced's default of two fibers both sit inside model calls and
+no fiber is left to apply the `Mark*` commands they produce. The commands queue
+until the classifier runs out of work, and then one freed fiber drains them in
+a single burst — comments appear to jump from "moderating" to "moderated" all
+at once at the end.
+
+Measured on 20 comments with a 0.6s stand-in for the model call, counting
+messages written per second:
+
+| `worker_count` | classifier output | decider output |
+| --- | --- | --- |
+| 2 | spread over 6s | all 20 in second 6 |
+| 10 | all in second 1 | all in second 1 |
+
+`boot.rb` therefore sets `worker_count` to 10. Size it by how much slow work
+runs concurrently, not by CPU. The cost is more in-flight model calls, which
+is what the retry policy above is for, and more SQLite connections, which
+matters little because a fiber waiting on HTTP holds no lock.
+
+### Replaying it
+
+A brand-new consumer group processes the whole backlog with reactions firing, so adding the classifier to a store that already has comments classifies them all.
+
+Resetting an existing group does **not**. `reset_consumer_group` clears the offsets but leaves the group's `highest_position` watermark, so the re-read messages come back flagged as replaying, and Sourced deliberately skips reactions while replaying — a replay rebuilds state without re-firing side effects. To actually re-classify a backlog, give the class a new `consumer_group` name and restart; the fresh group sees everything as new.
 
 ## Time travel
 
@@ -70,6 +129,25 @@ Marking a comment that isn't `moderating` (a stale detail page, a double click a
 
 Below 860px the three columns collapse into tabs driven by a Datastar `tab` signal (declared with `__ifmissing`, so SSE re-renders don't reset the chosen tab). The detail view opens on the middle tab and adds a Back link.
 
+## Console
+
+```bash
+bundle exec rake console
+```
+
+An IRB session with `boot.rb` loaded: the domain (`Comment`, `CommentsProjector`, `Subjects`) and a configured Sourced store. `app.rb` and the pages are not loaded; require them from the prompt if you want to render a component.
+
+```ruby
+CommentsProjector.board_for(Subjects.first.id).transform_values(&:size)
+# => {pending: 13, moderating: 1, approved: 2}
+
+Sidereal.dispatch!(Comment::CreateComment.new(payload: {
+  subject_id: Subjects.first.id, commenter_id: SecureRandom.uuid, content: 'From the console'
+}))
+```
+
+`dispatch!` appends to the store; a running server's workers pick it up, so the board updates over SSE while you watch.
+
 ## Tests
 
 ```bash
@@ -77,6 +155,16 @@ bundle exec rspec
 ```
 
 Decider and projector specs use Sourced's Given/When/Then helpers; no server or SQLite file needed.
+
+## SQLite and worker processes
+
+Every Falcon worker loads `boot.rb` and starts its own Sourced dispatcher, so the process count is also the dispatcher count. SQLite takes one write lock at a time, and at boot — when every consumer group is discovering partitions and draining the backlog at once — a writer that waits past its busy timeout raises `SQLite3::BusyException: database is locked`. With three workers, each running two worker fibers with a connection apiece, that happened reliably.
+
+So `falcon.rb` runs one process. Concurrency comes from worker fibers inside it instead (see the classifier section), which share one process's connections rather than spreading across three processes'. `boot.rb` additionally begins transactions as `IMMEDIATE` and allows a 15s wait for the lock.
+
+Raising `COUNT` is a supported experiment rather than a recommendation: the pubsub and leader election are already cross-process, so SSE fan-out works, but the store becomes the bottleneck. For genuinely concurrent workers, use Postgres.
+
+The structural alternative is to run the dispatcher in only one process while serving HTTP from several. Sidereal already elects a leader for the pubsub broker (`Sidereal.config.elector.leader?`), but `Host#start` starts the dispatcher in every worker regardless.
 
 ## Configuration
 
@@ -86,10 +174,11 @@ Settings come from the environment, loaded from a local `.env` by [dotenv](https
 | --- | --- | --- |
 | `HOST` | `localhost` | `falcon.rb` |
 | `PORT` | `9297` | `falcon.rb` |
-| `COUNT` | `3` | `falcon.rb` — worker processes; needs to be > 1 to exercise cross-process pubsub |
+| `COUNT` | `1` | `falcon.rb` — Falcon worker processes; each runs its own Sourced dispatcher, so more than one contends on SQLite |
 | `DATABASE_PATH` | `storage/moderator.db` | `boot.rb` |
 | `SESSION_SECRET` | a fixed dev value | `app.rb` — Rack wants 64+ bytes |
 | `FIXTURES` | `config/fixtures.yml` | `rake db:seed` |
+| `OPENROUTER_API_KEY` | none | the classifier, through `feelings`; without it the automation raises and Sourced stops the `classifier` consumer group, while posting and moderating by hand keep working |
 
 `config/env.rb` does the loading and is required from **both** `falcon.rb` and `boot.rb`, because they run in different processes. The Falcon controller loads `falcon.rb` for the host and port and never loads the app; each forked worker loads `boot.rb` through `config.ru`. Having `falcon.rb` require `boot.rb` instead would open a SQLite connection in the controller, which the fork model deliberately avoids. The path is resolved against the file rather than the working directory, so a rake task or console started from elsewhere still finds it.
 
