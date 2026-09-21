@@ -13,6 +13,16 @@ module Sidereal
   # and both before the dispatcher's workers begin consuming. {#stop}
   # tears down the running dispatcher captured from +dispatcher.start+.
   #
+  # +dispatcher_process+ decides where that dispatcher runs. With +:all+
+  # every process starts one at boot. With +:leader+ the factory is
+  # invoked from the elector's +on_promote+ and the instance stopped from
+  # +on_demote+, so exactly one process per elector scope consumes, and
+  # a successor starts its own after a failover. Under an elector that is
+  # leader from construction the two modes coincide. Note that a
+  # dispatcher failing to start on a *later* promotion is logged by the
+  # elector's callback guard rather than failing the boot — promotion
+  # happens after boot.
+  #
   # Collaborators are injected (see {Sidereal.new_host} for the wiring
   # from global config), which keeps the class unit-testable with fakes.
   #
@@ -33,13 +43,16 @@ module Sidereal
     #   {Sidereal::Dispatcher} class, or +Sourced::Dispatcher+) whose
     #   +#start+ returns the running instance that {#stop} later stops
     # @param scheduler [#start] scheduled-command ticker
-    def initialize(channels:, exceptions:, elector:, pubsub:, dispatcher:, scheduler:)
+    # @param dispatcher_process [Symbol] +:all+ or +:leader+; see
+    #   {Sidereal::Configuration#dispatcher_process}
+    def initialize(channels:, exceptions:, elector:, pubsub:, dispatcher:, scheduler:, dispatcher_process: :all)
       @channels = channels
       @exceptions = exceptions
       @elector = elector
       @pubsub = pubsub
       @dispatcher = dispatcher
       @scheduler = scheduler
+      @dispatcher_process = DispatcherProcess.parse(dispatcher_process)
       @dispatcher_instance = nil
     end
 
@@ -68,19 +81,42 @@ module Sidereal
       # pubsub's background fibers.
       @elector.start(task)
       @pubsub.start(task)
-      @dispatcher_instance = @dispatcher.start(task)
+      case @dispatcher_process
+      when :all
+        start_dispatcher(task)
+      when :leader
+        # on_promote fires now if already leader, so an always-leader
+        # elector starts the dispatcher here, before the scheduler, just
+        # like :all. on_demote fires now on a follower, with nothing to stop.
+        @elector.on_promote { start_dispatcher(task) }
+        @elector.on_demote { stop_dispatcher }
+      end
       @scheduler.start(task)
       self
     end
 
     # Stop the running dispatcher captured during {#start}. A no-op when
-    # {#start} was never called. The other subsystems' fibers are
-    # children of the task passed to {#start} and are torn down when that
-    # task ends, so they need no explicit stop here.
+    # {#start} was never called or nothing is running. The other
+    # subsystems' fibers are children of the task passed to {#start} and
+    # are torn down when that task ends, so they need no explicit stop here.
     #
     # @return [void]
     def stop
-      @dispatcher_instance&.stop
+      stop_dispatcher
+    end
+
+    private
+
+    def start_dispatcher(task)
+      return if @dispatcher_instance
+
+      @dispatcher_instance = @dispatcher.start(task)
+    end
+
+    def stop_dispatcher
+      instance = @dispatcher_instance
+      @dispatcher_instance = nil
+      instance&.stop
     end
   end
 end

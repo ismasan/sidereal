@@ -110,6 +110,18 @@ RSpec.describe Sidereal::Configuration do
     }.to raise_error(Plumb::ParseError)
   end
 
+  it 'defaults dispatcher_process to :all' do
+    expect(config.dispatcher_process).to eq(:all)
+  end
+
+  it 'accepts :leader as dispatcher_process and rejects anything else' do
+    config.dispatcher_process = :leader
+    expect(config.dispatcher_process).to eq(:leader)
+
+    expect { config.dispatcher_process = :some }.to raise_error(Plumb::ParseError)
+    expect { config.dispatcher_process = 'leader' }.to raise_error(Plumb::ParseError)
+  end
+
   it 'allows setting a custom dispatcher class' do
     custom_dispatcher = Class.new do
       def self.start = new

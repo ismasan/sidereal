@@ -100,6 +100,105 @@ RSpec.describe Sidereal::Host do
     end
   end
 
+  describe 'dispatcher_process: :leader' do
+    # Elector that starts as follower and lets the spec drive transitions
+    # through the same promote!/demote! the real electors call.
+    let(:elector) do
+      log = events
+      Class.new do
+        include Sidereal::Elector::Callbacks
+        define_method(:initialize) { @leader = false }
+        define_method(:leader?) { @leader }
+        define_method(:start) do |t|
+          log << [:elector, :start, t]
+          self
+        end
+        public :promote!, :demote!
+      end.new
+    end
+
+    subject(:host) do
+      Sidereal::Host.new(
+        channels:, exceptions:, elector:, pubsub:, dispatcher:, scheduler:,
+        dispatcher_process: :leader
+      )
+    end
+
+    def dispatcher_starts = events.count { |e| e[0] == :dispatcher && e[1] == :start }
+    def dispatcher_stops = events.count { |e| e == [:running_dispatcher, :stop] }
+
+    it 'does not start the dispatcher on a follower, and still starts the rest in order' do
+      host.start(task)
+
+      starts = events.select { |e| e[1] == :start }
+      expect(starts.map(&:first)).to eq(%i[elector pubsub scheduler])
+      expect(dispatcher_starts).to eq(0)
+    end
+
+    it 'starts the dispatcher once on promotion, with the registries already locked' do
+      host.start(task)
+      elector.promote!
+      elector.promote! # same state: the elector does not re-fire
+
+      expect(dispatcher_starts).to eq(1)
+      dispatch_start = events.find { |e| e[0] == :dispatcher && e[1] == :start }
+      expect(dispatch_start[2]).to be(task)
+      expect(dispatch_start.last).to eq(channels_locked: true, exceptions_locked: true)
+    end
+
+    it 'stops the running dispatcher on demotion and starts a fresh one on re-promotion' do
+      host.start(task)
+      elector.promote!
+      elector.demote!
+      expect(dispatcher_stops).to eq(1)
+
+      elector.promote!
+      expect(dispatcher_starts).to eq(2)
+    end
+
+    it 'stops the running dispatcher from #stop, once' do
+      host.start(task)
+      elector.promote!
+
+      host.stop
+      host.stop
+      expect(dispatcher_stops).to eq(1)
+    end
+
+    it 'stops nothing from #stop while a follower' do
+      host.start(task)
+      host.stop
+      expect(dispatcher_stops).to eq(0)
+    end
+
+    it 'behaves like :all under an elector that is leader from construction' do
+      always = Class.new do
+        include Sidereal::Elector::Callbacks
+        define_method(:initialize) { @leader = true }
+        define_method(:leader?) { @leader }
+        define_method(:start) { |_t| self }
+      end.new
+
+      leader_host = Sidereal::Host.new(
+        channels:, exceptions:, elector: always, pubsub:, dispatcher:, scheduler:,
+        dispatcher_process: :leader
+      )
+      leader_host.start(task)
+
+      starts = events.select { |e| e[1] == :start }
+      expect(starts.map(&:first)).to eq(%i[pubsub dispatcher scheduler])
+    end
+
+    it 'rejects an unknown mode at construction' do
+      expect do
+        Sidereal::Host.new(
+          channels:, exceptions:, elector:, pubsub:, dispatcher:, scheduler:,
+          dispatcher_process: :some
+        )
+      end.to raise_error(Plumb::ParseError)
+    end
+  end
+
   describe '#stop' do
     it 'stops the running dispatcher instance returned by #start (not the factory or scheduler)' do
       host.start(task)

@@ -15,6 +15,9 @@ module Sidereal
   DispatcherInterface = Types::Interface[:start]
   PubsubInterface = Types::Interface[:start, :subscribe, :publish]
   ElectorInterface = Types::Interface[:start, :on_promote, :on_demote, :leader?]
+  # Which process runs the dispatcher: every process, or only the one the
+  # elector promotes. See Configuration#dispatcher_process.
+  DispatcherProcess = Types::Symbol.options(%i[all leader])
   # Sidereal apps only append to stores
   # It's up to dispatcher implementations how to use the store to claim commands
   # Ex. Sourced's store has a more sophisticated claim mechanism than Sidereal::Store
@@ -29,7 +32,7 @@ module Sidereal
 
   class Configuration
     attr_accessor :workers
-    attr_reader :store, :pubsub, :dispatcher, :elector
+    attr_reader :store, :pubsub, :dispatcher, :elector, :dispatcher_process
 
     def initialize(workers: 25)
       @workers = workers
@@ -37,6 +40,7 @@ module Sidereal
       @store = Store::Memory.instance
       @dispatcher = Sidereal::Dispatcher
       @elector = Elector::AlwaysLeader.new
+      @dispatcher_process = :all
     end
 
     def store=(s)
@@ -53,6 +57,25 @@ module Sidereal
 
     def elector=(e)
       @elector = ElectorInterface.parse(e)
+    end
+
+    # Which process runs the configured {#dispatcher}:
+    #
+    # - +:all+ (default) — every process starts one at boot.
+    # - +:leader+ — only the process the {#elector} promotes starts one; it is
+    #   stopped if that process is demoted, and the next leader starts its own.
+    #   Web requests keep appending to the store from every process; only the
+    #   consuming side is pinned. Useful when the backend serializes writers
+    #   (e.g. Sourced on SQLite), so reads scale across processes while handler
+    #   and projection writes come from one.
+    #
+    # With the default {Elector::AlwaysLeader} every process is leader, so the
+    # two modes coincide; the distinction needs an elector that crosses
+    # processes, such as the one {#use_file_system!} installs.
+    #
+    # @param mode [Symbol] +:all+ or +:leader+
+    def dispatcher_process=(mode)
+      @dispatcher_process = DispatcherProcess.parse(mode)
     end
 
     # Switch the store, pubsub, and elector to the filesystem / unix-socket
@@ -277,9 +300,11 @@ module Sidereal
       elector:,
       pubsub:,
       dispatcher:,
-      scheduler:
+      scheduler:,
+      dispatcher_process: config.dispatcher_process
     )
   end
+
   # Build (if needed) and append a command to the configured {.store} from
   # outside the request/handler lifecycle. Use this from CLIs, consoles,
   # rake tasks, schedulers, or any code that needs to enqueue a command

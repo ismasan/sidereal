@@ -199,6 +199,31 @@ RSpec.describe 'Sidereal::Commander on the Sourced runtime' do
       expect(sidereal_codec.encode(msg)).to include(:type, :id, :created_at, payload: { price: '250 GBP' })
     end
 
+    it 'pins the dispatcher to the elected leader, overridable afterwards' do
+      config = Sidereal::Configuration.new
+      config.use(Sidereal::Integrations::Sourced, store: Sequel.sqlite)
+      expect(config.dispatcher_process).to eq(:leader)
+
+      config.dispatcher_process = :all
+      expect(config.dispatcher_process).to eq(:all)
+    end
+
+    it 'configures Sourced with the pubsub notifier, which its store resolves on append' do
+      config = Sidereal::Configuration.new
+      config.use(Sidereal::Integrations::Sourced, store: Sequel.sqlite)
+
+      expect(Sourced.config.notifier).to be_a(Sidereal::Integrations::Sourced::Notifier)
+      expect(Sourced.store.notifier).to be(Sourced.config.notifier)
+    end
+
+    it 'keeps the notifier across Sourced.setup! (the per-worker replay)' do
+      Sidereal::Configuration.new.use(Sidereal::Integrations::Sourced, store: -> { Sequel.sqlite })
+      Sourced.setup!
+
+      expect(Sourced.config.notifier).to be_a(Sidereal::Integrations::Sourced::Notifier)
+      expect(Sourced.store.notifier).to be(Sourced.config.notifier)
+    end
+
     it 'wires Sourced retry/fail reporting to Sidereal.exceptions' do
       strategy = Sourced.config.error_strategy
       expect(strategy).to receive(:on_retry).with(Sidereal.exceptions)
@@ -231,6 +256,62 @@ RSpec.describe 'Sidereal::Commander on the Sourced runtime' do
       expect(Sourced::Dispatcher).to receive(:start).with(task).ordered.and_return(:running)
 
       expect(Sidereal::Integrations::Sourced::Dispatcher.start(task)).to eq(:running)
+    end
+  end
+
+  describe Sidereal::Integrations::Sourced::Notifier do
+    subject(:notifier) { described_class.new }
+
+    # The outer around installs a publish-only fake; this needs real
+    # subscriptions. The around restores the original afterwards.
+    before { Sidereal.config.pubsub = Sidereal::PubSub::Memory.new }
+    after { Sourced.reset! }
+
+    def with_listener(notifier)
+      Sync do |task|
+        listener = task.async { notifier.start }
+        sleep 0.01 # let the listener subscribe before anything is announced
+        yield
+        sleep 0.05
+        notifier.stop
+        listener.wait
+      end
+    end
+
+    it 'forwards store announcements to its subscribers through Sidereal.pubsub' do
+      received = []
+      notifier.subscribe(->(event, value) { received << [event, value] })
+
+      with_listener(notifier) do
+        notifier.notify_new_messages(%w[a b a])
+        notifier.notify_reactor_resumed('g')
+      end
+
+      expect(received).to eq([['messages_appended', 'a,b'], ['reactor_resumed', 'g']])
+    end
+
+    it 'wakes a subscriber when a store built before it was configured appends' do
+      Sourced.config.notifier = notifier
+      received = []
+      notifier.subscribe(->(event, value) { received << [event, value] })
+
+      with_listener(notifier) do
+        store.append(IntgDoThing.new(payload: { n: 1 }))
+      end
+
+      expect(received).to eq([['messages_appended', 'intg.do_thing']])
+    end
+
+    it 'reports a failed publish as fatal instead of raising into the append' do
+      broken = Class.new(IntgFakePubSub) do
+        def publish(*) = raise('socket gone')
+      end.new
+      Sidereal.config.pubsub = broken
+      fatals = []
+      Sidereal.exceptions.on_fatal { |report| fatals << report }
+
+      expect { notifier.notify_new_messages(['x']) }.not_to raise_error
+      expect(fatals.map { |r| r.exception.message }).to eq(['socket gone'])
     end
   end
 

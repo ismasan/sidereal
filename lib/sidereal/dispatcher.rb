@@ -27,13 +27,14 @@ module Sidereal
       @pubsub = pubsub
       @channels = channels
       @exceptions = exceptions
+      @workers = []
     end
 
     def start(task)
       @store.start(task)
 
       @worker_count.times do
-        task.async do
+        @workers << task.async do
           @store.claim_next do |msg, meta|
             commander = @registry[msg.class]
             next Sidereal::Store::Result::Ack if commander.nil?
@@ -61,7 +62,16 @@ module Sidereal
       self
     end
 
+    # Cancel the worker fibers. One blocked in +claim_next+ unwinds at once;
+    # one mid-handler is interrupted, and on {Store::FileSystem} its claimed
+    # file stays in +processing/+ until the sweeper recovers it (dead pid or
+    # stale threshold) — handlers are idempotent for exactly this reason. The
+    # store's own fibers (the filesystem poller and scheduler) are children of
+    # the task passed to {#start} and end with it.
     def stop
+      workers = @workers
+      @workers = []
+      workers.each(&:stop)
     end
 
     private

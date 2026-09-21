@@ -22,11 +22,29 @@
 # +on_fatal+ subscribers). When Sourced is the dispatcher it owns retry/fail
 # orchestration, so this bridge is what surfaces failures in the UI.
 #
+# **One runtime per host.** The integration sets
+# +config.dispatcher_process = :leader+, so only the process the elector
+# promotes runs the Sourced runtime (commanders, deciders, projectors). SQLite
+# serializes writers, so N runtimes on N workers would queue on each other;
+# pinning the consuming side to one process lets the other workers serve pages
+# and queries in parallel. Every worker still appends commands through
+# {StoreProxy} — those writes are not serialized, the handler and projection
+# writes are. Set +c.dispatcher_process = :all+ after +use+ to fan out again.
+#
+# **Cross-process wake-ups.** Sourced's store announces appends through a
+# notifier and its dispatcher listens on it, but the default notifier is
+# in-process — a follower's append would only reach the leader on the next
+# catch-up poll. The integration configures Sourced with {Notifier}, which
+# carries those announcements over {Sidereal.pubsub}, so with the unix-socket
+# pubsub an append on any worker wakes the leader's workers at once.
+#
 # Under the forking Falcon environment each worker loads boot.rb in its own
 # process, so this registration (and Sourced's own store) is established fresh
 # per worker. The dispatcher factory also calls {Sourced.setup!} on start,
 # re-establishing connections for the current process — so a *callable* store
-# (below) stays fork-safe even if the app is preloaded in the parent.
+# (below) stays fork-safe even if the app is preloaded in the parent. Followers
+# never run the factory, so a preloaded app must call +Sourced.setup!+ per
+# worker itself.
 #
 # Require this at load time (top-level in boot.rb), then apply it with Sidereal's
 # integration hook — one call wires the store + dispatcher together:
@@ -122,9 +140,10 @@ module Sidereal
         def append(...) = ::Sourced.store.append(...)
       end
 
-      # Wire Sidereal's store + dispatcher to Sourced, and bridge Sourced's
-      # retry/failure reporting to Sidereal's exception registry. Called by
-      # {Sidereal::Configuration#use}.
+      # Wire Sidereal's store + dispatcher to Sourced, pin the dispatcher to
+      # the elected leader, route Sourced's append notifications over
+      # Sidereal's pubsub, and bridge Sourced's retry/failure reporting to
+      # Sidereal's exception registry. Called by {Sidereal::Configuration#use}.
       #
       # @param config [Sidereal::Configuration]
       # @param store [#call, Sequel::Database, nil] when given, configures
@@ -141,8 +160,13 @@ module Sidereal
         # Sequel::Database is used as-is. (Don't use respond_to?(:call): a
         # Sequel::Database responds to #call — prepared-statement invocation.)
         ::Sourced.configure { |c| c.store = store.is_a?(Proc) ? store.call : store } if store
-        config.store      = StoreProxy
-        config.dispatcher = Dispatcher
+        # A configure block, not a one-off assignment: Sourced.setup! replays
+        # these after a fork, and the store resolves the configured notifier on
+        # every append, so ordering against the app's own store block is moot.
+        ::Sourced.configure { |c| c.notifier = Notifier.new }
+        config.store              = StoreProxy
+        config.dispatcher         = Dispatcher
+        config.dispatcher_process = :leader
 
         # Report Sourced's retry / terminal-failure events to Sidereal's exception
         # registry (report_retry / report_failure — the object-callback interface
@@ -151,6 +175,83 @@ module Sidereal
         ::Sourced.config.error_strategy.on_retry Sidereal.exceptions
         ::Sourced.config.error_strategy.on_fail Sidereal.exceptions
         config
+      end
+
+      # What {Notifier} puts on the wire: one Sourced store announcement.
+      # A plain message rather than a {System::Notification} — it is never a
+      # command, so no commander should register a handler for it.
+      StoreNotification = Sidereal::Message.define('sidereal.sourced.store_notification') do
+        attribute :event_name, Sidereal::Types::String
+        attribute :value, Sidereal::Types::String
+      end
+
+      # Sourced store notifier over {Sidereal.pubsub}. Implements the interface
+      # of +Sourced::InlineNotifier+ (+Sourced::Configuration::NotifierInterface+):
+      # the store calls +notify_new_messages+ / +notify_reactor_resumed+ after
+      # each commit, and the Sourced dispatcher subscribes its queuer and runs
+      # +start+ in a fiber of its own.
+      #
+      # Announcements travel as {StoreNotification} messages on a fixed channel,
+      # bypassing the channel-name resolvers. With {PubSub::Unix} the leader
+      # hears its own appends through local delivery and the other workers'
+      # through the broker; with {PubSub::Memory} this is the inline behaviour
+      # with one queue hop. Outside an Async reactor (a rake task calling
+      # +Sidereal.dispatch!+) the unix pubsub has no socket, so the frame is
+      # dropped and Sourced's catch-up poll picks the messages up instead —
+      # the poll remains the safety net either way.
+      class Notifier
+        CHANNEL = 'sidereal.sourced.store_notification'
+
+        def initialize
+          @subscribers = []
+          @channel = nil
+        end
+
+        # @param callable [#call] receives +(event_name, value)+, both Strings
+        # @return [void]
+        def subscribe(callable)
+          @subscribers << callable
+        end
+
+        # @param types [Array<String>] appended message types
+        # @return [void]
+        def notify_new_messages(types)
+          publish('messages_appended', types.uniq.join(','))
+        end
+
+        # @param group_id [String] consumer group of the resumed reactor
+        # @return [void]
+        def notify_reactor_resumed(group_id)
+          publish('reactor_resumed', group_id)
+        end
+
+        # Subscribe and forward every announcement to the subscribers. Blocks
+        # until {#stop}, like the Postgres listener Sourced models this on.
+        # @return [void]
+        def start
+          @channel = Sidereal.pubsub.subscribe(CHANNEL)
+          @channel.start do |msg, _ch|
+            @subscribers.each { |s| s.call(msg.payload.event_name, msg.payload.value) }
+          end
+        end
+
+        # @return [void]
+        def stop
+          channel = @channel
+          @channel = nil
+          channel&.stop
+        end
+
+        private
+
+        # The append has already committed, so a failure here must not raise
+        # into the appending fiber: report it and let the catch-up poll cover
+        # the lost wake-up.
+        def publish(event_name, value)
+          Sidereal.pubsub.publish(CHANNEL, StoreNotification.new(payload: { event_name:, value: }))
+        rescue StandardError => ex
+          Sidereal.exceptions.report_fatal(exception: ex)
+        end
       end
 
       # Dispatcher factory for +config.dispatcher+. Registers every Sidereal

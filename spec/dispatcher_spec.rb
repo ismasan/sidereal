@@ -126,6 +126,40 @@ RSpec.describe Sidereal::Dispatcher do
     expect(followups.size).to eq(1)
   end
 
+  it '#stop cancels the worker fibers, leaving later commands unclaimed' do
+    received = []
+    claimed = nil
+
+    Sync do |task|
+      channel = pubsub.subscribe('ch1')
+      task.async { channel.start { |msg, _ch| received << msg } }
+
+      dispatcher = Sidereal::Dispatcher.new(
+        worker_count: 2, store: store, registry: registry_for(commander),
+        pubsub: pubsub, channels: channels, exceptions: exceptions
+      ).start(task)
+      dispatcher.stop
+
+      store.append(DispatchCmd.new(payload: { title: 'late' }))
+      sleep 0.05
+      # Nobody claimed it: the test can, from the same store. claim_next
+      # loops forever, so it runs in its own task, stopped after one claim.
+      claimer = task.async do
+        store.claim_next do |msg, _meta|
+          claimed = msg
+          Sidereal::Store::Result::Ack
+        end
+      end
+      sleep 0.05
+      claimer.stop
+      channel.stop
+      # No task.stop: the cancelled workers must not keep the reactor alive.
+    end
+
+    expect(received).to be_empty
+    expect(claimed.payload.title).to eq('late')
+  end
+
   it 'routes each command to its single registered handler' do
     seen = []
 
