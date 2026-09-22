@@ -173,6 +173,27 @@ RSpec.describe 'Sidereal::Commander on the Sourced runtime' do
       expect(config.store.append(:msg)).to eq(:ok)
     end
 
+    it 'prepares the store at boot in every process, recompiling its codec for types defined after configure' do
+      # Sourced.configure compiles the store codec as it runs — in boot.rb,
+      # before app.rb defines the app's types — and the codec is a singleton
+      # whose compile! is a no-op afterwards. With dispatcher_process = :leader
+      # only the leader starts the dispatcher; every worker still appends.
+      config = Sidereal::Configuration.new
+      config.use(Sidereal::Integrations::Sourced, store: Sequel.sqlite)
+      expect(Sourced.store.message_codec).to be_compiled
+
+      late = Sidereal::Message.define("boot_spec.late_#{SecureRandom.hex(4)}") do
+        attribute :price, CodecMoney
+      end
+      msg = late.new(payload: { price: CodecMoney.new(cents: 250, currency: 'GBP') })
+      expect { config.store.append(msg) }.to raise_error(Sourced::Message::Codec::UnregisteredTypeError)
+
+      config.boot_hooks.each(&:call)
+
+      config.store.append(msg)
+      expect(Sourced.store.read_correlation_batch(msg.id).map(&:payload).map(&:price)).to eq([msg.payload.price])
+    end
+
     it 'carries an app-registered encoder into Sourced\'s store' do
       # CodecMoneyEncoder is registered on the global Plumb::Codec::JSON (see
       # spec/support/codec_fixtures.rb), the way an app registers one. Sourced
@@ -249,13 +270,29 @@ RSpec.describe 'Sidereal::Commander on the Sourced runtime' do
   end
 
   describe 'Sidereal::Integrations::Sourced::Dispatcher.start' do
-    it 're-establishes connections (Sourced.setup!) before starting the Sourced runtime' do
+    it 'starts the Sourced runtime without re-running Sourced.setup!, which the boot hook already did once' do
+      # Sourced.setup! freezes the configuration, so a second call in the same
+      # process raises. The boot hook is the one call per process.
       task = double('task')
       allow(Sidereal.registry).to receive(:commanders).and_return([])
-      expect(Sourced).to receive(:setup!).ordered
-      expect(Sourced::Dispatcher).to receive(:start).with(task).ordered.and_return(:running)
+      expect(Sourced).not_to receive(:setup!)
+      expect(Sourced::Dispatcher).to receive(:start).with(task).and_return(:running)
 
       expect(Sidereal::Integrations::Sourced::Dispatcher.start(task)).to eq(:running)
+    end
+
+    it 'boots and starts on the same frozen configuration: the boot hook, then the dispatcher' do
+      # The sequence Host#start drives in the leader process.
+      config = Sidereal::Configuration.new
+      config.use(Sidereal::Integrations::Sourced, store: Sequel.sqlite)
+      allow(Sidereal.registry).to receive(:commanders).and_return([])
+      task = double('task')
+      allow(Sourced::Dispatcher).to receive(:start).with(task).and_return(:running)
+
+      config.boot_hooks.each(&:call)
+      expect(Sourced.config).to be_frozen
+
+      expect { Sidereal::Integrations::Sourced::Dispatcher.start(task) }.not_to raise_error
     end
   end
 
