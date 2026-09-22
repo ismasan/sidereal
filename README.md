@@ -228,7 +228,7 @@ class ChatApp < Sidereal::App
 end
 ```
 
-### Custom command handlers
+### HTTP command handlers
 
 `handle` declares which commands the browser is allowed to submit to `POST /commands`. Types not registered with `handle` return `404`.
 
@@ -328,6 +328,35 @@ handle PlaceOrder do |cmd|
   end
 end
 ```
+
+### Installing extensions
+
+Some things need more than one macro to wire in: a command to expose with `handle`, a commander to register with `commands`, maybe a channel resolver or a page. `install` lets the extensions do that itself, in one line, so the knowledge of what it needs stays with it:
+
+```ruby
+class DataflowApp < Sidereal::App
+  install Onboarding, reset: true
+end
+```
+
+`App.install(installer, ...)` calls `installer.sidereal_install(app, ...)`, passing the app class and any extra arguments through. Anything that responds to `sidereal_install` qualifies; inside it the installer uses the app's own macros:
+
+```ruby
+module Billing
+  def self.sidereal_install(app, webhooks: true)
+    app.handle(PlaceOrder)
+    app.commands(Billing::Commander)
+    app.channel_name(OrderPlaced) { |evt| "orders.#{evt.payload.order_id}" }
+    app.page(WebhookLogPage) if webhooks
+  end
+end
+
+class ShopApp < Sidereal::App
+  install Billing, webhooks: false
+end
+```
+
+`install` raises `ArgumentError` for an object without `sidereal_install`, and returns the app so it chains like the other macros.
 
 ### Rendering components
 

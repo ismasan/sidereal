@@ -133,6 +133,37 @@ RSpec.describe 'Sidereal::App.commands' do
   end
 end
 
+RSpec.describe 'Sidereal::App.install' do
+  it 'hands the app to the installer, with any extra arguments' do
+    calls = []
+    installer = Object.new
+    installer.define_singleton_method(:sidereal_install) { |app, **opts| calls << [app, opts] }
+
+    app = Class.new(Sidereal::App) { install installer, reset: true }
+
+    expect(calls).to eq([[app, { reset: true }]])
+  end
+
+  it 'lets the installer use the app macros' do
+    install_cmd = Sidereal::Message.define('app_install.cmd')
+    installer = Object.new
+    installer.define_singleton_method(:sidereal_install) do |app|
+      app.handle(install_cmd)
+      app.commands { command(install_cmd) { |cmd| } }
+    end
+
+    app = Class.new(Sidereal::App) { install installer }
+
+    expect(app.handled_commands.values).to include(install_cmd)
+    expect(Sidereal.registry[install_cmd]).to be < Sidereal::Commander
+  end
+
+  it 'raises for an object without sidereal_install' do
+    expect { Class.new(Sidereal::App) { install Object.new } }
+      .to raise_error(ArgumentError, /sidereal_install/)
+  end
+end
+
 RSpec.describe 'Sidereal::App.command_helpers' do
   CommandHelperCmd = Sidereal::Message.define('app_helpers.run')
 
