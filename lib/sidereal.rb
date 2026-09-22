@@ -32,7 +32,7 @@ module Sidereal
 
   class Configuration
     attr_accessor :workers
-    attr_reader :store, :pubsub, :dispatcher, :elector, :dispatcher_process
+    attr_reader :store, :pubsub, :dispatcher, :elector, :dispatcher_process, :boot_hooks
 
     def initialize(workers: 25)
       @workers = workers
@@ -41,6 +41,27 @@ module Sidereal
       @dispatcher = Sidereal::Dispatcher
       @elector = Elector::AlwaysLeader.new
       @dispatcher_process = :all
+      @boot_hooks = []
+    end
+
+    # Register a block to run in every process at boot, before any subsystem
+    # starts. {Sidereal::Host#start} runs the hooks in registration order,
+    # once per process, so this is where an integration prepares per-process
+    # state that every role needs — a web worker that only appends as much as
+    # the leader that consumes: opening a fork-unsafe connection, compiling a
+    # serializer, installing tables.
+    #
+    #   Sidereal.configure do |c|
+    #     c.on_boot { Sourced.setup! }
+    #   end
+    #
+    # @yield the hook; its return value is ignored
+    # @return [self]
+    def on_boot(&block)
+      raise ArgumentError, 'on_boot requires a block' unless block
+
+      @boot_hooks << block
+      self
     end
 
     def store=(s)
@@ -301,7 +322,8 @@ module Sidereal
       pubsub:,
       dispatcher:,
       scheduler:,
-      dispatcher_process: config.dispatcher_process
+      dispatcher_process: config.dispatcher_process,
+      boot_hooks: config.boot_hooks
     )
   end
 
