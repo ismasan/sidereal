@@ -329,9 +329,9 @@ handle PlaceOrder do |cmd|
 end
 ```
 
-### Installing components
+### Installing extensions
 
-Some things need more than one macro to wire in: a command to expose with `handle`, a commander to register with `commands`, maybe a channel resolver or a page. `install` lets the component do that itself, in one line, so the knowledge of what it needs stays with it:
+Some things need more than one macro to wire in: a command to expose with `handle`, a commander to register with `commands`, maybe a channel resolver or a page. `install` lets the extensions do that itself, in one line, so the knowledge of what it needs stays with it:
 
 ```ruby
 class DataflowApp < Sidereal::App
