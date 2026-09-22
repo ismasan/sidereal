@@ -1,0 +1,15 @@
+# frozen_string_literal: true
+
+require_relative 'boot'
+
+namespace :db do
+  # Everything the app accumulates: the Sourced store under tmp/chat.db
+  # (commands and their offsets) and the chat log app.rb appends to. Stop the
+  # server first — a running host would carry on from whatever it has claimed.
+  desc 'Wipe the Sourced store and the chat message log'
+  task :reset do
+    Sourced.store.clear!
+    File.delete(MESSAGES_FILE) if File.exist?(MESSAGES_FILE)
+    puts "Store cleared (#{DB_PATH}) and #{MESSAGES_FILE} deleted."
+  end
+end
