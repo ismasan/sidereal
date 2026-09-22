@@ -121,6 +121,28 @@ module Sidereal
         self
       end
 
+      # Let an object wire itself into this app. The installer implements
+      # `.sidereal_install(app, ...)` and calls whatever macros it needs —
+      # `handle`, `commands`, `channel_name`, `page` — so a component that
+      # spans several of them (a {Sidereal::Dataflow}, say) is registered in
+      # one line, and the knowledge of what it needs stays with it. Extra
+      # arguments are passed through.
+      #
+      # @example
+      #   install Onboarding, reset: true
+      #   # == handle Onboarding::Run; handle Onboarding::Reset; commands Onboarding
+      #
+      # @param installer [#sidereal_install]
+      # @return [self]
+      def install(installer, ...)
+        unless installer.respond_to?(:sidereal_install)
+          raise ArgumentError, "#{installer.inspect} does not respond to .sidereal_install(app, ...)"
+        end
+
+        installer.sidereal_install(self, ...)
+        self
+      end
+
       # Register a channel-name resolver. Sugar for
       # {Sidereal.channels.channel_name}.
       #
