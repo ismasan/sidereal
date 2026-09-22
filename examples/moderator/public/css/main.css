@@ -230,12 +230,19 @@ button { font: inherit; color: inherit; }
   color: var(--muted);
   font-size: 0.8rem;
   font-weight: 700;
-  margin-bottom: 0.15rem;
+  margin-bottom: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .card__content { display: block; font-weight: 700; }
+.card__date {
+  display: block;
+  margin-bottom: 0.6rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+}
 .card--positive { background: var(--positive-bg); border-color: var(--positive); }
 .card--neutral  { background: var(--neutral-bg);  border-color: var(--neutral); }
 .card--negative { background: var(--negative-bg); border-color: var(--negative); }
