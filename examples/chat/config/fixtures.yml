@@ -1,0 +1,28 @@
+# A short conversation for `rake db:seed`, in order. Each entry becomes one
+# chat.send_message command; the task spaces them a minute apart.
+- author: Ismael
+  content: Morning Joe. Did you get anywhere with the order history bug?
+- author: Joe
+  content: Sort of. The row in `orders` says shipped, but nobody can tell me *when* it changed or who did it. The update just overwrote the old status.
+- author: Ismael
+  content: That is the thing event sourcing fixes. Instead of storing the current row, you store what happened, `OrderPlaced`, `OrderShipped`, each with a timestamp and who did it.
+- author: Joe
+  content: So the table is never updated, only appended to?
+- author: Ismael
+  content: Right. The events are the source of truth. The "current state" is just a fold over them, replayed from the start or from a snapshot.
+- author: Joe
+  content: What about queries though? I am not replaying ten thousand events to render an orders page.
+- author: Ismael
+  content: You don't. A projector consumes the events and keeps a read model, a plain table shaped for the page. It can be rebuilt any time by replaying, so you can change your mind about the shape later.
+- author: Joe
+  content: And a bug in the projector is not a data loss, because the events are still there.
+- author: Ismael
+  content: Exactly. Fix the projector, drop the table, replay. The history never lied to you.
+- author: Joe
+  content: Where does validation live then, if the command can't just check a row?
+- author: Ismael
+  content: In the decider. It loads the events for that order, folds them into state, checks the command against it, and emits new events. Two shippings of the same order fail because the state already says shipped.
+- author: Joe
+  content: OK, I am sold on it for orders at least. Let me sketch the events for that aggregate and we can go over it after lunch.
+- author: Ismael
+  content: Deal. Bring the ones you are unsure about, naming them is the hard part.

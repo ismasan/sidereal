@@ -1,6 +1,9 @@
 # frozen_string_literal: true
 
 require_relative 'boot'
+require 'yaml'
+
+FIXTURES_PATH = ENV.fetch('FIXTURES', 'config/fixtures.yml')
 
 namespace :db do
   # Everything the app accumulates: the Sourced store under tmp/chat.db
@@ -11,5 +14,36 @@ namespace :db do
     Sourced.store.clear!
     File.delete(MESSAGES_FILE) if File.exist?(MESSAGES_FILE)
     puts "Store cleared (#{DB_PATH}) and #{MESSAGES_FILE} deleted."
+  end
+
+  # Appends the commands to the store; it does not run them. The SendMessage
+  # handler runs in the leader's dispatcher, which writes the chat log and
+  # notifies the room, so seed against a live server to watch the messages
+  # arrive, or before booting one and they are picked up on startup.
+  # Override the file with FIXTURES=path/to/other.yml
+  desc "Dispatch the conversation in #{FIXTURES_PATH} as chat messages"
+  task :seed do
+    require_relative 'messages'
+    # Once per process, after the message types above are loaded: opens the
+    # store and compiles its codec against every type (boot.rb compiled it
+    # before messages.rb existed to it).
+    Sourced.setup!
+    Sourced.store.message_codec.recompile!
+
+    entries = YAML.load_file(FIXTURES_PATH)
+
+    # A minute apart, ending now, so the thread reads as a conversation rather
+    # than a burst. A past created_at is appended for immediate delivery.
+    started_at = Time.now - (entries.length * 60)
+    commands = entries.map.with_index do |entry, i|
+      author = entry['author'] or raise "entry #{i + 1} in #{FIXTURES_PATH} has no 'author'"
+      content = entry['content'] or raise "entry #{i + 1} in #{FIXTURES_PATH} has no 'content'"
+      SendMessage.new(payload: { author:, role: 'user', content: }, created_at: started_at + (i * 60))
+    end
+
+    commands.each { |cmd| Sidereal.dispatch!(cmd) }
+
+    puts "Dispatched #{commands.length} messages from #{FIXTURES_PATH}."
+    puts 'Start the server (bundle exec falcon host) to see them in the room.'
   end
 end

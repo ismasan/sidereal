@@ -56,9 +56,20 @@ PORT=9295 bundle exec falcon host
 
 Messages posted on any port appear on every port in real time. Only one process holds the scheduler lock at a time — kill it and another takes over.
 
-## Reset
+## Seed a conversation
 
 ```sh
-rm chat_messages.jsonl
-rm -rf tmp/sidereal-store tmp/sidereal-pubsub.sock tmp/sidereal-leader.lock
+bundle exec rake db:seed
 ```
+
+Dispatches the short exchange in `config/fixtures.yml` (Ismael and Joe on event sourcing) as `SendMessage` commands, spaced a minute apart. The task appends but does not run them: the handler runs in the leader's dispatcher, which writes the chat log and notifies the room, so seed against a live server to watch them arrive, or seed first and they are picked up when the server boots. Point it at another file with `FIXTURES=path/to/other.yml`.
+
+## Reset
+
+Stop the server, then:
+
+```sh
+bundle exec rake db:reset
+```
+
+This clears the Sourced store in `tmp/chat.db` and deletes `chat_messages.jsonl`. The pubsub socket and leader lock under `tmp/` are recreated on the next boot and need no reset.
