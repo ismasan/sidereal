@@ -110,6 +110,22 @@ RSpec.describe Sidereal::Configuration do
     }.to raise_error(Plumb::ParseError)
   end
 
+  it 'collects on_boot hooks in registration order, for Host#start to run' do
+    expect(config.boot_hooks).to eq([])
+
+    calls = []
+    config.on_boot { calls << :first }
+    config.on_boot { calls << :second }
+
+    expect(config.boot_hooks.size).to eq(2)
+    config.boot_hooks.each(&:call)
+    expect(calls).to eq(%i[first second])
+  end
+
+  it 'requires a block for on_boot' do
+    expect { config.on_boot }.to raise_error(ArgumentError)
+  end
+
   it 'defaults dispatcher_process to :all' do
     expect(config.dispatcher_process).to eq(:all)
   end

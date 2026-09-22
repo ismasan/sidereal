@@ -100,6 +100,36 @@ RSpec.describe Sidereal::Host do
     end
   end
 
+  describe 'boot hooks' do
+    subject(:host) do
+      Sidereal::Host.new(
+        channels:, exceptions:, elector:, pubsub:, dispatcher:, scheduler:,
+        boot_hooks: [
+          -> { events << [:hook, :one, { channels_locked: channels.locked? }] },
+          -> { events << [:hook, :two] }
+        ]
+      )
+    end
+
+    it 'runs them in order, before the registries lock and before any subsystem starts' do
+      host.start(task)
+
+      expect(events.first(2)).to eq([[:hook, :one, { channels_locked: false }], [:hook, :two]])
+      expect(events.drop(2).map(&:first)).to eq(%i[elector pubsub dispatcher scheduler])
+    end
+
+    it 'fails the boot when a hook raises: nothing starts' do
+      failing = Sidereal::Host.new(
+        channels:, exceptions:, elector:, pubsub:, dispatcher:, scheduler:,
+        boot_hooks: [-> { raise 'no database' }]
+      )
+
+      expect { failing.start(task) }.to raise_error(RuntimeError, 'no database')
+      expect(events).to be_empty
+      expect(channels).not_to be_locked
+    end
+  end
+
   describe 'dispatcher_process: :leader' do
     # Elector that starts as follower and lets the spec drive transitions
     # through the same promote!/demote! the real electors call.
