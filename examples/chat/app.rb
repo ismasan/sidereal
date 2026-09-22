@@ -13,36 +13,7 @@ RubyLLM.configure do |config|
   config.openai_api_key = ENV.fetch('OPENAI_API_KEY')
   # config.anthropic_api_key = ENV.fetch('ANTHROPIC_API_KEY')
 end
-# -- Messages --
-
-Login = Sidereal::Message.define('chat.login') do
-  attribute :username, Sidereal::Types::String.present
-end
-
-SendMessage = Sidereal::Message.define('chat.send_message') do
-  attribute :author, Sidereal::Types::String.default('')
-  attribute :role, Sidereal::Types::String.default('user')
-  attribute :content, Sidereal::Types::String.present
-end
-
-AskLLM = Sidereal::Message.define('chat.ask_llm') do
-  attribute :author, Sidereal::Types::String.present
-  attribute :role, Sidereal::Types::String.present
-  attribute :content, Sidereal::Types::String.present
-end
-
-ChatNotify = Sidereal::Message.define('chat.notify') do
-  attribute :message, String
-end
-
-Working = Sidereal::Message.define('chat.working')
-
-SendEmails = Sidereal::Message.define('chat.send_emails') do
-  attribute? :kickoff, Sidereal::Types::Boolean
-  attribute? :sender,  Sidereal::Types::String
-end
-
-EndCampaign = Sidereal::Message.define('chat.end_campaign')
+require_relative 'messages'
 
 require_relative 'ui/layout'
 require_relative 'ui/chat_page'
@@ -50,9 +21,7 @@ require_relative 'ui/chat_page'
 require 'json'
 
 # -- App --
-# File-backed message store (one JSON object per line)
-MESSAGES_FILE = 'chat_messages.jsonl'
-
+# File-backed message log (one JSON object per line); the path is set in boot.rb.
 module MessageLog
   module_function
 
@@ -139,7 +108,7 @@ class ChatApp < Sidereal::App
   # ChatApp::Commander::Schedules::SchedTickCampaign0Step{0,1,2}, with
   # the block as that class's handler.
   schedule 'Tick campaign' do
-    at Time.now + 10 do |cmd|
+    at Time.now + 25 do |cmd|
       dispatch(
         SendMessage,
         author: 'System',
