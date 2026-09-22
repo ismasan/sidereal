@@ -19,5 +19,5 @@ gem 'falcon'
 
 group :development do
   gem 'docco', github: 'ismasan/docco'
-  gem 'sourced', path: '../sourced'
+  gem 'sourced', github: 'ismasan/sourced', branch: 'ccc'
 end
