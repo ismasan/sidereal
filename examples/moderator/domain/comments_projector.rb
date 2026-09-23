@@ -66,6 +66,16 @@ class CommentsProjector < Sourced::Projector::StateStored
     Sourced.store.db[:comments].insert_conflict(:replace).insert(state)
   end
 
+  # Pause after each committed step when SLOWMO=<seconds> is set, so the board
+  # can be watched updating one event at a time. Runs post-commit, so no
+  # SQLite lock is held while sleeping; the Projected signal below has already
+  # been published by the time this runs, so the browser patches, then waits.
+  if ENV['SLOWMO']
+    after_sync do |**|
+      sleep Float(ENV['SLOWMO'])
+    end
+  end
+
   # A `Projected` signal (attribute: comment_id) is auto-generated from
   # `partition_by` and published after each committed batch by
   # Sidereal::Integrations::Sourced — routed via Sidereal.channels.for.
@@ -80,10 +90,11 @@ class CommentsProjector < Sourced::Projector::StateStored
     Sourced.store.db[:comments].where(comment_id:).first
   end
 
-  # Pipeline columns for one subject. Inbox and moderating are oldest-first
-  # (a queue); approved is newest-first (a feed). Spam is only counted.
+  # Pipeline columns for one subject, or for every subject when +subject_id+
+  # is nil. Inbox and moderating are oldest-first (a queue); approved is
+  # newest-first (a feed). Spam is only counted.
   def self.board_for(subject_id)
-    rows = Sourced.store.db[:comments].where(subject_id:).exclude(status: 'spam').all
+    rows = comments_for(subject_id).exclude(status: 'spam').all
     {
       pending: rows.select { |r| r[:status] == 'pending' }.sort_by { |r| r[:created_at] },
       moderating: rows.select { |r| r[:status] == 'moderating' }.sort_by { |r| r[:updated_at] },
@@ -92,6 +103,11 @@ class CommentsProjector < Sourced::Projector::StateStored
   end
 
   def self.spam_count(subject_id)
-    Sourced.store.db[:comments].where(subject_id:, status: 'spam').count
+    comments_for(subject_id).where(status: 'spam').count
+  end
+
+  def self.comments_for(subject_id)
+    ds = Sourced.store.db[:comments]
+    subject_id ? ds.where(subject_id:) : ds
   end
 end
