@@ -70,56 +70,65 @@ class PipelinePage < Sidereal::Page
     ) do
       div(class: 'pipeline__main') do
         header(class: 'topbar') do
-          a(href: '/', class: 'brand') { 'Moderator' }
+          a(href: '/', class: 'brand') do
+            span(class: 'brand__mark', aria_hidden: true)
+            plain 'Moderator'
+          end
+          span(class: 'topbar__divider', aria_hidden: true)
+          render SubjectPicker.new(subject: @subject, action: '/comments')
           nav(class: 'topbar__nav') do
-            a(href: "/comments?subject_id=#{@subject.id}", class: 'back') { '← Back' } if detail?
-            a(href: "/?subject_id=#{@subject.id}") { 'Comment box →' }
+            a(href: "/comments?subject_id=#{@subject.id}", class: 'button button--ghost') { 'Back to board' } if detail?
+            a(href: "/?subject_id=#{@subject.id}", class: 'button') { 'Comment box' }
           end
         end
 
         if historic?
           p(class: 'historic-tag') do
-            plain "Viewing this comment at step #{current_step} — "
-            a(href: "/comments/#{feed_comment_id}") { 'back to live' }
+            plain "Viewing this comment as it was at step #{current_step}."
+            a(href: "/comments/#{feed_comment_id}") { 'Back to live' }
           end
         end
 
-        render SubjectPicker.new(subject: @subject, action: '/comments')
-
-        nav(class: 'tabs', aria_label: 'Pipeline stage') do
-          COLUMNS.each do |key, label|
-            button(
-              type: 'button',
-              class: 'tab',
-              data: { 'on:click' => "$tab = '#{key}'", 'class:is-active' => "$tab === '#{key}'" }
-            ) do
-              plain label
-              span(class: 'tab__count') { @board[key].length.to_s }
+        div(class: 'board-area') do
+          nav(class: 'tabs', aria_label: 'Pipeline stage') do
+            COLUMNS.each do |key, label|
+              button(
+                type: 'button',
+                class: 'tab',
+                data: { 'on:click' => "$tab = '#{key}'", 'class:is-active' => "$tab === '#{key}'" }
+              ) do
+                plain label
+                span(class: 'tab__count') { @board[key].length.to_s }
+              end
             end
           end
-        end
 
-        div(class: 'board') do
-          COLUMNS.each do |key, label|
-            section(
-              class: "column column--#{key}",
-              data: { 'class:is-active' => "$tab === '#{key}'" }
-            ) do
-              h2(class: 'column__title') { label }
-              div(class: 'column__body') do
-                if key == :moderating && detail?
-                  render DetailCard.new(@detail, historic: historic?)
-                else
-                  render_cards(@board[key])
+          div(class: 'board') do
+            COLUMNS.each do |key, label|
+              section(
+                class: "column column--#{key}",
+                data: { 'class:is-active' => "$tab === '#{key}'" }
+              ) do
+                h2(class: 'column__title') do
+                  span(class: 'column__dot', aria_hidden: true)
+                  plain label
+                  span(class: 'column__count') { @board[key].length.to_s }
+                end
+                div(class: 'column__body') do
+                  if key == :moderating && detail?
+                    render DetailCard.new(@detail, historic: historic?)
+                  else
+                    render_cards(@board[key])
+                  end
                 end
               end
             end
           end
-        end
 
-        footer(class: 'spam-count') do
-          strong(class: 'spam-count__number') { @spam_count.to_s }
-          plain ' classified as spam.'
+          footer(class: 'spam-count') do
+            strong(class: 'spam-count__number') { @spam_count.to_s }
+            plain ' marked as spam'
+          end
         end
       end
 
