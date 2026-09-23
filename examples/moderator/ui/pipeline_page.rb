@@ -5,8 +5,8 @@ require_relative 'components/comment_card'
 require_relative 'components/detail_card'
 require_relative 'components/event_feed'
 
-# ui:PipelineView — the three-column moderation board for one subject, plus
-# the global event feed. Re-rendered whole on every comment event (so the
+# ui:PipelineView — the three-column moderation board for one subject (or
+# every subject when none is picked), plus the global event feed. Re-rendered whole on every comment event (so the
 # feed stays live) and on every projector commit (so the columns do).
 class PipelinePage < Sidereal::Page
   path '/comments'
@@ -27,12 +27,13 @@ class PipelinePage < Sidereal::Page
     [:approved, 'Moderated']
   ].freeze
 
+  # +subject+ is nil for the unfiltered board.
   def self.load(params, _ctx)
-    subject = Subjects.find(params[:subject_id]) || Subjects.first
+    subject = Subjects.find(params[:subject_id])
     new(
       subject: subject,
-      board: CommentsProjector.board_for(subject.id),
-      spam_count: CommentsProjector.spam_count(subject.id),
+      board: CommentsProjector.board_for(subject&.id),
+      spam_count: CommentsProjector.spam_count(subject&.id),
       feed: EventFeed.recent
     )
   end
@@ -53,6 +54,9 @@ class PipelinePage < Sidereal::Page
   def default_tab = 'pending'
 
   def detail? = !@detail.nil?
+
+  # Query string carrying the current subject filter, empty when unfiltered.
+  def subject_query = @subject ? "?subject_id=#{@subject.id}" : ''
 
   # Labels the feed when it is showing one comment rather than the whole log.
   def feed_scope = nil
@@ -77,8 +81,8 @@ class PipelinePage < Sidereal::Page
           span(class: 'topbar__divider', aria_hidden: true)
           render SubjectPicker.new(subject: @subject, action: '/comments')
           nav(class: 'topbar__nav') do
-            a(href: "/comments?subject_id=#{@subject.id}", class: 'button button--ghost') { 'Back to board' } if detail?
-            a(href: "/?subject_id=#{@subject.id}", class: 'button') { 'Comment box' }
+            a(href: "/comments#{subject_query}", class: 'button button--ghost') { 'Back to board' } if detail?
+            a(href: "/#{subject_query}", class: 'button') { 'Comment box' }
           end
         end
 

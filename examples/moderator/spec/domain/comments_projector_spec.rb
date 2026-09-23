@@ -108,6 +108,19 @@ RSpec.describe CommentsProjector do
       expect(described_class.board_for(Subjects.all.last.id)).to eq(pending: [], moderating: [], approved: [])
     end
 
+    it '.board_for with a nil subject covers every subject' do
+      project('a')
+      project('b', Comment::ModerationStarted)
+      board = described_class.board_for(nil)
+      expect(board[:pending].map { |r| r[:comment_id] }).to eq(['a'])
+      expect(board[:moderating].map { |r| r[:comment_id] }).to eq(['b'])
+    end
+
+    it '.spam_count with a nil subject counts spam across every subject' do
+      project('d', Comment::ModerationStarted, Comment::MarkedSpam)
+      expect(described_class.spam_count(nil)).to eq(1)
+    end
+
     it '.spam_count counts spam for a subject' do
       project('d', Comment::ModerationStarted, Comment::MarkedSpam)
       project('e', Comment::ModerationStarted, Comment::MarkedSpam)
