@@ -105,4 +105,10 @@ class Classifier < Sourced::Projector::EventSourced
   def should_react?(state, message, replaying: false)
     true
   end
+
+  if ENV['SLOWMO']
+    after_sync do |**|
+      sleep Float(ENV['SLOWMO'])
+    end
+  end
 end
