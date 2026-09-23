@@ -44,8 +44,8 @@ class EventFeed < Sidereal::Components::BaseComponent
           plain 'Event feed'
           span(class: 'feed__scope') { @scope } if @scope
         end
-        render_pagination if time_travel? && @messages.any?
       end
+      render_pagination if time_travel? && @messages.any?
 
       if @messages.empty?
         p(class: 'feed__empty') { empty_message }
@@ -88,10 +88,10 @@ class EventFeed < Sidereal::Components::BaseComponent
 
   # Step back and forward through the comment's history one message at a time.
   def render_pagination
-    span(class: 'feed__pagination') do
+    div(class: 'feed__pagination') do
+      span(class: 'feed__position') { "Step #{@current_step} of #{@messages.length}" }
       pager_link('←', @current_step - 1, enabled: @current_step > 1, title: 'Previous step')
       pager_link('→', @current_step + 1, enabled: @current_step < @messages.length, title: 'Next step')
-      span(class: 'feed__position') { "step: #{@current_step}" }
     end
   end
 
@@ -120,7 +120,7 @@ class EventFeed < Sidereal::Components::BaseComponent
         if @step
           a(class: 'feed__step', href: @href, title: "View state at step #{@step}") { @step.to_s }
         else
-          span(class: 'feed__kind') { kind }
+          span(class: 'feed__kind', title: kind) { span(class: 'visually-hidden') { kind } }
         end
 
         if @href
