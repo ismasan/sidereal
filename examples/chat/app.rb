@@ -7,11 +7,19 @@ Dotenv.load '.env'
 # pubsub/elector) in boot.rb, which config.ru loads before this file.
 require 'ruby_llm'
 
-RubyLLM.configure do |config|
-  # Add keys ONLY for the providers you intend to use.
-  # Using environment variables is highly recommended.
-  config.openai_api_key = ENV.fetch('OPENAI_API_KEY')
-  # config.anthropic_api_key = ENV.fetch('ANTHROPIC_API_KEY')
+# The LLM bot is optional: without an API key the app still runs, but
+# `@bot` mentions are answered with a notice instead of an LLM reply.
+LLM_ENABLED = ENV['OPENAI_API_KEY'].to_s.strip != ''
+
+if LLM_ENABLED
+  RubyLLM.configure do |config|
+    # Add keys ONLY for the providers you intend to use.
+    # Using environment variables is highly recommended.
+    config.openai_api_key = ENV.fetch('OPENAI_API_KEY')
+    # config.anthropic_api_key = ENV.fetch('ANTHROPIC_API_KEY')
+  end
+else
+  warn '[chat] OPENAI_API_KEY not set: LLM bot disabled. @bot mentions will not be answered.'
 end
 require_relative 'messages'
 
@@ -58,7 +66,12 @@ class ChatApp < Sidereal::App
   command SendMessage do |cmd|
     MessageLog.append(cmd)
     if cmd.payload.content.to_s =~ /@bot /
-      dispatch AskLLM, cmd.payload
+      if LLM_ENABLED
+        dispatch AskLLM, cmd.payload
+      else
+        dispatch SendMessage, author: 'System', role: 'system',
+                              content: 'The bot is disabled: set OPENAI_API_KEY to enable LLM replies.'
+      end
     end
     dispatch ChatNotify, message: "#{cmd.payload.author}: #{cmd.payload.content}"
   end
@@ -67,6 +80,8 @@ class ChatApp < Sidereal::App
   end
 
   command AskLLM do |cmd|
+    raise 'AskLLM dispatched but LLM is disabled (OPENAI_API_KEY not set)' unless LLM_ENABLED
+
     broadcast Working
 
     response = chat.ask(cmd.payload.content)

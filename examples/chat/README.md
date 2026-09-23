@@ -27,7 +27,7 @@ cd examples/chat
 bundle install
 ```
 
-Create a `.env` file with your LLM API key:
+Optionally, create a `.env` file with your LLM API key:
 
 ```sh
 OPENAI_API_KEY=sk-...
@@ -36,6 +36,8 @@ ANTHROPIC_API_KEY=sk-ant-...
 ```
 
 (Uncomment the matching `RubyLLM.configure` line in `app.rb` if you switch providers.)
+
+Without a key the app still runs, but the LLM bot is disabled: `@bot` mentions get a system notice instead of a reply.
 
 ## Run
 
