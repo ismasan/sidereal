@@ -37,7 +37,16 @@ Sourced.configure do |config|
   # model calls and nothing is left to apply the verdicts they produce, so
   # comments cross the board in one late batch instead of moving one by one.
   # Size this by how much slow work runs concurrently, not by CPU.
-  config.worker_count = 30
+  #
+  # SLOWMO=<seconds> serialises everything instead: one fiber, one message per
+  # claim, and a pause after each projector commit (see CommentsProjector), so
+  # a rebuild can be watched land on the board one event at a time.
+  if ENV['SLOWMO']
+    config.worker_count = 6
+    config.batch_size = 2
+  else
+    config.worker_count = 30
+  end
 
   next if ENV['TEST']
 
