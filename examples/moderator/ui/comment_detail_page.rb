@@ -28,12 +28,12 @@ class CommentDetailPage < PipelinePage
     messages = EventFeed.for_comment(comment_id)
 
     comment = step ? replay(comment_id, messages.first(step)) : CommentsProjector.find(comment_id)
-    subject = Subjects.find(comment&.[](:subject_id) || params[:subject_id]) || Subjects.first
+    subject = Subjects.find(comment&.[](:subject_id) || params[:subject_id])
 
     new(
       subject: subject,
-      board: CommentsProjector.board_for(subject.id),
-      spam_count: CommentsProjector.spam_count(subject.id),
+      board: CommentsProjector.board_for(subject&.id),
+      spam_count: CommentsProjector.spam_count(subject&.id),
       feed: messages,
       detail: comment,
       comment_id: comment_id,
