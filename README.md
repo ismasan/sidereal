@@ -1184,8 +1184,8 @@ A browser submits `seats=30` as the String `"30"`, `published` as `"1"`, and a d
 ```ruby
 BookCourse = Sidereal::Message.define('courses.book') do
   attribute :course_name, Sidereal::Types::String.present
-  attribute :seats, Sidereal::Types::Integer
-  attribute :starts_on, Sidereal::Types::Date
+  attribute :seats, Integer
+  attribute :starts_on, Date
   attribute :published, Sidereal::Types::Boolean
 end
 
