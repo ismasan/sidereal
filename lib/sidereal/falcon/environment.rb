@@ -54,10 +54,12 @@ module Sidereal
           super
         end
 
-        def run(instance, evaluator)
+        # Falcon (0.56+) passes the worker's bound {Falcon::Listener} as the
+        # third argument; the server binds to its endpoint.
+        def run(instance, evaluator, listener = @listener)
           # make_server loads the rackup app (config.ru → boot.rb), which runs
           # Sidereal.configure — so the config is populated by the time we check.
-          server = evaluator.make_server(@bound_endpoint)
+          server = evaluator.make_server(listener.endpoint)
 
           # Fail fast: refuse to boot in-process-only subsystems across forked
           # workers (their in-memory state isn't shared, so SSE fan-out would

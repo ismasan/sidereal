@@ -21,10 +21,11 @@ RSpec.describe Sidereal::Falcon::Environment::Service do
   end
 
   # The service reads only `name` off the environment (for log subjects), and
-  # takes the evaluator it uses as an argument to #run.
+  # takes the evaluator and the bound listener it uses as arguments to #run.
   let(:environment) { double('environment', evaluator: evaluator, name: 'test-service') }
   let(:evaluator) { double('evaluator', name: 'test-service', count: 1) }
   let(:instance) { double('instance') }
+  let(:listener) { double('listener', endpoint: double('bound endpoint')) }
   let(:service) { RecordingService.new(environment, evaluator) }
 
   describe 'a boot failure' do
@@ -33,7 +34,7 @@ RSpec.describe Sidereal::Falcon::Environment::Service do
     it 'terminates the host instead of returning into the restart loop' do
       allow(evaluator).to receive(:make_server).and_raise(NoMethodError, 'undefined method for nil')
 
-      expect(service.run(instance, evaluator)).to eq(:terminated)
+      expect(service.run(instance, evaluator, listener)).to eq(:terminated)
       expect(service.terminations).to eq([1])
     end
 
@@ -46,14 +47,14 @@ RSpec.describe Sidereal::Falcon::Environment::Service do
         expect(meta[:exception]).to be(error)
       end
 
-      service.run(instance, evaluator)
+      service.run(instance, evaluator, listener)
     end
 
     it 'reports a boot error that is not a StandardError' do
       allow(evaluator).to receive(:make_server).and_raise(NotImplementedError, 'nope')
 
       expect(Console).to receive(:error)
-      expect(service.run(instance, evaluator)).to eq(:terminated)
+      expect(service.run(instance, evaluator, listener)).to eq(:terminated)
     end
 
     it 'widens an exit requested by a boot check to the whole host' do
@@ -62,7 +63,7 @@ RSpec.describe Sidereal::Falcon::Environment::Service do
       allow(evaluator).to receive(:make_server).and_raise(SystemExit.new(2))
 
       expect(Console).not_to receive(:error)
-      expect(service.run(instance, evaluator)).to eq(:terminated)
+      expect(service.run(instance, evaluator, listener)).to eq(:terminated)
       expect(service.terminations).to eq([2])
     end
 
@@ -78,14 +79,14 @@ RSpec.describe Sidereal::Falcon::Environment::Service do
         expect(meta[:exception]).to be(error)
       end
 
-      service.run(instance, evaluator)
+      service.run(instance, evaluator, listener)
       expect(service.terminations).to eq([1])
     end
 
     it 'lets a shutdown signal through untouched' do
       allow(evaluator).to receive(:make_server).and_raise(Interrupt)
 
-      expect { service.run(instance, evaluator) }.to raise_error(Interrupt)
+      expect { service.run(instance, evaluator, listener) }.to raise_error(Interrupt)
       expect(service.terminations).to be_empty
     end
   end

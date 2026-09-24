@@ -4,7 +4,7 @@ PATH
     sidereal (0.1.0)
       async
       brotli
-      datastar (~> 1.0.4)
+      datastar (~> 1.0.6)
       fugit
       phlex
       plumb (~> 0.3)
@@ -23,17 +23,15 @@ GEM
       traces (~> 0.18)
     async-container (0.34.5)
       async (~> 2.22)
-    async-http (0.95.0)
-      async (>= 2.10.2)
+    async-http (0.97.0)
+      async (>= 2.35.1)
       async-pool (~> 0.11)
       io-endpoint (~> 0.14)
       io-stream (~> 0.6)
-      metrics (~> 0.12)
       protocol-http (~> 0.62)
       protocol-http1 (~> 0.39)
       protocol-http2 (~> 0.26)
       protocol-url (~> 0.2)
-      traces (~> 0.10)
     async-http-cache (0.4.6)
       async-http (~> 0.56)
     async-pool (0.11.2)
@@ -52,16 +50,16 @@ GEM
       fiber-annotation
       fiber-local (~> 1.1)
       json
-    datastar (1.0.5)
+    datastar (1.0.6)
       json
       logger
       rack (>= 3.2)
     et-orbi (1.4.2)
       tzinfo
-    falcon (0.55.3)
+    falcon (0.57.0)
       async
       async-container (~> 0.20)
-      async-http (~> 0.75)
+      async-http (~> 0.97)
       async-http-cache (~> 0.4)
       async-service (~> 0.19)
       async-utilization (~> 0.3)
@@ -137,7 +135,7 @@ DEPENDENCIES
 CHECKSUMS
   async (2.39.0) sha256=df18730073f2bbb45788077dfa20cb365ecc1b9453969f44de6796b5191a00aa
   async-container (0.34.5) sha256=905d950bb4cc5219238214d3a11ac6c4b74d4affecd930027e929ba0b86234bd
-  async-http (0.95.0) sha256=08128cab255a48e41d1e856bfa9cbda001f1c57c88bafa3fa3a545ad795754aa
+  async-http (0.97.0) sha256=bd0f2a2857da68135a5f50d89c28deddae77ebdad987f5692bc01ffa0c9ca48c
   async-http-cache (0.4.6) sha256=2038d1f093182f16b50b4db271c25085e3938da10bfcfc2904cadb0530fddfd6
   async-pool (0.11.2) sha256=0a43a17b02b04d9c451b7d12fafa9a50e55dc6dd00d4369aca00433f16a7e3ed
   async-service (0.22.0) sha256=84616488145654d42f994c2097eef39811a21548bf0da18d20a7b61813e63b61
@@ -147,9 +145,9 @@ CHECKSUMS
   brotli (0.8.0) sha256=0c5a42046b3b603fb109656881147fd76064c034b7d19c1b4fcc32a093a4d55d
   concurrent-ruby (1.3.8) sha256=b2f1be836e968ccc78ccfce277ea79c72a88633f22306782c16ff23fb415d1e1
   console (1.34.3) sha256=869fbd74697efc4c606f102d2812b0b008e4e7fd738a91c591e8577140ec0dcc
-  datastar (1.0.5) sha256=9ee7cda4e5707f00e22f4c989d554d908913b38373a3a0bc4afbc4aeec0b0c5c
+  datastar (1.0.6) sha256=523eabfd45cac347e75903f5ea8110b43d125645463d2b68931f9bb7cbfb721a
   et-orbi (1.4.2) sha256=bb555dae668419cb24caa2a293a170e58be6d4df1e017c51f5030bdc133cd20c
-  falcon (0.55.3) sha256=0287bdace3554bb2e90dd8af2278800fc8ed8428710ceb31787abfe4463c973b
+  falcon (0.57.0) sha256=c9b060bc23a3b90a80376078aae037d8f48e0b2f12f5f30f360d4b29d7baf0f7
   fiber-annotation (0.2.0) sha256=7abfadf1d119f508867d4103bf231c0354d019cc39a5738945dec2edadaf6c03
   fiber-local (1.1.0) sha256=c885f94f210fb9b05737de65d511136ea602e00c5105953748aa0f8793489f06
   fiber-storage (1.0.1) sha256=f48e5b6d8b0be96dac486332b55cee82240057065dc761c1ea692b2e719240e1
