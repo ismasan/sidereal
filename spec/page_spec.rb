@@ -185,6 +185,36 @@ RSpec.describe Sidereal::Page do
       expect(sse.patches.size).to eq(1)
     end
 
+    it 'reloads and patches the page when registered without a block' do
+      loaded_with = :unset
+      blockless_page = Class.new(Sidereal::Page) do
+        path '/blockless'
+
+        def initialize(params)
+          @params = params
+        end
+
+        def view_template
+          div { 'reloaded' }
+        end
+
+        on PageTestItemAdded
+      end
+      blockless_page.define_singleton_method(:load) do |params, _ctx|
+        loaded_with = params
+        new(params)
+      end
+
+      sse = FakeSSE.new('page_key' => '/blockless', 'params' => { 'id' => '7' })
+      page_context = page_context_class.new(sse, nil, blockless_page)
+
+      page_context.react(PageTestItemAdded.new(payload: { title: 'hello' }))
+
+      expect(loaded_with).to eq({ id: '7' })
+      expect(sse.patches.size).to eq(1)
+      expect(sse.patches.first[:component]).to be_a(blockless_page)
+    end
+
     it 'ignores events without a registered handler' do
       sse = FakeSSE.new('page_key' => '/reactive', 'params' => {})
       page_context = page_context_class.new(sse, nil, page_class)

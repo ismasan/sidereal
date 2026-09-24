@@ -7,8 +7,10 @@ module Sidereal
   class Page < Components::BaseComponent
     METHOD_PREFIX = '__on_'
 
-    DEFAULT_HANDLER = proc do |_evt, _state|
-      browser.patch_element build(params)
+    # Reaction installed by {.on} when no block is given: reload the page
+    # from the current signal params and morph it into the browser.
+    DEFAULT_HANDLER = proc do |_evt|
+      browser.patch_elements load(params)
     end
 
     class PageContext
