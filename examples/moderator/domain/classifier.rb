@@ -87,18 +87,18 @@ class Classifier < Sourced::Projector::EventSourced
 
     comment_id = evt.payload.comment_id
 
-    case Feelings(state.content).most_like(VIBES)
+    cmd = case Feelings(state.content).most_like(VIBES)
     when :positive
-      dispatch Comment::MarkPositive, comment_id:
+      Comment::MarkPositive
     when :neutral
-      dispatch Comment::MarkNeutral, comment_id:
+      Comment::MarkNeutral
     when :negative
-      dispatch Comment::MarkNegative, comment_id:
+      Comment::MarkNegative
     when :spam
-      dispatch Comment::MarkSpam, comment_id:
-    else 
-      raise "no verdict for #{comment_id}"
+      Comment::MarkSpam
     end
+
+    dispatch cmd, comment_id:
   end
 
   # Sourced hook
