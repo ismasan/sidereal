@@ -10,7 +10,7 @@ PATH
       plumb (~> 0.3)
       rack (~> 3)
       rack-session
-      sourced-message (>= 0.2.2)
+      sourced-message (>= 0.3.0)
 
 GEM
   remote: https://rubygems.org/
@@ -115,7 +115,7 @@ GEM
     samovar (2.4.1)
       console (~> 1.0)
       mapping (~> 1.0)
-    sourced-message (0.2.2)
+    sourced-message (0.3.0)
       fugit
       plumb (>= 0.3)
     string-format (0.2.0)
@@ -176,7 +176,7 @@ CHECKSUMS
   refract (1.1.0) sha256=ee3b9627e39f7692831101e2fedd73e0d09a592ff5d5c05f171d14211fc7a9c7
   samovar (2.4.1) sha256=c3b91dd0580771e3bc600621c1111f29542529dcffafaac3b6bf068b3f309e80
   sidereal (0.1.0)
-  sourced-message (0.2.2) sha256=864dc4a883fbe5b5114ee0bbb01a9aad2d3a3096ed7e96031f0401bd8c5e70d2
+  sourced-message (0.3.0) sha256=99c5bf00e9bb206f6bf6491e92c8e21240e5480f3a80e94831a8c1b97d12a531
   string-format (0.2.0) sha256=bc981c14116b061f12134549f32fa2d61a17b5a35dd6fd36596c21722a789af6
   traces (0.18.2) sha256=80f1649cb4daace1d7174b81f3b3b7427af0b93047759ba349960cb8f315e214
   tzinfo (2.0.6) sha256=8daf828cc77bcf7d63b0e3bdb6caa47e2272dcfaf4fbfe46f8c3a9df087a829b

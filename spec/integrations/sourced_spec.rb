@@ -382,6 +382,23 @@ RSpec.describe 'Sidereal::Commander on the Sourced runtime' do
 
   # -- Auto-publish injected by the Sourced integration --
 
+  describe 'sidereal_events for Page.on' do
+    it 'a decider stands for the events it evolves' do
+      expect(IntgWidget.sidereal_events).to eq(IntgWidget.handled_messages_for_evolve)
+      expect(IntgWidget.sidereal_events).to include(IntgWidget::Created)
+    end
+
+    it 'a projector stands for its Projected signal' do
+      expect(IntgThingProjector.sidereal_events).to eq([IntgThingProjector::Projected])
+    end
+
+    it 'lets a page react to a whole reactor' do
+      page = Class.new(Sidereal::Page) { on IntgWidget, IntgThingProjector }
+
+      expect(page.correlation_types).to include(IntgWidget::Created.type, IntgThingProjector::Projected.type)
+    end
+  end
+
   describe 'Sourced::Decider auto-publishes emitted events' do
     include Sourced::Testing::RSpec
 
@@ -402,6 +419,17 @@ RSpec.describe 'Sidereal::Commander on the Sourced runtime' do
       expect(entry[:message]).to be_a(IntgWidget::Created)
       expect(entry[:message].payload.widget_id).to eq('w1')
     end
+
+    it 'publishes events correlated to the command, as they are stored' do
+      with_reactor(IntgWidget, widget_id: 'w2')
+        .when(IntgWidget::Create, widget_id: 'w2')
+        .then!(IntgWidget::Created, widget_id: 'w2')
+
+      event = pubsub.published.first[:message]
+      expect(event.correlation_type).to eq(IntgWidget::Create.type)
+      expect(event.causation_id).not_to eq(event.id)
+      expect(event.correlation_id).to eq(event.causation_id)
+    end
   end
 
   describe 'Sourced::Projector auto-generates + publishes a Projected signal' do
@@ -412,7 +440,7 @@ RSpec.describe 'Sidereal::Commander on the Sourced runtime' do
       Sidereal.channels.channel_name(IntgThingProjector::Projected) { |m| "things.#{m.payload.thing_id}" }
 
       with_reactor(IntgThingProjector, thing_id: 't1')
-        .when(IntgThingHappenedEvt, thing_id: 't1')
+        .given(IntgThingHappenedEvt, thing_id: 't1')
         .then!([])
 
       expect(pubsub.published.size).to eq(1)
@@ -420,6 +448,36 @@ RSpec.describe 'Sidereal::Commander on the Sourced runtime' do
       expect(entry[:channel]).to eq('things.t1')
       expect(entry[:message]).to be_a(IntgThingProjector::Projected)
       expect(entry[:message].payload.thing_id).to eq('t1')
+    end
+
+    it 'correlates the signal from the batch message so pages can match its root command' do
+      with_reactor(IntgThingProjector, thing_id: 't2')
+        .given(IntgThingHappenedEvt, thing_id: 't2')
+        .then!([])
+
+      signal = pubsub.published.first[:message]
+      expect(signal.correlation_type).to eq(IntgThingHappenedEvt.type)
+      expect(signal.causation_id).not_to eq(signal.id)
+    end
+
+    it 'publishes one signal per causal root in a batch, each from the last message of that root' do
+      cmd_a = IntgDoThing.new(payload: { n: 1 })
+      cmd_b = IntgDoThing.new(payload: { n: 2 })
+      a1 = cmd_a.correlate(IntgThingHappenedEvt.new(payload: { thing_id: 't3' }))
+      b1 = cmd_b.with_metadata(correlation_type: 'other.root')
+                .correlate(IntgThingHappenedEvt.new(payload: { thing_id: 't3' }))
+      a2 = cmd_a.correlate(IntgThingHappenedEvt.new(payload: { thing_id: 't3' }))
+      batch = [a1, b1, a2].each_with_index.map { |m, i| Sourced::PositionedMessage.new(m, i + 1) }
+
+      pairs = IntgThingProjector.handle_batch({ thing_id: 't3' }, batch)
+      pairs.flat_map(&:first).select { |a| a.is_a?(Sourced::Actions::AfterSync) }.each { |a| a.work.call }
+
+      signals = pubsub.published.map { |p| p[:message] }
+      expect(signals.map(&:correlation_type)).to contain_exactly(IntgDoThing.type, 'other.root')
+      by_root = signals.to_h { |sg| [sg.correlation_type, sg] }
+      expect(by_root[IntgDoThing.type].causation_id).to eq(a2.id)
+      expect(by_root['other.root'].causation_id).to eq(b1.id)
+      expect(signals.map { |sg| sg.payload.thing_id }.uniq).to eq(['t3'])
     end
 
     it 'carries every key for a multi-key partition (partition_values, not read-model state)' do
@@ -431,7 +489,7 @@ RSpec.describe 'Sidereal::Commander on the Sourced runtime' do
       end
 
       with_reactor(IntgEnrollmentProjector, student_id: 's1', course_id: 'c1')
-        .when(IntgEnrolledEvt, student_id: 's1', course_id: 'c1')
+        .given(IntgEnrolledEvt, student_id: 's1', course_id: 'c1')
         .then!([])
 
       expect(pubsub.published.size).to eq(1)

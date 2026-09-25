@@ -10,11 +10,11 @@ require_relative 'components/seat_panel'
 class GamePage < Sidereal::Page
   path '/games/:id'
 
-  on Game::PlayerJoined,
-     Game::MoveMade,
-     Game::GameEnded do |_evt|
-    browser.patch_elements GamePage.load(params, context)
-  end
+  # Reload on the events that change the board. Named explicitly rather than
+  # left to the rendered forms: the page that must react is the opponent's,
+  # which never renders them — JoinGame is only shown to the joining player
+  # and MakeMove only to the player on turn.
+  on Game::PlayerJoined, Game::MoveMade, Game::GameEnded
 
   def self.load(params, ctx, selected_source: nil, current_step: nil)
     state, messages = load_state_with_history(params[:id], upto: current_step)

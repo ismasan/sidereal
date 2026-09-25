@@ -5,20 +5,9 @@ require_relative 'event_list'
 class DonationPage < Sidereal::Page
   path '/:campaign_id/:donation_id'
 
-  on Donation::DonationStarted,
-     Donation::AmountSelected,
-     Donation::DonorDetailsEntered,
-     Donation::EmailSent,
-     Donation::VerificationEmailSent,
-     Donation::EmailVerified,
-     Donation::PaymentReady,
-     Donation::PaymentStarted,
-     Donation::PaymentConfirmed do |evt|
-    state, messages = DonationPage.load_donation_with_history(
-      evt.payload.campaign_id, evt.payload.donation_id
-    )
-    browser.patch_elements DonationPage.new(donation: state, messages: messages)
-  end
+  # Reload on every event that changes a donation: the Donation decider
+  # stands for the events it evolves, its own and the campaign's.
+  on Donation
 
   def self.load(params, _ctx)
     state, messages = load_donation_with_history(params[:campaign_id], params[:donation_id])

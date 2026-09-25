@@ -313,6 +313,14 @@ module Sidereal
       # claimed tuple), so the app's +channel_name+ resolver routes it exactly like
       # the domain events it partitions by.
       #
+      # A batch may hold messages from several causal chains, so one signal is
+      # published per distinct +correlation_type+ in the batch, each correlated
+      # from the last message of that chain. The signal then carries a real
+      # lineage — causation, correlation and +correlation_type+ — and a page
+      # that reacts to the root command (a rendered form, or a block-less
+      # +on+) reloads when the read model it feeds is committed, with no
+      # reaction written for the signal itself.
+      #
       module ProjectorSignals
         def partition_by(*keys)
           super
@@ -330,11 +338,13 @@ module Sidereal
           end
           const_set(:Projected, signal) # Pages reference MyProjector::Projected
 
-          after_sync do |**|
+          after_sync do |messages: [], **|
             vals = partition_values # instance accessor: the full claimed tuple
             next if vals.empty? || vals.each_value.any?(&:nil?)
 
-            Sidereal::Integrations::Sourced.publish_messages([signal.new(payload: vals)])
+            last_by_root = messages.each_with_object({}) { |msg, by_root| by_root[msg.correlation_type] = msg }
+            signals = last_by_root.each_value.map { |source| source.correlate(signal.new(payload: vals)) }
+            Sidereal::Integrations::Sourced.publish_messages(signals)
           end
         end
       end
@@ -342,11 +352,28 @@ module Sidereal
   end
 end
 
+# --- Page.on sources (runs at require time, before domain reactors load) ---
+
+# A page can react to a whole reactor: +on(Donation)+ expands through
+# +sidereal_events+ (see Sidereal::Page.on). A decider stands for the events
+# that change its state — its evolve list, its own events and any foreign ones
+# it evolves — since that is what a page showing that state wants to follow.
+# Sourced keeps no static record of what a decider emits, and the evolve list
+# is the better answer anyway. A projector stands for its Projected signal, the
+# one message that says its read model committed; reloading on the events it
+# consumes would read the model before the batch lands.
+::Sourced::Decider.define_singleton_method(:sidereal_events) { handled_messages_for_evolve }
+::Sourced::Projector.define_singleton_method(:sidereal_events) do
+  const_defined?(:Projected, false) ? [const_get(:Projected)] : []
+end
+
 # --- Auto-publish wiring (runs at require time, before domain reactors load) ---
 
 # Deciders: publish the domain events they emitted. Copied into every app decider
 # via +Sync::ClassMethods#inherited+ (registered here, before subclasses exist).
-# The reaction branch passes +events: []+ → no-op.
+# The reaction branch passes +events: []+ → no-op. The events arrive already
+# correlated to the command (+Decider.handle_batch+ does that before its sync
+# hooks run), so subscribers see the +correlation_type+ they match on.
 ::Sourced::Decider.after_sync do |events: [], **|
   Sidereal::Integrations::Sourced.publish_messages(events)
 end

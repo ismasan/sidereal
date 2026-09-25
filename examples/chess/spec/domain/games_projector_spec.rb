@@ -158,8 +158,8 @@ RSpec.describe GamesProjector do
         expect(evt.payload.game_id).to eq(game_id)
       end
 
-      # No-block form runs Sync/AfterSync exactly once (the block form of
-      # `.then!` re-runs them via compute_state, double-firing the publish).
+      # For a projector the given events are the batch it consumes; then!
+      # runs its hooks once with them.
       with_reactor(GamesProjector, game_id:)
         .given(Game::GameCreated, game_id:, white_username: white, initial_fen: ChessEngine::INITIAL_FEN)
         .then!([])

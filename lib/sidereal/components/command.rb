@@ -111,6 +111,20 @@ module Sidereal
         @cid = LocalID.new([sanitize_id(@command.type), sanitize_id(@key)].join('-'))
       end
 
+      # A page that renders a form for a command will, as a rule, want to
+      # re-render when that command comes back over pubsub — or when anything
+      # handled from it does. So the form registers +on CommandClass+ on the
+      # page rendering it, at whatever depth in its component tree this form
+      # sits, exactly as the page author would write by hand. A form rendered
+      # outside any page, or inside one that called
+      # {Sidereal::Page.disable_causal_reactivity!}, registers nothing.
+      # See {Sidereal::Page.correlation_types}.
+      private def before_template
+        super
+        page = Sidereal::Page.rendering
+        page.on(@command.class) if page&.causal_reactivity?
+      end
+
       def view_template
         data = @attrs.fetch(:data, {})
         if @ajax

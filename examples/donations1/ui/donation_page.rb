@@ -3,21 +3,14 @@
 class DonationPage < Sidereal::Page
   path '/:donation_id'
 
-  on SelectAmount, EnterDonorDetails, ShowPaymentButton, PresentCard, ConfirmPayment, ExpireDonation do |evt|
-    browser.patch_elements DonationPage.new(donation: DonationStore.find(evt.payload.donation_id))
-  end
-
-  on SendVerificationEmail do |evt|
-    browser.patch_elements DonationPage.new(donation: DonationStore.find(evt.payload.donation_id))
-  end
-
-  on DeliverVerificationEmail do |evt|
-    browser.patch_elements DonationPage.new(donation: DonationStore.find(evt.payload.donation_id))
-  end
-
-  on VerifyEmailAddress do |evt|
-    browser.patch_elements DonationPage.new(donation: DonationStore.find_by_token(evt.payload.token))
-  end
+  # The forms this page renders (SelectAmount, EnterDonorDetails, PresentCard)
+  # register themselves, and the reload they trigger also covers everything
+  # dispatched from them: ExpireDonation, SendVerificationEmail,
+  # DeliverVerificationEmail, ConfirmPayment. Verification arrives from the
+  # email link (GET /verify/:token), not from a form here, so it is the one
+  # chain the page has to name — this also covers the ShowPaymentButton it
+  # dispatches.
+  on VerifyEmailAddress
 
   def self.load(params, _ctx)
     donation = DonationStore.find(params[:donation_id])

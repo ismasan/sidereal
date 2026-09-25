@@ -78,6 +78,34 @@ RSpec.describe Sidereal::Page do
       expect(page_class.reactions[PageTestItemAdded]).to eq(page_class.reactions[PageTestNotification])
     end
 
+    it 'registers the message type to reload on when given no block' do
+      page_class = Class.new(Sidereal::Page) do
+        on PageTestItemAdded, PageTestNotification
+      end
+
+      expect(page_class.correlation_types).to include(PageTestItemAdded.type, PageTestNotification.type)
+      expect(page_class.reactions).not_to have_key(PageTestItemAdded)
+    end
+
+    it 'expands a source that answers sidereal_events into its message classes' do
+      source = Module.new do
+        def self.sidereal_events = [PageTestItemAdded, PageTestNotification]
+      end
+      reloading = Class.new(Sidereal::Page) { on source }
+      handling = Class.new(Sidereal::Page) { on(source) { |evt| } }
+
+      expect(reloading.correlation_types).to include(PageTestItemAdded.type, PageTestNotification.type)
+      expect(handling.reactions.keys).to include(PageTestItemAdded, PageTestNotification)
+      expect(handling.reactions[PageTestItemAdded]).to eq(handling.reactions[PageTestNotification])
+    end
+
+    it 'rejects a source whose sidereal_events is empty' do
+      source = Module.new { def self.sidereal_events = [] }
+
+      expect { Class.new(Sidereal::Page) { on source } }
+        .to raise_error(ArgumentError, /answers sidereal_events with nothing/)
+    end
+
     it 'requires at least one message class' do
       expect do
         Class.new(Sidereal::Page) do
@@ -102,6 +130,19 @@ RSpec.describe Sidereal::Page do
       expect(child.reactions.keys).to include(PageTestItemAdded, PageTestNotification)
       expect(parent.reactions.keys).to include(PageTestItemAdded)
       expect(parent.reactions.keys).not_to include(PageTestNotification)
+    end
+
+    it 'inherits correlation types from the parent page' do
+      parent = Class.new(Sidereal::Page) do
+        on PageTestItemAdded
+      end
+      child = Class.new(parent) do
+        on PageTestNotification
+      end
+
+      expect(child.correlation_types).to include(PageTestItemAdded.type, PageTestNotification.type)
+      expect(parent.correlation_types).to include(PageTestItemAdded.type)
+      expect(parent.correlation_types).not_to include(PageTestNotification.type)
     end
 
     it 'does not share reactions between page subclasses' do
@@ -154,6 +195,106 @@ RSpec.describe Sidereal::Page do
     end
   end
 
+  describe 'rendered command forms' do
+    # A command form encodes its values through the codec of the app that
+    # exposed the command, reached as +context.forms_codec+.
+    let(:app) { Class.new(Sidereal::App) { handle PageTestItemAdded, PageTestNotification } }
+    let(:context) do
+      Class.new do
+        def initialize(forms_codec) = @forms_codec = forms_codec
+        def url(addr = nil, *) = addr.to_s
+        attr_reader :forms_codec
+      end.new(app.forms_codec)
+    end
+
+    let(:item_form) do
+      Class.new(Sidereal::Components::BaseComponent) do
+        def view_template
+          command PageTestItemAdded do |f|
+            f.text_field :title
+          end
+        end
+      end
+    end
+
+    it 'register the command type on the page being rendered' do
+      page = Class.new(Sidereal::Page) do
+        def view_template
+          command PageTestNotification do |f|
+            f.text_field :text
+          end
+        end
+      end
+
+      expect(page.correlation_types).to be_empty
+      page.new.call(context:)
+
+      expect(page.correlation_types).to include(PageTestNotification.type)
+    end
+
+    it 'register from any depth of the component tree' do
+      form = item_form
+      page = Class.new(Sidereal::Page) do
+        define_method(:view_template) { div { render form.new } }
+      end
+
+      page.new.call(context:)
+
+      expect(page.correlation_types).to include(PageTestItemAdded.type)
+    end
+
+    it 'register nothing on a page that disabled causal reactivity' do
+      page = Class.new(Sidereal::Page) do
+        disable_causal_reactivity!
+        on PageTestItemAdded
+
+        def view_template
+          command PageTestNotification do |f|
+            f.text_field :text
+          end
+        end
+      end
+
+      expect(page.causal_reactivity?).to be false
+      page.new.call(context:)
+
+      expect(page.correlation_types).to include(PageTestItemAdded.type)
+      expect(page.correlation_types).not_to include(PageTestNotification.type)
+    end
+
+    it 'inherit a disabled causal reactivity' do
+      parent = Class.new(Sidereal::Page) { disable_causal_reactivity! }
+      child = Class.new(parent)
+      form = item_form
+      grandchild = Class.new(child) do
+        define_method(:view_template) { render form.new }
+      end
+
+      grandchild.new.call(context:)
+
+      expect(Sidereal::Page.causal_reactivity?).to be true
+      expect(child.causal_reactivity?).to be false
+      expect(grandchild.correlation_types).to be_empty
+    end
+
+    it 'do not leak the rendering page past the render' do
+      page = Class.new(Sidereal::Page) do
+        def view_template = div { 'plain' }
+      end
+
+      page.new.call(context:)
+
+      expect(Sidereal::Page.rendering).to be_nil
+    end
+
+    it 'register nothing when rendered outside a page' do
+      html = item_form.new.call(context:)
+
+      expect(html).to include('page_test.item_added')
+      expect(Sidereal::Page.correlation_types).to be_empty
+    end
+  end
+
   describe 'PageContext reactions' do
     let(:page_context_class) { Sidereal::Page::PageContext }
 
@@ -183,6 +324,98 @@ RSpec.describe Sidereal::Page do
       page_context.react(evt)
 
       expect(sse.patches.size).to eq(1)
+    end
+
+    it 'reloads and patches the page when registered without a block' do
+      loaded_with = :unset
+      blockless_page = Class.new(Sidereal::Page) do
+        path '/blockless'
+
+        def initialize(params)
+          @params = params
+        end
+
+        def view_template
+          div { 'reloaded' }
+        end
+
+        on PageTestItemAdded
+      end
+      blockless_page.define_singleton_method(:load) do |params, _ctx|
+        loaded_with = params
+        new(params)
+      end
+
+      sse = FakeSSE.new('page_key' => '/blockless', 'params' => { 'id' => '7' })
+      page_context = page_context_class.new(sse, nil, blockless_page)
+
+      page_context.react(PageTestItemAdded.new(payload: { title: 'hello' }))
+
+      expect(loaded_with).to eq({ id: '7' })
+      expect(sse.patches.size).to eq(1)
+      expect(sse.patches.first[:component]).to be_a(blockless_page)
+    end
+
+    it 'reloads on a message produced as a consequence of a registered type' do
+      page = Class.new(Sidereal::Page) do
+        path '/consequence'
+        def self.load(_params, _ctx) = new
+        def view_template = div { 'reloaded' }
+        on PageTestItemAdded
+      end
+
+      sse = FakeSSE.new('page_key' => '/consequence', 'params' => {})
+      page_context = page_context_class.new(sse, nil, page)
+
+      cmd = PageTestItemAdded.new(payload: { title: 'hello' })
+      evt = cmd.correlate(PageTestNotification.new(payload: { text: 'added' }))
+      page_context.react(evt)
+
+      expect(evt.correlation_type).to eq(PageTestItemAdded.type)
+      expect(sse.patches.size).to eq(1)
+      expect(sse.patches.first[:component]).to be_a(page)
+    end
+
+    it 'reloads on a registered type that arrives with another chain root' do
+      page = Class.new(Sidereal::Page) do
+        path '/own-type'
+        def self.load(_params, _ctx) = new
+        def view_template = div { 'reloaded' }
+        on PageTestNotification
+      end
+
+      sse = FakeSSE.new('page_key' => '/own-type', 'params' => {})
+      page_context = page_context_class.new(sse, nil, page)
+
+      cmd = PageTestItemAdded.new(payload: { title: 'hello' })
+      evt = cmd.correlate(PageTestNotification.new(payload: { text: 'added' }))
+      page_context.react(evt)
+
+      expect(evt.correlation_type).to eq(PageTestItemAdded.type)
+      expect(sse.patches.size).to eq(1)
+    end
+
+    it 'prefers the handler for the exact message class over a correlation match' do
+      handled = []
+      page = Class.new(Sidereal::Page) do
+        path '/precedence'
+        def self.load(_params, _ctx) = new
+        def view_template = div { 'reloaded' }
+        on PageTestItemAdded
+        on PageTestNotification do |evt|
+          handled << evt
+        end
+      end
+
+      sse = FakeSSE.new('page_key' => '/precedence', 'params' => {})
+      page_context = page_context_class.new(sse, nil, page)
+
+      cmd = PageTestItemAdded.new(payload: { title: 'hello' })
+      evt = cmd.correlate(PageTestNotification.new(payload: { text: 'added' }))
+      page_context.react(evt)
+
+      expect(handled).to eq([evt])
+      expect(sse.patches).to be_empty
     end
 
     it 'ignores events without a registered handler' do

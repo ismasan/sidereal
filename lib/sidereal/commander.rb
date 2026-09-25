@@ -35,6 +35,15 @@ module Sidereal
         command_registry.values
       end
 
+      # What a page reacts to when it names this commander in +Page.on+: the
+      # commands it handles. The dispatcher publishes each handled command
+      # and, correlated to it, everything the handler dispatched, so the
+      # commands are the roots of every chain this commander produces and a
+      # block-less +on(MyCommander)+ covers all of it.
+      #
+      # @return [Array<Class<Sidereal::Message>>]
+      def sidereal_events = handled_commands
+
       def command(*args, &block)
         cmd_class = case args
         in [Class => klass] if klass < Sidereal::Message

@@ -77,6 +77,23 @@ RSpec.describe Sidereal::Commander do
     end
   end
 
+  describe '.sidereal_events' do
+    it 'answers with the handled commands, so a page can react to the whole commander' do
+      commander = Class.new(described_class) do
+        command TestAddItem do |cmd|
+          dispatch TestItemAdded, title: cmd.payload.title
+        end
+        command TestSendEmail do |_cmd|
+        end
+      end
+
+      expect(commander.sidereal_events).to eq([TestAddItem, TestSendEmail])
+
+      page = Class.new(Sidereal::Page) { on commander }
+      expect(page.correlation_types).to include(TestAddItem.type, TestSendEmail.type)
+    end
+  end
+
   describe 'subclassing (inherited hook)' do
     it 'seeds a subclass command registry from its parent' do
       parent = Class.new(Sidereal::Commander) do
