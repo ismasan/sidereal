@@ -446,6 +446,34 @@ end
 
 See more about this [here](https://github.com/starfederation/datastar-ruby#datastar-methods).
 
+### Causal reactivity
+
+A page that renders a form for a command almost always wants to re-render when that command comes back over pubsub. You don't have to write that reaction: every `command` form rendered inside a page, at any depth of its component tree, registers `on CommandClass` on that page. `on` without a block means "reload the page", so the two pages below react the same way:
+
+```ruby
+class TodoPage < Sidereal::Page
+  on AddTodo   # reload when AddTodo comes back
+
+  def view_template
+    command AddTodo do |f|
+      f.text_field :title
+    end
+  end
+end
+
+class TodoPage < Sidereal::Page
+  def view_template
+    command AddTodo do |f|   # registers `on AddTodo` on TodoPage as it renders
+      f.text_field :title
+    end
+  end
+end
+```
+
+The match is on the message's own type or on its `correlation_type`. Every message carries the type of the message at the root of its causal chain (`Sourced::Message#correlation_type`, recorded in `metadata[:correlation_type]` by `#correlate`), so a page registered for `AddTodo` also reloads on the events a handler produced from it, the commands those events triggered, and so on. This is what makes the same page work over a backend that publishes the command itself and one, like Sourced, that publishes only the resulting events. Naming an event or a projector signal works too: `on GamesProjector::Projected` reloads on every signal that projector publishes, whichever command's chain it belongs to.
+
+A handler written with a block always wins for messages of exactly its class. The page checks `reactions` first and only falls back to the reload when the message's class has no handler of its own, so `on TodoAdded do |evt| ... end` next to a rendered `command AddTodo` runs the block for `TodoAdded` and reloads for anything else in that chain. At most one of the two runs per message.
+
 ### Per-page channels
 
 Each page subscribes to a single PubSub channel via `GET /updates/:channel_name`. The default is `'system'`, which means every page receives every published event. Override `Page#channel_name` to scope a page's SSE stream to a narrower topic — for example, "only events for this donation" or "only events for this chat room".
@@ -1526,6 +1554,8 @@ The integration publishes reactor output to Sidereal's PubSub for you, so Page r
   ```
 
   The signal's payload is the projector's full partition tuple, so multi-key partitions work too — `partition_by(:student_id, :course_id)` yields a two-attribute `Projected`, and your `channel_name` resolver routes it just like your domain events.
+
+  The signal is correlated, not synthetic: a batch may hold messages from several causal chains, so the integration publishes one `Projected` per distinct `correlation_type` in the batch, each correlated from the last message of that chain. A page that renders `command CreateGame`, or declares `on CreateGame` without a block, therefore reloads when the projector commits the batch holding `GameCreated`, with no reaction written for the signal. An explicit `on MyProjector::Projected do |evt| ... end` still fires for every batch regardless of root, which is what a lobby listing every game wants.
 
 Sidereal Commanders are unaffected — they're not `Decider`/`Projector` subclasses and keep publishing via their own path, so there's no double-publish.
 

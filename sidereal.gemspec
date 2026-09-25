@@ -35,7 +35,7 @@ Gem::Specification.new do |spec|
 
   # FormsCodec landed in 0.2.1, which Sidereal::FormsCodec subclasses; 0.2.2 is
   # the first release built on plumb 0.3.
-  spec.add_dependency('sourced-message', '>= 0.2.2')
+  spec.add_dependency('sourced-message', '>= 0.3.0')
   # Direct, not transitive. Sidereal requires plumb itself (Sidereal::Types),
   # and app authors register their own encoders on Plumb::Codec::JSON and
   # Plumb::Codec::Forms, so the codec API is part of Sidereal's public surface.
