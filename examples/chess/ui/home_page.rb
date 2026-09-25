@@ -6,11 +6,11 @@ require_relative 'components/games_list'
 class HomePage < Sidereal::Page
   path '/'
 
-  # Re-render the lobby whenever any game projector commits — that's the
-  # synthetic Projected signal the GamesProjector auto-publishes after each upsert.
-  on GamesProjector::Projected do |_evt|
-    browser.patch_elements load(params)
-  end
+  # Reload the lobby whenever the games read model commits, whichever
+  # command produced the batch: the GamesProjector publishes a Projected
+  # signal per committed batch, and a block-less `on` matches a message by
+  # its own type as well as by the root of its chain.
+  on GamesProjector::Projected
 
   def self.load(_params, ctx)
     username = ctx.session[:username]

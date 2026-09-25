@@ -5,6 +5,10 @@ require_relative 'event_list'
 class DonationPage < Sidereal::Page
   path '/:campaign_id/:donation_id'
 
+  # Reload on every event that moves the donation along. Named in full, as
+  # the outcomes this page reacts to, even though the forms it renders would
+  # cover most of them by their command's chain: the events are the record,
+  # so the page states which ones it follows.
   on Donation::DonationStarted,
      Donation::AmountSelected,
      Donation::DonorDetailsEntered,
@@ -13,12 +17,7 @@ class DonationPage < Sidereal::Page
      Donation::EmailVerified,
      Donation::PaymentReady,
      Donation::PaymentStarted,
-     Donation::PaymentConfirmed do |evt|
-    state, messages = DonationPage.load_donation_with_history(
-      evt.payload.campaign_id, evt.payload.donation_id
-    )
-    browser.patch_elements DonationPage.new(donation: state, messages: messages)
-  end
+     Donation::PaymentConfirmed
 
   def self.load(params, _ctx)
     state, messages = load_donation_with_history(params[:campaign_id], params[:donation_id])
