@@ -5,19 +5,9 @@ require_relative 'event_list'
 class DonationPage < Sidereal::Page
   path '/:campaign_id/:donation_id'
 
-  # Reload on every event that moves the donation along. Named in full, as
-  # the outcomes this page reacts to, even though the forms it renders would
-  # cover most of them by their command's chain: the events are the record,
-  # so the page states which ones it follows.
-  on Donation::DonationStarted,
-     Donation::AmountSelected,
-     Donation::DonorDetailsEntered,
-     Donation::EmailSent,
-     Donation::VerificationEmailSent,
-     Donation::EmailVerified,
-     Donation::PaymentReady,
-     Donation::PaymentStarted,
-     Donation::PaymentConfirmed
+  # Reload on every event that changes a donation: the Donation decider
+  # stands for the events it evolves, its own and the campaign's.
+  on Donation
 
   def self.load(params, _ctx)
     state, messages = load_donation_with_history(params[:campaign_id], params[:donation_id])

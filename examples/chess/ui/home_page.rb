@@ -7,10 +7,8 @@ class HomePage < Sidereal::Page
   path '/'
 
   # Reload the lobby whenever the games read model commits, whichever
-  # command produced the batch: the GamesProjector publishes a Projected
-  # signal per committed batch, and a block-less `on` matches a message by
-  # its own type as well as by the root of its chain.
-  on GamesProjector::Projected
+  # command produced the batch: a projector stands for its Projected signal.
+  on GamesProjector
 
   def self.load(_params, ctx)
     username = ctx.session[:username]
