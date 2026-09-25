@@ -352,6 +352,21 @@ module Sidereal
   end
 end
 
+# --- Page.on sources (runs at require time, before domain reactors load) ---
+
+# A page can react to a whole reactor: +on(Donation)+ expands through
+# +sidereal_events+ (see Sidereal::Page.on). A decider stands for the events
+# that change its state — its evolve list, its own events and any foreign ones
+# it evolves — since that is what a page showing that state wants to follow.
+# Sourced keeps no static record of what a decider emits, and the evolve list
+# is the better answer anyway. A projector stands for its Projected signal, the
+# one message that says its read model committed; reloading on the events it
+# consumes would read the model before the batch lands.
+::Sourced::Decider.define_singleton_method(:sidereal_events) { handled_messages_for_evolve }
+::Sourced::Projector.define_singleton_method(:sidereal_events) do
+  const_defined?(:Projected, false) ? [const_get(:Projected)] : []
+end
+
 # --- Auto-publish wiring (runs at require time, before domain reactors load) ---
 
 # Deciders: publish the domain events they emitted. Copied into every app decider

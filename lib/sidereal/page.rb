@@ -167,7 +167,12 @@ module Sidereal
         define_method :view_template, &block
       end
 
-      # Register a reaction to +message_classes+.
+      # Register a reaction to +sources+: message classes, or anything that
+      # answers +sidereal_events+ with the message classes it stands for.
+      # +on(Donation)+ registers every event that changes the +Donation+
+      # decider's state, and +on(GamesProjector)+ its +Projected+ signal
+      # (see {Integrations::Sourced}, which gives Sourced reactors that
+      # answer). A plain object can define +sidereal_events+ too.
       #
       # With a block, the block runs for messages of exactly those classes
       # (see {.reactions}). Without one, the page reloads for any message of
@@ -177,9 +182,11 @@ module Sidereal
       # an event handled from it does; +on MyProjector::Projected+ re-renders
       # on every projector signal, whichever command produced its batch.
       #
-      # @param message_classes [Array<Class<Sourced::Message>>]
+      # @param sources [Array<Class<Sourced::Message>, #sidereal_events>]
       # @return [self]
-      def on(*message_classes, &block)
+      # @raise [ArgumentError] with no sources, or a source that expands to nothing
+      def on(*sources, &block)
+        message_classes = sources.flat_map { |source| expand_source(source) }
         raise ArgumentError, 'at least one message class is required' if message_classes.empty?
 
         message_classes.each do |message_class|
@@ -198,6 +205,18 @@ module Sidereal
           subclass.reactions[message_class] = block
         end
         subclass.correlation_types.merge(correlation_types)
+      end
+
+      private
+
+      # The message classes a source given to {.on} stands for.
+      def expand_source(source)
+        return [source] unless source.respond_to?(:sidereal_events)
+
+        events = Array(source.sidereal_events)
+        raise ArgumentError, "#{source} answers sidereal_events with nothing to react to" if events.empty?
+
+        events
       end
     end
 

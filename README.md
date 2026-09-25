@@ -472,6 +472,18 @@ end
 
 The match is on the message's own type or on its `correlation_type`. Every message carries the type of the message at the root of its causal chain (`Sourced::Message#correlation_type`, recorded in `metadata[:correlation_type]` by `#correlate`), so a page registered for `AddTodo` also reloads on the events a handler produced from it, the commands those events triggered, and so on. This is what makes the same page work over a backend that publishes the command itself and one, like Sourced, that publishes only the resulting events. Naming an event or a projector signal works too: `on GamesProjector::Projected` reloads on every signal that projector publishes, whichever command's chain it belongs to.
 
+`on` also takes anything that answers `sidereal_events` with a list of message classes, and registers each of them. With the Sourced integration loaded, a decider answers with the events it evolves, its own and any foreign ones that change its state, and a projector with its `Projected` signal. So an event-sourced page names the reactor it follows:
+
+```ruby
+class DonationPage < Sidereal::Page
+  on Donation          # every event that changes a donation
+end
+
+class HomePage < Sidereal::Page
+  on GamesProjector    # the lobby's read model committed
+end
+```
+
 A handler written with a block always wins for messages of exactly its class. The page checks `reactions` first and only falls back to the reload when the message's class has no handler of its own, so `on TodoAdded do |evt| ... end` next to a rendered `command AddTodo` runs the block for `TodoAdded` and reloads for anything else in that chain. At most one of the two runs per message.
 
 ### Per-page channels

@@ -382,6 +382,23 @@ RSpec.describe 'Sidereal::Commander on the Sourced runtime' do
 
   # -- Auto-publish injected by the Sourced integration --
 
+  describe 'sidereal_events for Page.on' do
+    it 'a decider stands for the events it evolves' do
+      expect(IntgWidget.sidereal_events).to eq(IntgWidget.handled_messages_for_evolve)
+      expect(IntgWidget.sidereal_events).to include(IntgWidget::Created)
+    end
+
+    it 'a projector stands for its Projected signal' do
+      expect(IntgThingProjector.sidereal_events).to eq([IntgThingProjector::Projected])
+    end
+
+    it 'lets a page react to a whole reactor' do
+      page = Class.new(Sidereal::Page) { on IntgWidget, IntgThingProjector }
+
+      expect(page.correlation_types).to include(IntgWidget::Created.type, IntgThingProjector::Projected.type)
+    end
+  end
+
   describe 'Sourced::Decider auto-publishes emitted events' do
     include Sourced::Testing::RSpec
 

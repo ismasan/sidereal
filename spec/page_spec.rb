@@ -87,6 +87,25 @@ RSpec.describe Sidereal::Page do
       expect(page_class.reactions).not_to have_key(PageTestItemAdded)
     end
 
+    it 'expands a source that answers sidereal_events into its message classes' do
+      source = Module.new do
+        def self.sidereal_events = [PageTestItemAdded, PageTestNotification]
+      end
+      reloading = Class.new(Sidereal::Page) { on source }
+      handling = Class.new(Sidereal::Page) { on(source) { |evt| } }
+
+      expect(reloading.correlation_types).to include(PageTestItemAdded.type, PageTestNotification.type)
+      expect(handling.reactions.keys).to include(PageTestItemAdded, PageTestNotification)
+      expect(handling.reactions[PageTestItemAdded]).to eq(handling.reactions[PageTestNotification])
+    end
+
+    it 'rejects a source whose sidereal_events is empty' do
+      source = Module.new { def self.sidereal_events = [] }
+
+      expect { Class.new(Sidereal::Page) { on source } }
+        .to raise_error(ArgumentError, /answers sidereal_events with nothing/)
+    end
+
     it 'requires at least one message class' do
       expect do
         Class.new(Sidereal::Page) do
