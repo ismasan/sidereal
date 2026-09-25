@@ -151,6 +151,23 @@ module Sidereal
         Thread.current[RENDERING_KEY]
       end
 
+      # Whether command forms rendered inside this page register the page to
+      # reload on their command — the default. See {.disable_causal_reactivity!}.
+      #
+      # @return [Boolean]
+      def causal_reactivity? = @causal_reactivity != false
+
+      # Stop command forms rendered inside this page from registering it to
+      # reload on their command and its consequences. The page then reacts
+      # only to what it names with {.on}, block-less or not, which still
+      # matches by own type or chain root. Inherited by subclasses.
+      #
+      # @return [self]
+      def disable_causal_reactivity!
+        @causal_reactivity = false
+        self
+      end
+
       def load(params, ctx)
         raise NotImplementedError
       end
@@ -205,6 +222,7 @@ module Sidereal
           subclass.reactions[message_class] = block
         end
         subclass.correlation_types.merge(correlation_types)
+        subclass.disable_causal_reactivity! unless causal_reactivity?
       end
 
       private

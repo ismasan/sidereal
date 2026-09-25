@@ -116,10 +116,13 @@ module Sidereal
       # handled from it does. So the form registers +on CommandClass+ on the
       # page rendering it, at whatever depth in its component tree this form
       # sits, exactly as the page author would write by hand. A form rendered
-      # outside any page registers nothing. See {Sidereal::Page.correlation_types}.
+      # outside any page, or inside one that called
+      # {Sidereal::Page.disable_causal_reactivity!}, registers nothing.
+      # See {Sidereal::Page.correlation_types}.
       private def before_template
         super
-        Sidereal::Page.rendering&.on(@command.class)
+        page = Sidereal::Page.rendering
+        page.on(@command.class) if page&.causal_reactivity?
       end
 
       def view_template

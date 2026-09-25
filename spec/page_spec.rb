@@ -243,6 +243,40 @@ RSpec.describe Sidereal::Page do
       expect(page.correlation_types).to include(PageTestItemAdded.type)
     end
 
+    it 'register nothing on a page that disabled causal reactivity' do
+      page = Class.new(Sidereal::Page) do
+        disable_causal_reactivity!
+        on PageTestItemAdded
+
+        def view_template
+          command PageTestNotification do |f|
+            f.text_field :text
+          end
+        end
+      end
+
+      expect(page.causal_reactivity?).to be false
+      page.new.call(context:)
+
+      expect(page.correlation_types).to include(PageTestItemAdded.type)
+      expect(page.correlation_types).not_to include(PageTestNotification.type)
+    end
+
+    it 'inherit a disabled causal reactivity' do
+      parent = Class.new(Sidereal::Page) { disable_causal_reactivity! }
+      child = Class.new(parent)
+      form = item_form
+      grandchild = Class.new(child) do
+        define_method(:view_template) { render form.new }
+      end
+
+      grandchild.new.call(context:)
+
+      expect(Sidereal::Page.causal_reactivity?).to be true
+      expect(child.causal_reactivity?).to be false
+      expect(grandchild.correlation_types).to be_empty
+    end
+
     it 'do not leak the rendering page past the render' do
       page = Class.new(Sidereal::Page) do
         def view_template = div { 'plain' }
