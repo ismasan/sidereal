@@ -485,7 +485,7 @@ Subclasses inherit the setting.
 
 The match is on the message's own type or on its `correlation_type`. Every message carries the type of the message at the root of its causal chain (`Sourced::Message#correlation_type`, recorded in `metadata[:correlation_type]` by `#correlate`), so a page registered for `AddTodo` also reloads on the events a handler produced from it, the commands those events triggered, and so on. This is what makes the same page work over a backend that publishes the command itself and one, like Sourced, that publishes only the resulting events. Naming an event or a projector signal works too: `on GamesProjector::Projected` reloads on every signal that projector publishes, whichever command's chain it belongs to.
 
-
+<img width="1906" height="1062" alt="CleanShot 2026-09-25 at 15 29 51@2x" src="https://github.com/user-attachments/assets/5a76cff3-c446-4fe2-ad9b-b879a7536d99" />
 
 #### Reacting to all events in a namespace
 
