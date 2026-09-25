@@ -472,7 +472,7 @@ end
 
 The match is on the message's own type or on its `correlation_type`. Every message carries the type of the message at the root of its causal chain (`Sourced::Message#correlation_type`, recorded in `metadata[:correlation_type]` by `#correlate`), so a page registered for `AddTodo` also reloads on the events a handler produced from it, the commands those events triggered, and so on. This is what makes the same page work over a backend that publishes the command itself and one, like Sourced, that publishes only the resulting events. Naming an event or a projector signal works too: `on GamesProjector::Projected` reloads on every signal that projector publishes, whichever command's chain it belongs to.
 
-`on` also takes anything that answers `sidereal_events` with a list of message classes, and registers each of them. With the Sourced integration loaded, a decider answers with the events it evolves, its own and any foreign ones that change its state, and a projector with its `Projected` signal. So an event-sourced page names the reactor it follows:
+`on` also takes anything that answers `sidereal_events` with a list of message classes, and registers each of them. A `Sidereal::Commander` answers with the commands it handles, which the dispatcher publishes along with everything dispatched from them, so `on MyCommander` covers all of it. With the Sourced integration loaded, a decider answers with the events it evolves, its own and any foreign ones that change its state, and a projector with its `Projected` signal. So an event-sourced page names the reactor it follows:
 
 ```ruby
 class DonationPage < Sidereal::Page
