@@ -51,6 +51,7 @@ RSpec.describe Sidereal::CLI::New do
       .gitignore
       Gemfile
       README.md
+      bin/sid
       boot.rb
       config.ru
       falcon.rb
@@ -163,6 +164,39 @@ RSpec.describe Sidereal::CLI::New do
 
       expect(status).to be_success, out
       expect(out).to start_with("200\n")
+    end
+  end
+
+  describe 'bin/sid' do
+    # Runs the generated binstub in a separate process: it registers app
+    # commands in the process-global CLI. BUNDLE_GEMFILE is inherited from
+    # this process, so the binstub uses Sidereal's bundle rather than the
+    # generated (not installed) one.
+    def bin_sid(root, *arguments, stdin_data: '', chdir: root)
+      Open3.capture2e(File.join(root, 'bin/sid'), *arguments, stdin_data:, chdir:)
+    end
+
+    it 'is executable' do
+      root = generate
+
+      expect(File.executable?(File.join(root, 'bin/sid'))).to be(true)
+    end
+
+    it 'adds app commands to the usage' do
+      out, status = bin_sid(generate, '--help')
+
+      expect(status).to be_success, out
+      expect(out).to include('console', 'Start an IRB session with the app loaded')
+    end
+
+    it 'starts a console with the app loaded, from any directory' do
+      root = generate
+
+      out, status = bin_sid(root, 'console', stdin_data: "puts App.name, UI::WelcomePage.name, Dir.pwd\n",
+        chdir: File.join(root, 'web'))
+
+      expect(status).to be_success, out
+      expect(out).to include("App\nUI::WelcomePage\n#{File.realpath(root)}\n")
     end
   end
 
