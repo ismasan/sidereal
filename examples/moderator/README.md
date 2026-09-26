@@ -142,7 +142,7 @@ CommentsProjector.board_for(Subjects.first.id).transform_values(&:size)
 # => {pending: 13, moderating: 1, approved: 2}
 
 Sidereal.dispatch!(Comment::CreateComment.new(payload: {
-  subject_id: Subjects.first.id, commenter_id: SecureRandom.uuid, content: 'From the console'
+  subject_id: Subjects.first.id, subject_name: Subjects.first.title, commenter_id: SecureRandom.uuid, content: 'From the console'
 }))
 ```
 

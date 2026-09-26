@@ -15,6 +15,7 @@
 - type: comments.create_comment
   payload:
     subject_id: 6f1c9d2e-0b3a-4e8f-9a4d-1c2b3e4f5a60
+    subject_name: My take on geopolitics
     commenter_id: c0a80101-0001-4a1b-8c2d-000000000001
     content: >-
       This is a really thoughtful piece. I especially liked how you separated the
@@ -23,6 +24,7 @@
 - type: comments.create_comment
   payload:
     subject_id: 6f1c9d2e-0b3a-4e8f-9a4d-1c2b3e4f5a60
+    subject_name: My take on geopolitics
     commenter_id: c0a80101-0002-4a1b-8c2d-000000000002
     content: >-
       This is a terrible take because it ignores the last thirty years of history.
@@ -31,6 +33,7 @@
 - type: comments.create_comment
   payload:
     subject_id: 6f1c9d2e-0b3a-4e8f-9a4d-1c2b3e4f5a60
+    subject_name: My take on geopolitics
     commenter_id: c0a80101-0003-4a1b-8c2d-000000000003
     content: >-
       Do you have a source for the trade figures in the third paragraph? Not
@@ -39,6 +42,7 @@
 - type: comments.create_comment
   payload:
     subject_id: 6f1c9d2e-0b3a-4e8f-9a4d-1c2b3e4f5a60
+    subject_name: My take on geopolitics
     commenter_id: c0a80101-0004-4a1b-8c2d-000000000004
     content: >-
       MAKE $4,500 A WEEK FROM HOME!!! No experience needed. Click here
@@ -47,6 +51,7 @@
 - type: comments.create_comment
   payload:
     subject_id: 6f1c9d2e-0b3a-4e8f-9a4d-1c2b3e4f5a60
+    subject_name: My take on geopolitics
     commenter_id: c0a80101-0005-4a1b-8c2d-000000000005
     content: >-
       I'm not convinced this captures the full scope of the problem. On the one
@@ -56,6 +61,7 @@
 - type: comments.create_comment
   payload:
     subject_id: 6f1c9d2e-0b3a-4e8f-9a4d-1c2b3e4f5a60
+    subject_name: My take on geopolitics
     commenter_id: c0a80101-0006-4a1b-8c2d-000000000006
     content: >-
       Well said! This is similar to when the same alliance fractured in the
@@ -64,6 +70,7 @@
 - type: comments.create_comment
   payload:
     subject_id: 6f1c9d2e-0b3a-4e8f-9a4d-1c2b3e4f5a60
+    subject_name: My take on geopolitics
     commenter_id: c0a80101-0007-4a1b-8c2d-000000000007
     content: >-
       Honestly this reads like it was written by someone who has never left their
@@ -72,6 +79,7 @@
 - type: comments.create_comment
   payload:
     subject_id: 6f1c9d2e-0b3a-4e8f-9a4d-1c2b3e4f5a60
+    subject_name: My take on geopolitics
     commenter_id: c0a80101-0008-4a1b-8c2d-000000000008
     content: >-
       Not sure what to think about this. Some of it lands, some of it feels like
@@ -80,6 +88,7 @@
 - type: comments.create_comment
   payload:
     subject_id: 6f1c9d2e-0b3a-4e8f-9a4d-1c2b3e4f5a60
+    subject_name: My take on geopolitics
     commenter_id: c0a80101-0009-4a1b-8c2d-000000000009
     content: >-
       Great blog!! I have similar blog about crypto signals, please visit
@@ -88,6 +97,7 @@
 - type: comments.create_comment
   payload:
     subject_id: 6f1c9d2e-0b3a-4e8f-9a4d-1c2b3e4f5a60
+    subject_name: My take on geopolitics
     commenter_id: c0a80101-0010-4a1b-8c2d-000000000010
     content: >-
       Sharing this with my students. The map of shipping lanes alone is worth the
@@ -96,6 +106,7 @@
 - type: comments.create_comment
   payload:
     subject_id: 6f1c9d2e-0b3a-4e8f-9a4d-1c2b3e4f5a60
+    subject_name: My take on geopolitics
     commenter_id: c0a80101-0011-4a1b-8c2d-000000000011
     content: >-
       Typo in the second heading: "soveriegnty". Otherwise no notes, the argument
@@ -104,6 +115,7 @@
 - type: comments.create_comment
   payload:
     subject_id: 6f1c9d2e-0b3a-4e8f-9a4d-1c2b3e4f5a60
+    subject_name: My take on geopolitics
     commenter_id: c0a80101-0012-4a1b-8c2d-000000000012
     content: >-
       Poor form to publish this without mentioning the sanctions regime at all.
@@ -112,6 +124,7 @@
 - type: comments.create_comment
   payload:
     subject_id: 6f1c9d2e-0b3a-4e8f-9a4d-1c2b3e4f5a60
+    subject_name: My take on geopolitics
     commenter_id: c0a80101-0002-4a1b-8c2d-000000000002
     content: >-
       Following up on my earlier comment: I still think the framing is wrong, but
@@ -120,6 +133,7 @@
 - type: comments.create_comment
   payload:
     subject_id: 6f1c9d2e-0b3a-4e8f-9a4d-1c2b3e4f5a60
+    subject_name: My take on geopolitics
     commenter_id: c0a80101-0004-4a1b-8c2d-000000000004
     content: >-
       Your account has been selected for a $1000 gift card. Confirm your details
@@ -128,6 +142,7 @@
 - type: comments.create_comment
   payload:
     subject_id: 6f1c9d2e-0b3a-4e8f-9a4d-1c2b3e4f5a60
+    subject_name: My take on geopolitics
     commenter_id: c0a80101-0003-4a1b-8c2d-000000000003
     content: >-
       Would love a follow-up on how this plays out for smaller states in the
@@ -136,6 +151,7 @@
 - type: comments.create_comment
   payload:
     subject_id: 6f1c9d2e-0b3a-4e8f-9a4d-1c2b3e4f5a60
+    subject_name: My take on geopolitics
     commenter_id: c0a80101-0007-4a1b-8c2d-000000000007
     content: >-
       Delete this. It's misinformation dressed up in footnotes.
@@ -143,6 +159,7 @@
 - type: comments.create_comment
   payload:
     subject_id: 6f1c9d2e-0b3a-4e8f-9a4d-1c2b3e4f5a60
+    subject_name: My take on geopolitics
     commenter_id: c0a80101-0001-4a1b-8c2d-000000000001
     content: >-
       I completely agree with this. Finally someone says the quiet part out loud
@@ -151,6 +168,7 @@
 - type: comments.create_comment
   payload:
     subject_id: 6f1c9d2e-0b3a-4e8f-9a4d-1c2b3e4f5a60
+    subject_name: My take on geopolitics
     commenter_id: c0a80101-0009-4a1b-8c2d-000000000009
     content: >-
       cheap replica watches best price free shipping worldwide visit
@@ -161,6 +179,7 @@
 - type: comments.create_comment
   payload:
     subject_id: 7a2d0e3f-1c4b-4f90-8b5e-2d3c4f506b71
+    subject_name: Why I switched to a standing desk
     commenter_id: c0a80101-0005-4a1b-8c2d-000000000005
     content: >-
       Did the same thing two years ago and my lower back has never been better.
@@ -169,6 +188,7 @@
 - type: comments.create_comment
   payload:
     subject_id: 7a2d0e3f-1c4b-4f90-8b5e-2d3c4f506b71
+    subject_name: Why I switched to a standing desk
     commenter_id: c0a80101-0008-4a1b-8c2d-000000000008
     content: >-
       Which desk model is that in the photo? The frame looks sturdier than the one
@@ -177,6 +197,7 @@
 - type: comments.create_comment
   payload:
     subject_id: 7a2d0e3f-1c4b-4f90-8b5e-2d3c4f506b71
+    subject_name: Why I switched to a standing desk
     commenter_id: c0a80101-0006-4a1b-8c2d-000000000006
     content: >-
       Standing desks are a fad. The research you cite is from a study of eleven
@@ -185,6 +206,7 @@
 - type: comments.create_comment
   payload:
     subject_id: 7a2d0e3f-1c4b-4f90-8b5e-2d3c4f506b71
+    subject_name: Why I switched to a standing desk
     commenter_id: c0a80101-0004-4a1b-8c2d-000000000004
     content: >-
       BEST STANDING DESKS 70% OFF TODAY ONLY!!! Free delivery, limited stock,
@@ -193,6 +215,7 @@
 - type: comments.create_comment
   payload:
     subject_id: 7a2d0e3f-1c4b-4f90-8b5e-2d3c4f506b71
+    subject_name: Why I switched to a standing desk
     commenter_id: c0a80101-0010-4a1b-8c2d-000000000010
     content: >-
       This makes sense, but it misses the cost angle. A decent motorised frame is
@@ -202,6 +225,7 @@
 - type: comments.create_comment
   payload:
     subject_id: 7a2d0e3f-1c4b-4f90-8b5e-2d3c4f506b71
+    subject_name: Why I switched to a standing desk
     commenter_id: c0a80101-0011-4a1b-8c2d-000000000011
     content: >-
       Loved the bit about the anti-fatigue mat. Bought one after reading this and
@@ -210,6 +234,7 @@
 - type: comments.create_comment
   payload:
     subject_id: 7a2d0e3f-1c4b-4f90-8b5e-2d3c4f506b71
+    subject_name: Why I switched to a standing desk
     commenter_id: c0a80101-0012-4a1b-8c2d-000000000012
     content: >-
       My physio actually told me to stop standing so much, so your mileage may
@@ -218,6 +243,7 @@
 - type: comments.create_comment
   payload:
     subject_id: 7a2d0e3f-1c4b-4f90-8b5e-2d3c4f506b71
+    subject_name: Why I switched to a standing desk
     commenter_id: c0a80101-0003-4a1b-8c2d-000000000003
     content: >-
       How long did the adjustment period take for you? I'm on week two and my
@@ -226,6 +252,7 @@
 - type: comments.create_comment
   payload:
     subject_id: 7a2d0e3f-1c4b-4f90-8b5e-2d3c4f506b71
+    subject_name: Why I switched to a standing desk
     commenter_id: c0a80101-0007-4a1b-8c2d-000000000007
     content: >-
       Another productivity influencer post. Nobody asked. Nobody cares about your
@@ -234,6 +261,7 @@
 - type: comments.create_comment
   payload:
     subject_id: 7a2d0e3f-1c4b-4f90-8b5e-2d3c4f506b71
+    subject_name: Why I switched to a standing desk
     commenter_id: c0a80101-0009-4a1b-8c2d-000000000009
     content: >-
       I made $3,200 last month working 2 hours a day from my standing desk. DM me
@@ -242,6 +270,7 @@
 - type: comments.create_comment
   payload:
     subject_id: 7a2d0e3f-1c4b-4f90-8b5e-2d3c4f506b71
+    subject_name: Why I switched to a standing desk
     commenter_id: c0a80101-0001-4a1b-8c2d-000000000001
     content: >-
       Great write-up. The part about taking calls standing up is so true, I'm far
@@ -250,6 +279,7 @@
 - type: comments.create_comment
   payload:
     subject_id: 7a2d0e3f-1c4b-4f90-8b5e-2d3c4f506b71
+    subject_name: Why I switched to a standing desk
     commenter_id: c0a80101-0002-4a1b-8c2d-000000000002
     content: >-
       Neutral on the desk itself, but I appreciate you including the downsides
@@ -258,6 +288,7 @@
 - type: comments.create_comment
   payload:
     subject_id: 7a2d0e3f-1c4b-4f90-8b5e-2d3c4f506b71
+    subject_name: Why I switched to a standing desk
     commenter_id: c0a80101-0006-4a1b-8c2d-000000000006
     content: >-
       You've clearly never done a real day's work if standing at a desk counts as
@@ -266,6 +297,7 @@
 - type: comments.create_comment
   payload:
     subject_id: 7a2d0e3f-1c4b-4f90-8b5e-2d3c4f506b71
+    subject_name: Why I switched to a standing desk
     commenter_id: c0a80101-0004-4a1b-8c2d-000000000004
     content: >-
       Hot singles in your area are waiting. Verify your age at
@@ -274,6 +306,7 @@
 - type: comments.create_comment
   payload:
     subject_id: 7a2d0e3f-1c4b-4f90-8b5e-2d3c4f506b71
+    subject_name: Why I switched to a standing desk
     commenter_id: c0a80101-0005-4a1b-8c2d-000000000005
     content: >-
       Does the monitor arm you mention work with an ultrawide? Mine is 34 inches
@@ -282,6 +315,7 @@
 - type: comments.create_comment
   payload:
     subject_id: 7a2d0e3f-1c4b-4f90-8b5e-2d3c4f506b71
+    subject_name: Why I switched to a standing desk
     commenter_id: c0a80101-0008-4a1b-8c2d-000000000008
     content: >-
       Switched after reading this. Three weeks in and I'm sleeping better, which I
@@ -292,6 +326,7 @@
 - type: comments.create_comment
   payload:
     subject_id: 8b3e1f40-2d5c-4a01-9c6f-3e4d50617c82
+    subject_name: Sourdough, three years in
     commenter_id: c0a80101-0010-4a1b-8c2d-000000000010
     content: >-
       I thought this was wonderful. The bit about naming your starter and then
@@ -300,6 +335,7 @@
 - type: comments.create_comment
   payload:
     subject_id: 8b3e1f40-2d5c-4a01-9c6f-3e4d50617c82
+    subject_name: Sourdough, three years in
     commenter_id: c0a80101-0011-4a1b-8c2d-000000000011
     content: >-
       What hydration are you at for the loaf in the last photo? The crumb looks
@@ -308,6 +344,7 @@
 - type: comments.create_comment
   payload:
     subject_id: 8b3e1f40-2d5c-4a01-9c6f-3e4d50617c82
+    subject_name: Sourdough, three years in
     commenter_id: c0a80101-0007-4a1b-8c2d-000000000007
     content: >-
       Three years and that's the best crust you've got? My grandmother would have
@@ -316,6 +353,7 @@
 - type: comments.create_comment
   payload:
     subject_id: 8b3e1f40-2d5c-4a01-9c6f-3e4d50617c82
+    subject_name: Sourdough, three years in
     commenter_id: c0a80101-0009-4a1b-8c2d-000000000009
     content: >-
       Get PROFESSIONAL bakery results at home with the MiracleOven 3000! Only
@@ -324,6 +362,7 @@
 - type: comments.create_comment
   payload:
     subject_id: 8b3e1f40-2d5c-4a01-9c6f-3e4d50617c82
+    subject_name: Sourdough, three years in
     commenter_id: c0a80101-0012-4a1b-8c2d-000000000012
     content: >-
       Been baking about as long as you and I still can't get consistent oven
@@ -332,6 +371,7 @@
 - type: comments.create_comment
   payload:
     subject_id: 8b3e1f40-2d5c-4a01-9c6f-3e4d50617c82
+    subject_name: Sourdough, three years in
     commenter_id: c0a80101-0001-4a1b-8c2d-000000000001
     content: >-
       This is the first sourdough post I've read that doesn't make me feel like a
@@ -340,6 +380,7 @@
 - type: comments.create_comment
   payload:
     subject_id: 8b3e1f40-2d5c-4a01-9c6f-3e4d50617c82
+    subject_name: Sourdough, three years in
     commenter_id: c0a80101-0002-4a1b-8c2d-000000000002
     content: >-
       Not sure I agree that a Dutch oven is essential. I've had good results on a
@@ -348,6 +389,7 @@
 - type: comments.create_comment
   payload:
     subject_id: 8b3e1f40-2d5c-4a01-9c6f-3e4d50617c82
+    subject_name: Sourdough, three years in
     commenter_id: c0a80101-0004-4a1b-8c2d-000000000004
     content: >-
       Congratulations!!! You are visitor number 1,000,000. Click
@@ -356,6 +398,7 @@
 - type: comments.create_comment
   payload:
     subject_id: 8b3e1f40-2d5c-4a01-9c6f-3e4d50617c82
+    subject_name: Sourdough, three years in
     commenter_id: c0a80101-0003-4a1b-8c2d-000000000003
     content: >-
       Bit disappointed honestly. The title promised three years of lessons and
@@ -364,6 +407,7 @@
 - type: comments.create_comment
   payload:
     subject_id: 8b3e1f40-2d5c-4a01-9c6f-3e4d50617c82
+    subject_name: Sourdough, three years in
     commenter_id: c0a80101-0006-4a1b-8c2d-000000000006
     content: >-
       Where do you buy your flour? The supermarket stuff near me is all bleached
@@ -372,6 +416,7 @@
 - type: comments.create_comment
   payload:
     subject_id: 8b3e1f40-2d5c-4a01-9c6f-3e4d50617c82
+    subject_name: Sourdough, three years in
     commenter_id: c0a80101-0005-4a1b-8c2d-000000000005
     content: >-
       Made the overnight recipe from this post yesterday. Best loaf I've baked,
@@ -380,6 +425,7 @@
 - type: comments.create_comment
   payload:
     subject_id: 8b3e1f40-2d5c-4a01-9c6f-3e4d50617c82
+    subject_name: Sourdough, three years in
     commenter_id: c0a80101-0008-4a1b-8c2d-000000000008
     content: >-
       The bread looks fine but the constant references to "the journey" are
@@ -388,6 +434,7 @@
 - type: comments.create_comment
   payload:
     subject_id: 8b3e1f40-2d5c-4a01-9c6f-3e4d50617c82
+    subject_name: Sourdough, three years in
     commenter_id: c0a80101-0009-4a1b-8c2d-000000000009
     content: >-
       nice post, check out my page for free recipes and daily giveaways
@@ -396,6 +443,7 @@
 - type: comments.create_comment
   payload:
     subject_id: 8b3e1f40-2d5c-4a01-9c6f-3e4d50617c82
+    subject_name: Sourdough, three years in
     commenter_id: c0a80101-0010-4a1b-8c2d-000000000010
     content: >-
       For anyone else reading: the scoring tip about a shallow angle really
@@ -404,6 +452,7 @@
 - type: comments.create_comment
   payload:
     subject_id: 8b3e1f40-2d5c-4a01-9c6f-3e4d50617c82
+    subject_name: Sourdough, three years in
     commenter_id: c0a80101-0011-4a1b-8c2d-000000000011
     content: >-
       Do you ever bake with rye? Curious whether the same schedule holds or if it
@@ -412,6 +461,7 @@
 - type: comments.create_comment
   payload:
     subject_id: 8b3e1f40-2d5c-4a01-9c6f-3e4d50617c82
+    subject_name: Sourdough, three years in
     commenter_id: c0a80101-0012-4a1b-8c2d-000000000012
     content: >-
       Lovely photos and a genuinely useful timeline. Bookmarked for my next

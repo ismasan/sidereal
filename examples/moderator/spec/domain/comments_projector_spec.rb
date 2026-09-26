@@ -11,6 +11,7 @@ RSpec.describe CommentsProjector do
     test_db.create_table(:comments) do
       String :comment_id, primary_key: true
       String :subject_id, null: false
+      String :subject_name, null: false
       String :commenter_id, null: false
       String :content, null: false
       String :status, null: false
@@ -23,9 +24,10 @@ RSpec.describe CommentsProjector do
   end
 
   let(:subject_id) { Subjects.first.id }
+  let(:subject_name) { Subjects.first.title }
   let(:comment_id) { SecureRandom.uuid }
   let(:created) do
-    { comment_id:, subject_id:, commenter_id: SecureRandom.uuid, content: 'Well said!' }
+    { comment_id:, subject_id:, subject_name:, commenter_id: SecureRandom.uuid, content: 'Well said!' }
   end
 
   describe 'evolve' do
@@ -33,7 +35,7 @@ RSpec.describe CommentsProjector do
       with_reactor(CommentsProjector, comment_id:)
         .given(Comment::CommentCreated, **created)
         .then { |result|
-          expect(result.state).to include(comment_id:, subject_id:, content: 'Well said!', status: 'pending', vibe: 'unknown')
+          expect(result.state).to include(comment_id:, subject_id:, subject_name:, content: 'Well said!', status: 'pending', vibe: 'unknown')
           expect(result.state[:created_at]).to be_a(String)
         }
     end

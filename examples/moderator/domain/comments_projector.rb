@@ -13,6 +13,7 @@ class CommentsProjector < Sourced::Projector::StateStored
       {
         comment_id: nil,
         subject_id: nil,
+        subject_name: nil,
         commenter_id: nil,
         content: nil,
         status: nil,
@@ -25,6 +26,7 @@ class CommentsProjector < Sourced::Projector::StateStored
   evolve(Comment::CommentCreated) do |s, e|
     s[:comment_id] = e.payload.comment_id
     s[:subject_id] = e.payload.subject_id
+    s[:subject_name] = e.payload.subject_name
     s[:commenter_id] = e.payload.commenter_id
     s[:content] = e.payload.content
     s[:status] = 'pending'

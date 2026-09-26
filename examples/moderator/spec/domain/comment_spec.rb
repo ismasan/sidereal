@@ -8,34 +8,41 @@ RSpec.describe Comment do
   let(:comment_id) { SecureRandom.uuid }
   let(:commenter_id) { SecureRandom.uuid }
   let(:subject_id) { Subjects.first.id }
+  let(:subject_name) { Subjects.first.title }
   let(:created) do
-    { comment_id:, subject_id:, commenter_id:, content: 'This is a terrible take because…' }
+    { comment_id:, subject_id:, subject_name:, commenter_id:, content: 'This is a terrible take because…' }
   end
 
   describe Comment::CreateComment do
     it 'creates a pending comment' do
       with_reactor(Comment, comment_id:)
-        .when(Comment::CreateComment, comment_id:, subject_id:, commenter_id:, content: '  Well said!  ')
-        .then(Comment::CommentCreated, comment_id:, subject_id:, commenter_id:, content: 'Well said!')
+        .when(Comment::CreateComment, comment_id:, subject_id:, subject_name:, commenter_id:, content: '  Well said!  ')
+        .then(Comment::CommentCreated, comment_id:, subject_id:, subject_name:, commenter_id:, content: 'Well said!')
     end
 
     it 'silently no-ops a re-submit of an existing comment' do
       with_reactor(Comment, comment_id:)
         .given(Comment::CommentCreated, **created)
-        .when(Comment::CreateComment, comment_id:, subject_id:, commenter_id:, content: 'again')
+        .when(Comment::CreateComment, comment_id:, subject_id:, subject_name:, commenter_id:, content: 'again')
         .then
     end
 
     it 'rejects a blank commenter' do
       with_reactor(Comment, comment_id:)
-        .when(Comment::CreateComment, comment_id:, subject_id:, content: 'hi')
+        .when(Comment::CreateComment, comment_id:, subject_id:, subject_name:, content: 'hi')
         .then(RuntimeError, 'commenter required')
     end
 
     it 'rejects an unknown subject' do
       with_reactor(Comment, comment_id:)
-        .when(Comment::CreateComment, comment_id:, subject_id: SecureRandom.uuid, commenter_id:, content: 'hi')
+        .when(Comment::CreateComment, comment_id:, subject_id: SecureRandom.uuid, subject_name:, commenter_id:, content: 'hi')
         .then(RuntimeError, 'unknown subject')
+    end
+
+    it 'rejects a blank subject name' do
+      with_reactor(Comment, comment_id:)
+        .when(Comment::CreateComment, comment_id:, subject_id:, commenter_id:, content: 'hi')
+        .then(RuntimeError, 'subject name required')
     end
   end
 
