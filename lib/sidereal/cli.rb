@@ -54,8 +54,10 @@ module Sidereal
         Application.register 'commands', Commands
       end
 
-      # Load the app: change into its root, since paths like ./storage are
-      # relative to it, and require its boot.rb.
+      # Load the app as a server worker has it: change into its root, since
+      # paths like ./storage are relative to it, require its boot.rb, then
+      # build its dependencies ({Sidereal::Dependencies#build!}), which is
+      # where integrations such as Sourced finish setting up.
       #
       # @raise [Error] outside an app
       def boot_app!
@@ -63,6 +65,7 @@ module Sidereal
 
         Dir.chdir(app_root)
         require File.join(app_root, 'boot')
+        Sidereal.dependencies.build!
       end
     end
 
