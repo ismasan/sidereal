@@ -34,6 +34,35 @@ module Sidereal
     end
 
     require_relative 'cli/new'
+    require_relative 'cli/app_console'
+
+    class << self
+      # The root directory of the app `sid` is running in, set by
+      # {.load_app}. Nil outside an app.
+      attr_reader :app_root
+
+      # Called by an app's bin/sid: remembers the app's root and registers
+      # the commands that only make sense inside an app. The app itself is
+      # loaded by the commands that need it ({.boot_app!}), so `bin/sid --help`
+      # stays fast.
+      #
+      # @param root [String] the app's root directory
+      def load_app(root)
+        @app_root = File.expand_path(root)
+        Application.register 'console', AppConsole
+      end
+
+      # Load the app: change into its root, since paths like ./storage are
+      # relative to it, and require its boot.rb.
+      #
+      # @raise [Error] outside an app
+      def boot_app!
+        raise Error, 'Run this command from inside a Sidereal app, with bin/sid' unless app_root
+
+        Dir.chdir(app_root)
+        require File.join(app_root, 'boot')
+      end
+    end
 
     # The top-level `sid` command.
     class Application < Command
