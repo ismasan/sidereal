@@ -3,4 +3,4 @@
 
 require 'sidereal/cli'
 
-Sidereal::CLI::Top.call(ARGV)
+exit Sidereal::CLI::Application.call(ARGV)
