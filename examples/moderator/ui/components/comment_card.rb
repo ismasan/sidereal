@@ -18,6 +18,7 @@ class CommentCard < Sidereal::Components::BaseComponent
     classes << 'card--current' if @current
 
     a(href: "/comments/#{@c[:comment_id]}", class: classes.join(' '), id: "card-#{@c[:comment_id]}") do
+      span(class: 'card__subject') { @c[:subject_name] }
       span(class: 'card__content') { excerpt }
       span(class: 'card__meta') do
         time(class: 'card__date', datetime: @c[:created_at]) { created_at.strftime('%-d %b %Y, %H:%M') }
