@@ -116,7 +116,7 @@ module Sidereal
         terminal.print_line :key, "  cd #{@path}"
         terminal.print_line :key, '  bundle install' unless bundled
         terminal.print_line :key, '  bundle exec rspec --init' if context.rspec? && !bundled
-        terminal.print_line :key, '  bundle exec falcon host'
+        terminal.print_line :key, '  bin/dev'
         terminal.puts
         terminal.puts "Then open http://localhost:#{context.port} in two windows and say hello."
         if context.rspec? && bundled
