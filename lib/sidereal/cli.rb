@@ -7,6 +7,9 @@ require 'sidereal/version'
 module Sidereal
   # The `sid` command line interface.
   module CLI
+    # Raised by a command to stop with a message and a non-zero exit status.
+    class Error < StandardError; end
+
     # Base class for all `sid` commands.
     class Command < Samovar::Command
       # Styled terminal writing to this command's output stream.
@@ -30,6 +33,8 @@ module Sidereal
       end
     end
 
+    require_relative 'cli/new'
+
     # The top-level `sid` command.
     class Application < Command
       def self.registry
@@ -41,7 +46,8 @@ module Sidereal
       end
 
       # Parse and run the command line. Returns true on success and false on
-      # a parse error, so the result can be passed straight to `exit`.
+      # a parse error or a CLI::Error, so the result can be passed straight
+      # to `exit`.
       # A `--help` token a sub-command doesn't declare prints that command's
       # usage and counts as success.
       def self.call(arguments = ARGV, output: $stderr)
@@ -52,6 +58,11 @@ module Sidereal
           formatter.map(error)
         end
         error.is_a?(Samovar::InvalidInputError) && error.help?
+      rescue Error => error
+        Console::Terminal.for(output).tap do |terminal|
+          terminal[:error] = terminal.style(:red, nil, :bold)
+        end.puts(error.message, style: :error)
+        false
       end
 
       self.description = 'Sidereal command line'
@@ -61,6 +72,7 @@ module Sidereal
       end
 
       register 'info', Info
+      register 'new', New
 
       nested :command, registry
 

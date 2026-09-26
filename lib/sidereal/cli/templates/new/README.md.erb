@@ -1,0 +1,35 @@
+# <%= title %>
+
+A [Sidereal](https://github.com/ismasan/sidereal) app.
+
+## Run
+
+```sh
+bundle install
+bundle exec falcon host
+```
+
+Then open <http://localhost:<%= port %>>. `PORT`, `HOST` and `COUNT` (worker processes) can be set in the environment.
+<% if rspec? -%>
+
+## Test
+
+```sh
+bundle exec rspec
+```
+<% end -%>
+
+## Layout
+
+| Path | What's in it |
+| --- | --- |
+| `boot.rb` | Loads and configures the app |
+| `system/` | Backend code that doesn't know about the web: messages, commanders, Sourced deciders and reactors |
+| `web/app.rb` | `App`, the web app: commands it accepts, their handlers, and pages |
+| `web/ui/` | Pages and the layout, in the `UI` namespace |
+| `web/ui/components/` | Components used by pages, in `UI::Components` |
+| `web/public/` | Static files |
+| `storage/` | Runtime data<% if sourced? %>, including the Sourced SQLite database<% end %>. Not committed. |
+| `falcon.rb` | Falcon server settings |
+
+Classes in `system/` and `web/` are loaded by [Zeitwerk](https://github.com/fxn/zeitwerk): name a file after the class it defines and use the class anywhere, without `require`. Directories under `web/` are namespaces, so `web/ui/welcome_page.rb` defines `UI::WelcomePage`. Classes in `system/` are top-level.

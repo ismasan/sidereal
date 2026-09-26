@@ -1,0 +1,36 @@
+# frozen_string_literal: true
+
+# The web app: which commands browsers may send, how they're handled, and pages.
+# config.ru runs it.
+class App < Sidereal::App
+  STARS = %w[Vega Sirius Polaris Rigel Altair Deneb Capella Arcturus Aldebaran Betelgeuse].freeze
+
+  layout UI::Layout
+
+  # Accept SayHello from forms. It is queued, then handled below in a
+  # background worker, away from the request.
+  handle Greetings::SayHello
+
+  # `broadcast` publishes a message to every connected browser straight away.
+  # `dispatch` records a follow-up message, published once the handler finishes.
+  command Greetings::SayHello do |cmd|
+    name = cmd.payload.name
+    star = STARS.sample
+    stages = [
+      'Pointing the telescope',
+      'Finding a clear patch of sky',
+      "Bouncing off #{star}",
+      'Coming back down'
+    ]
+
+    stages.each.with_index(1) do |status, step|
+      broadcast Greetings::Transmitting,
+        hello_id: cmd.id, name:, step:, steps: stages.size, status: "#{status}…"
+      sleep 0.8
+    end
+
+    dispatch Greetings::HelloSaid, hello_id: cmd.id, name:, star:
+  end
+
+  page UI::WelcomePage
+end

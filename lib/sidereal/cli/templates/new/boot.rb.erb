@@ -1,0 +1,43 @@
+# frozen_string_literal: true
+
+# Loads and configures the app. Required by config.ru<% if rspec? %> and spec/spec_helper.rb<% end %>.
+
+require 'sidereal'
+require 'zeitwerk'
+<% if sourced? -%>
+require 'sequel'
+require 'sidereal/integrations/sourced'
+<% end -%>
+
+# Zeitwerk loads classes by file name, so no require statements are needed.
+#
+#   system/  backend code that doesn't know about the web: messages,
+#            commanders, Sourced deciders and reactors. Top-level names:
+#            system/greetings.rb defines Greetings.
+#   web/     web code. web/app.rb defines App, the web app, and each
+#            directory is a namespace: web/ui/welcome_page.rb defines
+#            UI::WelcomePage and web/ui/components/hello.rb defines
+#            UI::Components::Hello.
+LOADER = Zeitwerk::Loader.new
+LOADER.inflector.inflect('ui' => 'UI')
+LOADER.push_dir(File.expand_path('system', __dir__))
+LOADER.push_dir(File.expand_path('web', __dir__))
+# Static files, served by config.ru. Not code.
+LOADER.ignore(File.expand_path('web/public', __dir__))
+LOADER.setup
+# Load everything up front. Message classes register their types as they
+# load, and every process must know every type before it can decode messages
+# coming from other processes.
+LOADER.eager_load
+
+Sidereal.configure do |config|
+  # File-backed command store, pubsub and leader election under ./storage.
+  # Updates reach browsers connected to any worker, so COUNT > 1 works.
+  config.use_file_system!
+<% if sourced? -%>
+  # Keep commands and events in Sourced's SQLite store instead of files.
+  # Sourced creates its tables on first boot.
+  config.use Sidereal::Integrations::Sourced,
+    store: -> { Sequel.sqlite(File.expand_path('storage/<%= app_name %>.db', __dir__)) }
+<% end -%>
+end
