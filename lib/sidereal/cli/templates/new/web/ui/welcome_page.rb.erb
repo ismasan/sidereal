@@ -44,6 +44,28 @@ module UI
             button(type: :submit) { 'Say hello' }
           end
 
+          section(class: 'terminal-hello') do
+            p do
+              plain 'Hellos can come from anywhere, not just this page. '
+              plain "From the app's folder, run this in a terminal and watch it arrive:"
+            end
+            command_line = 'bin/sid commands dispatch <%= app_name %>.greetings.say_hello --name Sidereal'
+            # $_copied starts with an underscore, so it stays in the browser.
+            div(class: 'terminal-hello__command', data: { 'signals:_copied' => 'false' }) do
+              pre { code { command_line } }
+              button(
+                type: 'button',
+                class: 'copy-button',
+                aria: { live: 'polite' },
+                data: {
+                  'on:click' => "navigator.clipboard.writeText(#{command_line.to_json})" \
+                                '.then(() => { $_copied = true; setTimeout(() => $_copied = false, 1500) })',
+                  'text' => "$_copied ? 'Copied' : 'Copy'"
+                }
+              ) { 'Copy' }
+            end
+          end
+
           section(class: 'log', aria: { label: 'Hellos', live: 'polite' }) do
             ol(id: 'sky-log', class: 'log__list') do
               li(class: 'log__empty') { 'No hellos yet tonight. Send the first one.' }
