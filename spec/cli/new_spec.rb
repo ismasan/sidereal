@@ -159,6 +159,8 @@ RSpec.describe Sidereal::CLI::New do
       expect(out).to include('<h1 class="welcome__title">App</h1>', 'Say hello')
       # A single root element with an id, so a reconnect replaces the whole page.
       expect(out).to include('<div class="page"><div id="welcome-page">')
+      expect(out).to include('<code>bin/sid commands dispatch app.greetings.say_hello --name Sidereal</code>')
+      expect(out).to include('<button type="button" class="copy-button"')
     end
 
     it 'boots and renders the welcome page with --sourced' do
@@ -245,6 +247,59 @@ RSpec.describe Sidereal::CLI::New do
       expect(out).to include('No command named "Nope"')
     end
 
+    it 'dispatches a command, coercing its attributes, into the app store' do
+      root = generate
+      File.write(File.join(root, 'system/kitchen.rb'), <<~RUBY)
+        module Kitchen
+          Order = Sidereal::Message.define('app.kitchen.order') do
+            attribute :dish, Sidereal::Types::String.present
+            attribute :quantity, Sidereal::Types::Integer
+            attribute :gift, Sidereal::Types::Boolean
+            attribute :tags, Sidereal::Types::Array[Sidereal::Types::String]
+            attribute :table do
+              attribute :number, Sidereal::Types::Integer
+            end
+          end
+
+          class Commander < Sidereal::Commander
+            command Order do |_cmd|
+            end
+          end
+        end
+      RUBY
+      File.write(File.join(root, 'boot.rb'), "Sidereal.register(Kitchen::Commander)\n", mode: 'a')
+
+      out, status = bin_sid(root, 'commands', 'dispatch', 'Kitchen::Order',
+                            '--dish', 'Pizza', '--quantity', '2', '--gift', '--tags', 'vegan', '--table.number', '4')
+
+      expect(status).to be_success, out
+      expect(out).to include('Dispatched app.kitchen.order  Kitchen::Order')
+      expect(out).to include('quantity  2', 'gift  true', 'tags  ["vegan"]', 'table  {number: 4}')
+
+      ready = Dir[File.join(root, 'storage/store/ready/*.json')]
+      expect(ready.size).to eq(1)
+      message = JSON.parse(File.read(ready.first))
+      expect(message).to include('type' => 'app.kitchen.order')
+      expect(message['payload']).to eq(
+        'dish' => 'Pizza', 'quantity' => 2, 'gift' => true, 'tags' => ['vegan'], 'table' => { 'number' => 4 }
+      )
+    end
+
+    it 'does not dispatch a command with invalid attributes' do
+      root = generate
+
+      out, status = bin_sid(root, 'commands', 'dispatch', 'Greetings::SayHello', '--name', '')
+
+      expect(status).not_to be_success
+      expect(out).to include("Not dispatched. Invalid attributes for app.greetings.say_hello:\n  --name: must be present")
+      expect(Dir[File.join(root, 'storage/store/ready/*')]).to be_empty
+
+      out, status = bin_sid(root, 'commands', 'dispatch', 'Greetings::SayHello')
+
+      expect(status).not_to be_success
+      expect(out).to include('--name: is required')
+    end
+
     it 'lists commands handled by Sourced deciders' do
       root = generate('app', '--sourced')
       File.write(File.join(root, 'system/todos.rb'), <<~RUBY)
@@ -277,7 +332,10 @@ RSpec.describe Sidereal::CLI::New do
 
   describe 'usage and errors' do
     it 'prints usage with --help' do
-      expect(sid_new('--help')).to be(true)
+      result = nil
+
+      expect { result = sid_new('--help') }.to output(/Create a new Sidereal app/).to_stdout
+      expect(result).to be(true)
     end
 
     it 'fails without a name' do

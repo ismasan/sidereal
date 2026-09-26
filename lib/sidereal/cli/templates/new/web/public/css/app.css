@@ -157,6 +157,55 @@ body::after {
 
 .hello-form .command-field__errors { color: #ffb4a8; padding-left: 1rem; }
 
+/* Sending a hello from the terminal */
+
+.terminal-hello {
+  margin-top: 2rem;
+  color: var(--mist);
+}
+.terminal-hello p { margin-bottom: 0.6rem; }
+
+/* The command in its own box, with the copy button underneath on the right. */
+.terminal-hello__command {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.5rem;
+}
+
+.terminal-hello pre {
+  align-self: stretch;
+  margin: 0;
+  padding: 0.75rem 1rem;
+  overflow-x: auto;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: var(--starlight);
+  background: rgba(14, 16, 51, 0.6);
+  border: 1px solid rgba(174, 176, 216, 0.25);
+  border-radius: 10px;
+}
+/* A prompt that stays out of copied text. */
+.terminal-hello pre::before {
+  content: "$ ";
+  color: var(--gold);
+  user-select: none;
+}
+
+.copy-button {
+  padding: 0.3rem 0.75rem;
+  font-family: var(--body);
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--starlight);
+  background: transparent;
+  border: 1px solid rgba(174, 176, 216, 0.45);
+  border-radius: 999px;
+}
+.copy-button:hover { background: rgba(142, 162, 255, 0.18); border-color: var(--periwinkle); }
+.copy-button:active { background: rgba(142, 162, 255, 0.3); }
+.copy-button:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+
 /* Sky log */
 
 .log { margin-top: 2.5rem; }
