@@ -71,6 +71,15 @@ RSpec.describe Sidereal::CLI do
     end
   end
 
+  describe 'app commands' do
+    it 'are not available outside an app' do
+      io = StringIO.new
+
+      expect(Sidereal::CLI::Application.call(['console'], output: io)).to be(false)
+      expect(io.string).to include('Could not parse token "console"')
+    end
+  end
+
   describe '.register' do
     let(:plugin) do
       Class.new(Sidereal::CLI::Command) do

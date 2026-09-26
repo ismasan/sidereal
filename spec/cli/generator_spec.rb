@@ -48,6 +48,16 @@ RSpec.describe Sidereal::CLI::Generator do
     expect(File.exist?(File.join(@target, 'storage/.keep'))).to be(true)
   end
 
+  it 'keeps template permissions' do
+    File.chmod(0o755, template('bin/run.erb', '#!/usr/bin/env ruby'))
+    File.chmod(0o644, template('notes.txt', 'notes'))
+
+    Sidereal::CLI::Generator.new(@source, @target, context).generate
+
+    expect(File.stat(File.join(@target, 'bin/run')).mode & 0o777).to eq(0o755)
+    expect(File.stat(File.join(@target, 'notes.txt')).mode & 0o777).to eq(0o644)
+  end
+
   it 'yields each written path' do
     template('a.txt', 'a')
     template('b/c.txt.erb', 'c')

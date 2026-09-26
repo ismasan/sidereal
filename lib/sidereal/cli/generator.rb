@@ -12,6 +12,8 @@ module Sidereal
     # and written without the extension. A path segment starting with +dot_+
     # is written as a dotfile (+dot_gitignore+ becomes +.gitignore+), so
     # templates never act as dotfiles inside the Sidereal repository itself.
+    # Written files keep their template's permissions, so an executable
+    # template (a binstub) generates an executable file.
     class Generator
       DOT_PREFIX = /\Adot_/
       ERB_EXT = '.erb'
@@ -36,6 +38,7 @@ module Sidereal
           destination = File.join(@target, path)
           FileUtils.mkdir_p(File.dirname(destination))
           File.write(destination, render(template))
+          File.chmod(File.stat(File.join(@source, template)).mode, destination)
           yield path if block_given?
           path
         end
