@@ -1,0 +1,59 @@
+# frozen_string_literal: true
+
+module UI
+  # The home page. Sends Greetings::SayHello and shows each hello crossing the
+  # sky, live, in every open window.
+  class WelcomePage < Sidereal::Page
+    path '/'
+
+    # By default a page re-renders when a command it has a form for is handled.
+    # This one adds to its sky log as messages arrive instead, so it opts out.
+    disable_causal_reactivity!
+
+    # Reactions run for every browser showing this page, not just the sender.
+    on Greetings::Transmitting do |evt|
+      if evt.payload.step == 1
+        browser.patch_elements Components::Hello.new(evt), mode: 'prepend', selector: '#sky-log'
+      else
+        browser.patch_elements Components::Hello.new(evt)
+      end
+    end
+
+    on Greetings::HelloSaid do |evt|
+      browser.patch_elements Components::Hello.new(evt)
+    end
+
+    def self.load(_params, _ctx) = new
+
+    def view_template
+      div(class: 'sky', aria: { hidden: 'true' })
+
+      main(class: 'welcome') do
+        h1(class: 'welcome__title') { '<%= title %>' }
+        p(class: 'welcome__lead') do
+          plain 'Your Sidereal app is running. Say hello and watch it cross the sky. '
+          plain 'Open this page in a second window: every window sees every hello as it happens.'
+        end
+
+        command Greetings::SayHello, class: 'hello-form' do |f|
+          f.text_field :name, placeholder: 'Your name', autocomplete: 'off', aria: { label: 'Your name' }
+          button(type: :submit) { 'Say hello' }
+        end
+
+        section(class: 'log', aria: { label: 'Hellos', live: 'polite' }) do
+          ol(id: 'sky-log', class: 'log__list') do
+            li(class: 'log__empty') { 'No hellos yet tonight. Send the first one.' }
+          end
+        end
+
+        p(class: 'welcome__next') do
+          plain 'Make it yours: this page is '
+          code { 'web/ui/welcome_page.rb' }
+          plain ', and the hello handler is '
+          code { 'web/app.rb' }
+          plain '.'
+        end
+      end
+    end
+  end
+end

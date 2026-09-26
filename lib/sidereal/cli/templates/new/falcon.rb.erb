@@ -1,0 +1,27 @@
+#!/usr/bin/env falcon-host
+# frozen_string_literal: true
+
+# Falcon host configuration: `bundle exec falcon host` reads this file.
+#
+# Each worker process loads config.ru itself (and so boot.rb and the app),
+# which keeps database connections and other fork-unsafe state per process.
+
+require 'sidereal'
+require 'sidereal/falcon/environment'
+
+# Override from the environment, e.g.
+#   PORT=8080 bundle exec falcon host
+#   HOST=0.0.0.0 COUNT=4 bundle exec falcon host
+HOST = ENV.fetch('HOST', 'localhost')
+PORT = ENV.fetch('PORT', '<%= port %>')
+# Computed out here: the service block below is instance_eval'd on a builder
+# where Kernel#Integer isn't available.
+COUNT = Integer(ENV.fetch('COUNT', '1'))
+
+service '<%= app_name %>' do
+  include Sidereal::Falcon::Environment
+  include Falcon::Environment::Rackup
+
+  url "http://#{HOST}:#{PORT}"
+  count COUNT
+end
