@@ -1,0 +1,107 @@
+#!/usr/bin/env bash
+#
+# Development server with code reloading.
+#
+# Runs `falcon host` and, whenever a Ruby or config file changes, sends SIGHUP
+# to the Falcon controller. Falcon then forks fresh workers, each of which
+# loads config.ru -> boot.rb from scratch, so changes to system/, web/ and gems
+# are all picked up. The controller keeps the port; browsers reconnect their
+# SSE streams and catch up on connect.
+#
+# Reloads run one at a time: a SIGHUP that arrives while Falcon is still
+# restarting stops the host, so each reload waits for the controller to report
+# ready, and changes made meanwhile are batched into the next reload.
+#
+# Needs a file watcher: watchexec (brew install watchexec) or fswatch.
+# Without one the server still runs, just without reloading.
+#
+# Usage: bin/dev            (HOST, PORT and COUNT as in falcon.rb)
+#        PORT=9300 bin/dev
+
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+WATCH_PATHS=(boot.rb config.ru falcon.rb system web)
+
+# Open SSE streams never finish on their own, so old workers wait out the whole
+# graceful stop timeout (10s by default) before they're killed. Keep it short.
+export ASYNC_CONTAINER_GRACEFUL_STOP="${ASYNC_CONTAINER_GRACEFUL_STOP:-1}"
+
+# The Falcon controller appends a JSON line here each time it's ready after
+# starting or restarting, or fails to.
+mkdir -p storage
+export NOTIFY_LOG="$PWD/storage/dev-notify.log"
+: > "$NOTIFY_LOG"
+
+# Changes flow from the file watcher to the reloader through this pipe.
+CHANGES="$PWD/storage/dev-changes"
+rm -f "$CHANGES"
+mkfifo "$CHANGES"
+
+bundle exec falcon host &
+FALCON_PID=$!
+WATCHER_PID=
+RELOADER_PID=
+
+cleanup() {
+  [ -n "$WATCHER_PID" ] && kill "$WATCHER_PID" 2>/dev/null || true
+  [ -n "$RELOADER_PID" ] && kill "$RELOADER_PID" 2>/dev/null || true
+  kill "$FALCON_PID" 2>/dev/null || true
+  wait "$FALCON_PID" 2>/dev/null || true
+  rm -f "$CHANGES"
+}
+trap cleanup EXIT INT TERM
+
+# Lines where the controller (not a worker) reports ready or an error.
+controller_reports() {
+  grep -c -e '"ready":true,"size"' -e '"errno"' "$NOTIFY_LOG" || true
+}
+
+reload() {
+  local before
+  before=$(controller_reports)
+  echo "bin/dev: change detected, reloading workers (HUP $FALCON_PID)"
+  kill -HUP "$FALCON_PID"
+  # Wait for the restart to finish, up to 30s.
+  for _ in $(seq 1 300); do
+    [ "$(controller_reports)" -gt "$before" ] && return
+    kill -0 "$FALCON_PID" 2>/dev/null || return
+    sleep 0.1
+  done
+  echo "bin/dev: workers not ready after 30s; carrying on" >&2
+}
+
+# Prints a line for each batch of file changes.
+watch_changes() {
+  if command -v watchexec >/dev/null 2>&1; then
+    # --postpone: don't fire on start.
+    # --project-origin: this app is the project, so only its own ignore files
+    # apply, not those of a repository it happens to sit inside.
+    exec watchexec --quiet --postpone --project-origin . --exts rb,ru,yml \
+      $(printf -- '--watch %s ' "${WATCH_PATHS[@]}") \
+      -- echo change
+  else
+    exec fswatch -o -l 0.3 -e '.*' -i '\.rb$' -i '\.ru$' -i '\.yml$' "${WATCH_PATHS[@]}"
+  fi
+}
+
+# One reload per batch of changes. Changes made while a reload is running
+# queue up in the pipe and become the next batch.
+reload_on_changes() {
+  while read -r _; do
+    # Let a burst of saves settle, then take them all as one change.
+    while read -r -t 1 _; do :; done
+    reload
+  done
+}
+
+if command -v watchexec >/dev/null 2>&1 || command -v fswatch >/dev/null 2>&1; then
+  watch_changes > "$CHANGES" &
+  WATCHER_PID=$!
+  reload_on_changes < "$CHANGES" &
+  RELOADER_PID=$!
+else
+  echo "bin/dev: no file watcher found (install watchexec or fswatch); running without reloading" >&2
+fi
+
+wait "$FALCON_PID"
