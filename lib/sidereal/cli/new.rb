@@ -12,6 +12,12 @@ module Sidereal
       SOURCED_GITHUB = 'ismasan/sourced'
       SOURCED_BRANCH = 'ccc'
       PORT = 9292
+      # Agent skills live in skills/. Claude Code finds skills in .claude/skills
+      # and other agents look in .agents/skills, so both link to it.
+      LINKS = {
+        '.claude/skills' => '../skills',
+        '.agents/skills' => '../skills'
+      }.freeze
 
       # What the templates see: `<%= title %>`, `<% if sourced? %>`, etc.
       Context = Data.define(:app_name, :title, :sidereal_path, :rspec, :sourced) do
@@ -68,6 +74,7 @@ module Sidereal
         Generator.new(TEMPLATES, root, context).generate do |path|
           terminal.print_line :key, '  create  ', :reset, path
         end
+        link_skills(root)
 
         if @options[:skip_bundle]
           instructions(context, bundled: false)
@@ -84,6 +91,23 @@ module Sidereal
       end
 
       private
+
+      # Create the {LINKS}. An existing link is replaced; anything else in
+      # its place (with --force) is left alone.
+      def link_skills(root)
+        LINKS.each do |path, target|
+          link = File.join(root, path)
+          if File.exist?(link) && !File.symlink?(link)
+            terminal.print_line :key, '  skip    ', :reset, "#{path} (already exists)"
+            next
+          end
+
+          FileUtils.mkdir_p(File.dirname(link))
+          FileUtils.rm_f(link)
+          File.symlink(target, link)
+          terminal.print_line :key, '  link    ', :reset, "#{path} -> #{target}"
+        end
+      end
 
       # Run a command in the new app's directory, outside of any bundle the
       # `sid` process itself is running in.
