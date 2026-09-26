@@ -21,12 +21,14 @@ class Comment < Sourced::Decider
 
   # ---- Commands ----
 
-  # commenter_id defaults to blank so the browser form can omit it —
-  # `before_command` in the app stamps the session's id before the command
-  # runs. The handler below refuses a blank one.
+  # commenter_id and subject_name default to blank so the browser form can
+  # omit them — `before_command` in the app stamps the session's id, and the
+  # app's `handle` block stamps the chosen subject's title, before the command
+  # runs. The handler below refuses a blank one of either.
   CreateComment = Sourced::Command.define('comments.create_comment') do
     attribute :comment_id, Sourced::Types::AutoUUID
     attribute :subject_id, Sourced::Types::UUID::V4
+    attribute :subject_name, Sourced::Types::String.default('')
     attribute :commenter_id, Sourced::Types::String.default('')
     attribute :content, Sourced::Types::String.present
   end
@@ -57,6 +59,7 @@ class Comment < Sourced::Decider
   CommentCreated = Sourced::Event.define('comments.comment_created') do
     attribute :comment_id, Sourced::Types::UUID::V4
     attribute :subject_id, Sourced::Types::UUID::V4
+    attribute :subject_name, Sourced::Types::String.present
     attribute :commenter_id, Sourced::Types::UUID::V4
     attribute :content, Sourced::Types::String.present
   end
@@ -96,6 +99,7 @@ class Comment < Sourced::Decider
   State = Struct.new(
     :comment_id,
     :subject_id,
+    :subject_name,
     :commenter_id,
     :content,
     :status,   # nil | 'pending' | 'moderating' | 'approved' | 'spam'
@@ -109,6 +113,7 @@ class Comment < Sourced::Decider
 
   evolve(CommentCreated) do |s, e|
     s.subject_id = e.payload.subject_id
+    s.subject_name = e.payload.subject_name
     s.commenter_id = e.payload.commenter_id
     s.content = e.payload.content
     s.status = 'pending'
@@ -143,10 +148,12 @@ class Comment < Sourced::Decider
     return if state.status # idempotent — a re-submit of the same id is a silent no-op
     raise 'commenter required' if cmd.payload.commenter_id.to_s.empty?
     raise 'unknown subject' unless Subjects.exists?(cmd.payload.subject_id)
+    raise 'subject name required' if cmd.payload.subject_name.to_s.empty?
 
     event CommentCreated,
       comment_id: cmd.payload.comment_id,
       subject_id: cmd.payload.subject_id,
+      subject_name: cmd.payload.subject_name,
       commenter_id: cmd.payload.commenter_id,
       content: cmd.payload.content.strip
   end
