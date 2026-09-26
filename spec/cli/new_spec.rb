@@ -161,6 +161,7 @@ RSpec.describe Sidereal::CLI::New do
       expect(out).to include('<div class="page"><div id="welcome-page">')
       expect(out).to include('<code>bin/sid commands dispatch app.greetings.say_hello --name Sidereal</code>')
       expect(out).to include('<button type="button" class="copy-button"')
+      expect(out).to include('<a href="https://ismasan.github.io/sidereal/">Sidereal docs</a>')
     end
 
     it 'boots and renders the welcome page with --sourced' do
