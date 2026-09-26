@@ -1,0 +1,254 @@
+/* A night sky. Loaded after Sidereal's BasicLayout styles, so these win. */
+
+:root {
+  --night: #161a44;
+  --dusk: #2d2566;
+  --hills: #0e1033;
+  --starlight: #f5efd8;
+  --mist: #aeb0d8;
+  --periwinkle: #8ea2ff;
+  --gold: #ffcf5c;
+  --ink: #1c1b3a;
+
+  --display: "Unbounded", system-ui, sans-serif;
+  --body: "Atkinson Hyperlegible", system-ui, sans-serif;
+}
+
+html { background: var(--night); }
+
+body {
+  min-height: 100vh;
+  font-family: var(--body);
+  font-size: 1.0625rem;
+  line-height: 1.6;
+  color: var(--starlight);
+  background: linear-gradient(to bottom, var(--night) 0%, var(--night) 45%, var(--dusk) 100%) fixed;
+}
+
+/* Stars: two tiled layers of dots, the second one twinkling slowly.
+   The rolling hills are an ellipse sitting on the bottom edge. */
+.sky,
+.sky::before,
+.sky::after {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+.sky { z-index: -1; }
+.sky::before {
+  content: "";
+  background-image:
+    radial-gradient(1px 1px at 23px 41px, #fff 50%, transparent 51%),
+    radial-gradient(1px 1px at 131px 97px, #fff 50%, transparent 51%),
+    radial-gradient(1.5px 1.5px at 201px 12px, var(--starlight) 50%, transparent 51%),
+    radial-gradient(1px 1px at 77px 173px, var(--periwinkle) 50%, transparent 51%),
+    radial-gradient(1px 1px at 248px 211px, #fff 50%, transparent 51%);
+  background-size: 280px 240px;
+  opacity: 0.7;
+}
+.sky::after {
+  content: "";
+  background-image:
+    radial-gradient(2px 2px at 64px 88px, #fff 50%, transparent 51%),
+    radial-gradient(1.5px 1.5px at 311px 260px, var(--gold) 50%, transparent 51%),
+    radial-gradient(2px 2px at 402px 57px, var(--starlight) 50%, transparent 51%);
+  background-size: 460px 380px;
+  animation: twinkle 7s ease-in-out infinite alternate;
+  mask-image: linear-gradient(to bottom, #000 55%, transparent 85%);
+}
+body::after {
+  content: "";
+  position: fixed;
+  left: -20vw;
+  right: -20vw;
+  bottom: -18vh;
+  height: 32vh;
+  z-index: -1;
+  background: radial-gradient(ellipse at 50% 0%, #1a1c4d 0%, var(--hills) 60%);
+  border-radius: 50% 50% 0 0 / 100% 100% 0 0;
+  pointer-events: none;
+}
+
+@keyframes twinkle {
+  from { opacity: 0.35; }
+  to { opacity: 1; }
+}
+
+/* Layout */
+
+.page {
+  max-width: 42rem;
+  margin: 0 auto;
+  padding: clamp(3rem, 12vh, 7rem) 1.25rem 12rem;
+}
+
+.welcome__title {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: clamp(2.5rem, 9vw, 4.75rem);
+  line-height: 1.02;
+  letter-spacing: -0.03em;
+  overflow-wrap: anywhere;
+  margin-bottom: 1.25rem;
+  color: var(--starlight);
+  text-shadow: 0 0 2.5rem rgba(255, 207, 92, 0.25);
+}
+
+.welcome__lead {
+  max-width: 34em;
+  font-size: 1.2rem;
+  color: var(--mist);
+  margin-bottom: 2.5rem;
+}
+
+.welcome__next {
+  margin-top: 3rem;
+  font-size: 0.95rem;
+  color: var(--mist);
+}
+.welcome__next code {
+  font-size: 0.9em;
+  color: var(--starlight);
+}
+
+/* Form */
+
+.hello-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+.hello-form > * + * { margin-top: 0; }
+.hello-form .command-field {
+  flex: 1 1 14rem;
+  margin-bottom: 0;
+}
+
+.hello-form input[type="text"] {
+  padding: 0.8rem 1rem;
+  font-size: 1.05rem;
+  color: var(--starlight);
+  background: rgba(14, 16, 51, 0.6);
+  border: 1px solid rgba(174, 176, 216, 0.35);
+  border-radius: 999px;
+}
+.hello-form input[type="text"]::placeholder { color: var(--mist); opacity: 0.8; }
+.hello-form input[type="text"]:focus {
+  border-color: var(--gold);
+  box-shadow: 0 0 0 3px rgba(255, 207, 92, 0.25);
+}
+
+.hello-form button {
+  padding: 0.8rem 1.4rem;
+  font-family: var(--display);
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: var(--ink);
+  background: var(--gold);
+  border-radius: 999px;
+}
+.hello-form button:hover { background: #ffdb85; }
+.hello-form button:active { background: #f2bd3d; }
+.hello-form button:focus-visible {
+  outline: 3px solid var(--starlight);
+  outline-offset: 3px;
+}
+
+.hello-form .command-field__errors { color: #ffb4a8; padding-left: 1rem; }
+
+/* Sky log */
+
+.log { margin-top: 2.5rem; }
+
+.log__list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.log__empty {
+  color: var(--mist);
+  font-style: italic;
+}
+.log__list:has(.hello) .log__empty { display: none; }
+
+.hello {
+  --progress: 1;
+  display: grid;
+  grid-template-columns: 2.25rem 1fr;
+  gap: 0.25rem 0.75rem;
+  padding: 0.9rem 0;
+  border-bottom: 1px solid rgba(174, 176, 216, 0.15);
+  margin: 0;
+}
+
+/* The star brightens as the hello travels, and turns gold when it arrives. */
+.hello__star {
+  font-size: 1.5rem;
+  line-height: 1.2;
+  text-align: center;
+  color: var(--periwinkle);
+  opacity: calc(0.25 + var(--progress) * 0.75);
+  text-shadow: 0 0 calc(var(--progress) * 1rem) var(--periwinkle);
+  transition: opacity 0.6s, text-shadow 0.6s, color 0.6s;
+}
+.hello--arrived .hello__star {
+  color: var(--gold);
+  text-shadow: 0 0 1.25rem var(--gold);
+}
+
+.hello__title {
+  margin: 0;
+  font-weight: 700;
+}
+.hello--arrived .hello__title {
+  font-family: var(--display);
+  font-weight: 500;
+  font-size: 1.15rem;
+}
+
+.hello__status {
+  margin: 0;
+  font-size: 0.95rem;
+  color: var(--mist);
+}
+.hello:not(.hello--arrived) .hello__status { font-style: italic; }
+
+.hello__trail {
+  height: 2px;
+  margin-top: 0.5rem;
+  width: calc(var(--progress) * 100%);
+  background: linear-gradient(to right, transparent, var(--periwinkle));
+  border-radius: 2px;
+  transition: width 0.7s ease-out;
+}
+
+/* When a hello arrives, a star shoots across the whole sky, once. */
+.shooting-star {
+  position: fixed;
+  top: var(--y, 15vh);
+  left: -12rem;
+  width: 12rem;
+  height: 2px;
+  border-radius: 2px;
+  background: linear-gradient(to right, transparent, var(--starlight));
+  box-shadow: 0 0 8px var(--starlight);
+  pointer-events: none;
+  opacity: 0;
+  transform: rotate(14deg);
+  animation: shoot 1.3s cubic-bezier(0.3, 0, 0.7, 1) forwards;
+}
+
+@keyframes shoot {
+  0% { opacity: 0; transform: translate(0, 0) rotate(14deg); }
+  12% { opacity: 1; }
+  100% { opacity: 0; transform: translate(calc(100vw + 24rem), 28vh) rotate(14deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sky::after { animation: none; }
+  .shooting-star { display: none; }
+  .hello__star,
+  .hello__trail { transition: none; }
+}

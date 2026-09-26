@@ -1,0 +1,26 @@
+# frozen_string_literal: true
+
+# Messages for the hello demo. Each one has a type string (used to route and
+# serialize it) and a typed payload.
+module Greetings
+  # Command: a browser asks to say hello.
+  SayHello = Sidereal::Message.define('<%= app_name %>.greetings.say_hello') do
+    attribute :name, Sidereal::Types::String.present
+  end
+
+  # Ephemeral update: a hello is on its way. Broadcast to browsers, not stored.
+  Transmitting = Sidereal::Message.define('<%= app_name %>.greetings.transmitting') do
+    attribute :hello_id, Sidereal::Types::String
+    attribute :name, Sidereal::Types::String
+    attribute :step, Sidereal::Types::Integer
+    attribute :steps, Sidereal::Types::Integer
+    attribute :status, Sidereal::Types::String
+  end
+
+  # Event: a hello arrived.
+  HelloSaid = Sidereal::Message.define('<%= app_name %>.greetings.hello_said') do
+    attribute :hello_id, Sidereal::Types::String
+    attribute :name, Sidereal::Types::String
+    attribute :star, Sidereal::Types::String
+  end
+end
