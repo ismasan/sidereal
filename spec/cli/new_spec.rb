@@ -51,6 +51,7 @@ RSpec.describe Sidereal::CLI::New do
       .gitignore
       Gemfile
       README.md
+      bin/dev
       bin/sid
       boot.rb
       config.ru
@@ -155,6 +156,8 @@ RSpec.describe Sidereal::CLI::New do
       expect(status).to be_success, out
       expect(out).to start_with("200\n")
       expect(out).to include('<h1 class="welcome__title">App</h1>', 'Say hello')
+      # A single root element with an id, so a reconnect replaces the whole page.
+      expect(out).to include('<div class="page"><div id="welcome-page">')
     end
 
     it 'boots and renders the welcome page with --sourced' do
@@ -176,10 +179,11 @@ RSpec.describe Sidereal::CLI::New do
       Open3.capture2e(File.join(root, 'bin/sid'), *arguments, stdin_data:, chdir:)
     end
 
-    it 'is executable' do
+    it 'is executable, as is bin/dev' do
       root = generate
 
       expect(File.executable?(File.join(root, 'bin/sid'))).to be(true)
+      expect(File.executable?(File.join(root, 'bin/dev'))).to be(true)
     end
 
     it 'adds app commands to the usage' do
