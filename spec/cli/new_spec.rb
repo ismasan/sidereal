@@ -4,6 +4,7 @@ require 'tmpdir'
 require 'stringio'
 require 'open3'
 require 'json'
+require 'yaml'
 require 'rbconfig'
 require 'sidereal/cli'
 
@@ -57,6 +58,7 @@ RSpec.describe Sidereal::CLI::New do
       boot.rb
       config.ru
       falcon.rb
+      skills/sidereal-commands/SKILL.md
       storage/.keep
       system/greetings.rb
       web/app.rb
@@ -82,6 +84,27 @@ RSpec.describe Sidereal::CLI::New do
     expect(ruby_files).not_to be_empty
     ruby_files.each do |path|
       expect { RubyVM::InstructionSequence.compile(read(root, path)) }.not_to raise_error, path
+    end
+  end
+
+  it 'adds a skill for working with commands through bin/sid' do
+    root = generate('my_app')
+    skill = read(root, 'skills/sidereal-commands/SKILL.md')
+
+    front_matter = YAML.safe_load(skill[/\A---\n(.*?)\n---\n/m, 1])
+    expect(front_matter['name']).to eq('sidereal-commands')
+    expect(front_matter['description']).to include('bin/sid')
+    expect(skill).to include('bin/sid commands dispatch my_app.greetings.say_hello --name Sidereal')
+  end
+
+  it 'links .claude/skills and .agents/skills to skills/' do
+    root = generate
+
+    %w[.claude/skills .agents/skills].each do |link|
+      path = File.join(root, link)
+      expect(File.symlink?(path)).to be(true), link
+      expect(File.readlink(path)).to eq('../skills')
+      expect(File.file?(File.join(path, 'sidereal-commands/SKILL.md'))).to be(true)
     end
   end
 
