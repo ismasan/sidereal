@@ -25,7 +25,6 @@ PATH
       async
       brotli
       datastar (~> 1.0.6)
-      fugit
       phlex
       plumb (~> 0.3)
       rack (~> 3)
