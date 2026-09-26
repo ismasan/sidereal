@@ -33,6 +33,67 @@ Or install directly:
 gem install sidereal
 ```
 
+## Setup
+
+Installing the gem gives you the `sid` command. Use it to generate a new app:
+
+```bash
+sid new my_app
+cd my_app
+bin/dev
+```
+
+`sid new` creates the `my_app` directory, runs `bundle install` in it, and prints how to start the server. `bin/dev` starts it at <http://localhost:9292>. Open the page in two windows and say hello: every window sees every hello as it happens.
+
+`sid new` options:
+
+| Option | What it does |
+| --- | --- |
+| `--rspec` | Adds RSpec to the Gemfile and runs `rspec --init` |
+| `--sourced` | Uses [Sourced](https://github.com/ismasan/sourced) for durable, event-sourced storage, in a SQLite database under `storage/` |
+| `--sidereal-path PATH` | Uses a local checkout of Sidereal in the Gemfile, instead of GitHub |
+| `--skip-bundle` | Doesn't run `bundle install` |
+| `--force` | Writes into a directory that isn't empty |
+
+The app's name comes before the options: `sid new my_app --rspec`.
+
+### What's in a new app
+
+```
+my_app/
+  boot.rb                     loads and configures the app
+  config.ru                   runs App
+  falcon.rb                   Falcon settings: HOST, PORT and COUNT (worker processes)
+  bin/dev                     development server that reloads on code changes
+  bin/sid                     the sid command line, with this app loaded
+  skills/                     skills that teach AI coding agents to use bin/sid
+  .claude/skills, .agents/skills   links to skills/, where agents look for them
+  system/                     backend code that doesn't know about the web
+    greetings.rb              messages for the hello demo
+  web/
+    app.rb                    App: the commands it accepts, their handlers, and pages
+    ui/                       pages, components and the layout (the UI namespace)
+      welcome_page.rb         UI::WelcomePage
+      layout.rb               UI::Layout
+      components/hello.rb     UI::Components::Hello
+    public/                   static files; config.ru serves web/public/css at /css
+  storage/                    runtime data: the command store, pubsub socket, databases
+```
+
+Classes are loaded by [Zeitwerk](https://github.com/fxn/zeitwerk), so there are no `require` statements: name a file after the class it defines. Classes in `system/` are top-level (`system/greetings.rb` defines `Greetings`), and each directory under `web/` is a namespace (`web/ui/welcome_page.rb` defines `UI::WelcomePage`).
+
+### Running the app in development
+
+`bin/dev` runs `bundle exec falcon host` and reloads the app whenever a Ruby file in `system/` or `web/` changes, or `boot.rb`, `config.ru` or `falcon.rb` does. Browsers reconnect by themselves.
+
+```bash
+bin/dev                  # http://localhost:9292
+PORT=9300 bin/dev        # another port
+COUNT=2 bin/dev          # two worker processes
+```
+
+Reloading needs a file watcher: [watchexec](https://github.com/watchexec/watchexec) (`brew install watchexec`) or [fswatch](https://github.com/emcrisostomo/fswatch). Without one, the server still runs, without reloading. In production, run `bundle exec falcon host` instead.
+
 ## Quick start
 
 A Sidereal app has three main parts: **commands** (typed data), **command handlers** (state changes), and **pages** (reactive UI).
@@ -674,6 +735,107 @@ end
 ```
 
 A `BasicLayout` with reset CSS and form styling is provided by default if no layout is specified.
+
+## The app's command line: `bin/sid`
+
+`bin/sid` in an app is `sid` with that app loaded. It runs with the app's gems and adds commands that only make sense inside an app. It finds the app from any directory, so `../bin/sid` works from a subdirectory too:
+
+```bash
+bin/sid --help
+```
+
+| Command | What it does |
+| --- | --- |
+| `bin/sid commands list` | Lists the app's commands |
+| `bin/sid commands info NAME` | Shows a command's payload attributes |
+| `bin/sid commands dispatch NAME --attribute value ...` | Sends a command to the app |
+| `bin/sid console` | Starts an IRB session with the app loaded |
+
+`NAME` is a command's class name (`Greetings::SayHello`) or its type (`my_app.greetings.say_hello`).
+
+### Listing commands
+
+```
+$ bin/sid commands list
+Command                     Class                Handled by      Web
+my_app.greetings.say_hello  Greetings::SayHello  App::Commander  yes
+```
+
+This lists every command the app knows about:
+
+* **Handled by:** the commanders that handle the command. `App::Commander` is the app's own, for `command` blocks in `web/app.rb`. Commanders added with `commands` in the app appear by name, and with `--sourced`, so do Sourced deciders.
+* **Web:** whether the app accepts the command from forms, with `handle`. A command the web accepts but that nothing handles shows `none` under **Handled by**.
+
+### Inspecting a command
+
+```
+$ bin/sid commands info Greetings::SayHello
+my_app.greetings.say_hello  Greetings::SayHello
+Handled by  App::Commander
+Web         yes
+
+Attribute  Type    Required
+name       string  yes
+```
+
+The table has a row per payload attribute. Nested attributes are listed as `address.city`, and attributes of objects inside an array as `items[].sku`. The **Default** and **Notes** columns appear when any attribute has a default, or options (`one of: "small", "large"`) or other rules.
+
+Add `--json` for the payload's [JSON Schema](https://json-schema.org/) instead, and nothing else, ready to pipe to other tools:
+
+```
+$ bin/sid commands info Greetings::SayHello --json
+{
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "name"
+  ]
+}
+```
+
+### Dispatching a command
+
+```
+$ bin/sid commands dispatch my_app.greetings.say_hello --name Sidereal
+Dispatched my_app.greetings.say_hello  Greetings::SayHello
+id  52c79eda-d348-4b88-b056-830bf60e7620
+  name  "Sidereal"
+```
+
+With `bin/dev` running, the hello appears on the welcome page, just as if it had been sent from the form. The command is appended to the app's store, so if the server isn't running, it's handled once it starts.
+
+Attributes follow the command's payload schema (see `bin/sid commands info`):
+
+| Command line | Payload |
+| --- | --- |
+| `--units 2` or `--units=2` | `units: "2"` |
+| `--gift` (a flag without a value) | `gift: "true"` |
+| `--address.city Paris` | `address: {city: "Paris"}` |
+| `--tags vegan --tags spicy` | `tags: ["vegan", "spicy"]`, for an array attribute |
+
+Values are converted to the types the payload declares, the same way form fields from the web are: `"2"` becomes `2` for an `Integer` attribute, and `"true"` becomes `true` for a `Boolean`. The command is validated before it's sent. If any attribute is invalid or missing, nothing is dispatched and every error is listed:
+
+```
+$ bin/sid commands dispatch Greetings::SayHello --name ""
+Not dispatched. Invalid attributes for my_app.greetings.say_hello:
+  --name: must be present
+```
+
+An unknown attribute, such as a typo, is an error too, and lists the attributes the command takes. So is a command that nothing handles, since it would never run.
+
+Commands dispatched from `bin/sid` don't go through the app's `before_command` hooks, which run for commands sent from the web.
+
+### Console
+
+```bash
+bin/sid console
+```
+
+Starts IRB with the app loaded and configured, from the app's root directory. For example, `Sidereal.dispatch!(Greetings::SayHello, name: 'Ada')` sends a command from Ruby.
 
 ## Working with time
 
