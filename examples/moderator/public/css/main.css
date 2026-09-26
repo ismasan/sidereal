@@ -373,6 +373,17 @@ button { font: inherit; color: inherit; }
 }
 .card:hover { box-shadow: var(--shadow-card-hover); transform: translateY(-1px); }
 .card--current { box-shadow: 0 0 0 2px var(--accent), var(--shadow-card); }
+.card__subject {
+  display: block;
+  margin-bottom: 0.3rem;
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .card__content {
   display: block;
   color: var(--ink);

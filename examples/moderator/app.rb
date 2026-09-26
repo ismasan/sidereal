@@ -46,11 +46,12 @@ class ModeratorApp < Sidereal::App
     component page
   end
 
-  # The comment box: append the command, then send the commenter back to a
-  # fresh form carrying the new id, so the page can offer a link into the
-  # pipeline for that comment.
+  # The comment box: stamp the chosen subject's title (the form only carries
+  # its id) and append the command, then send the commenter back to a fresh
+  # form carrying the new id, so the page can offer a link into the pipeline
+  # for that comment.
   handle Comment::CreateComment do |cmd|
-    dispatch cmd
+    dispatch cmd.with_payload(subject_name: Subjects.find(cmd.payload.subject_id)&.title.to_s)
     browser.redirect "/?sent=#{cmd.payload.comment_id}&subject_id=#{cmd.payload.subject_id}"
   end
 
