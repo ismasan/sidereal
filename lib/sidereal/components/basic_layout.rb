@@ -130,10 +130,9 @@ module Sidereal
           head do
             meta(name: 'viewport', content: 'width=device-width, initial-scale=1.0')
             title { 'basic' }
-            sidereal_head
-            style { STYLES }
+            style { raw safe(STYLES) }
           end
-          body(data: sidereal_signals) do
+          body do
             div(class: 'page') do
               render page
             end
