@@ -29,6 +29,7 @@ PATH
       plumb (~> 0.3)
       rack (~> 3)
       rack-session
+      samovar
       sourced-message (>= 0.3.0)
       tsort
 
