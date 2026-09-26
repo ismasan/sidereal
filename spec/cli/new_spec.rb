@@ -3,6 +3,7 @@
 require 'tmpdir'
 require 'stringio'
 require 'open3'
+require 'json'
 require 'rbconfig'
 require 'sidereal/cli'
 
@@ -201,6 +202,76 @@ RSpec.describe Sidereal::CLI::New do
 
       expect(status).to be_success, out
       expect(out).to include("App\nUI::WelcomePage\n#{File.realpath(root)}\n")
+    end
+
+    it "lists the app's commands" do
+      out, status = bin_sid(generate, 'commands', 'list')
+
+      expect(status).to be_success, out
+      expect(out).to match(/^Command\s+Class\s+Handled by\s+Web$/)
+      expect(out).to match(/^app\.greetings\.say_hello\s+Greetings::SayHello\s+App::Commander\s+yes$/)
+    end
+
+    it "prints a command's payload schema as a table, found by class name or type" do
+      root = generate
+
+      %w[Greetings::SayHello app.greetings.say_hello].each do |name|
+        out, status = bin_sid(root, 'commands', 'info', name)
+
+        expect(status).to be_success, out
+        expect(out).to include('app.greetings.say_hello  Greetings::SayHello')
+        expect(out).to match(/^Handled by\s+App::Commander$/)
+        expect(out).to match(/^Web\s+yes$/)
+        expect(out).to match(/^Attribute\s+Type\s+Required$/)
+        expect(out).to match(/^name\s+string\s+yes$/)
+      end
+    end
+
+    it "prints a command's payload JSON Schema with --json" do
+      out, status = bin_sid(generate, 'commands', 'info', 'Greetings::SayHello', '--json')
+
+      expect(status).to be_success, out
+      expect(JSON.parse(out)).to eq(
+        'type' => 'object',
+        'properties' => { 'name' => { 'type' => 'string' } },
+        'required' => ['name']
+      )
+    end
+
+    it 'fails for a command the app does not know' do
+      out, status = bin_sid(generate, 'commands', 'info', 'Nope')
+
+      expect(status).not_to be_success
+      expect(out).to include('No command named "Nope"')
+    end
+
+    it 'lists commands handled by Sourced deciders' do
+      root = generate('app', '--sourced')
+      File.write(File.join(root, 'system/todos.rb'), <<~RUBY)
+        class Todos < Sourced::Decider
+          partition_by :title
+
+          AddTodo = Sourced::Command.define('app.todos.add') do
+            attribute :title, String
+          end
+
+          command AddTodo do |_state, _cmd|
+          end
+        end
+      RUBY
+      File.write(File.join(root, 'boot.rb'), "Sourced.register(Todos)\n", mode: 'a')
+
+      out, status = bin_sid(root, 'commands', 'list')
+
+      expect(status).to be_success, out
+      expect(out).to match(/^app\.greetings\.say_hello\s+Greetings::SayHello\s+App::Commander\s+yes$/)
+      expect(out).to match(/^app\.todos\.add\s+Todos::AddTodo\s+Todos$/)
+
+      out, status = bin_sid(root, 'commands', 'info', 'Todos::AddTodo')
+
+      expect(status).to be_success, out
+      expect(out).to match(/^Handled by\s+Todos$/)
+      expect(out).to match(/^title\s+string\s+yes$/)
     end
   end
 

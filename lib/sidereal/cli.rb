@@ -35,6 +35,7 @@ module Sidereal
 
     require_relative 'cli/new'
     require_relative 'cli/app_console'
+    require_relative 'cli/commands'
 
     class << self
       # The root directory of the app `sid` is running in, set by
@@ -50,6 +51,7 @@ module Sidereal
       def load_app(root)
         @app_root = File.expand_path(root)
         Application.register 'console', AppConsole
+        Application.register 'commands', Commands
       end
 
       # Load the app: change into its root, since paths like ./storage are

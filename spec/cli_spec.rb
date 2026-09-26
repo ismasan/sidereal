@@ -73,10 +73,12 @@ RSpec.describe Sidereal::CLI do
 
   describe 'app commands' do
     it 'are not available outside an app' do
-      io = StringIO.new
+      %w[console commands].each do |command|
+        io = StringIO.new
 
-      expect(Sidereal::CLI::Application.call(['console'], output: io)).to be(false)
-      expect(io.string).to include('Could not parse token "console"')
+        expect(Sidereal::CLI::Application.call([command], output: io)).to be(false)
+        expect(io.string).to include(%(Could not parse token "#{command}"))
+      end
     end
   end
 
