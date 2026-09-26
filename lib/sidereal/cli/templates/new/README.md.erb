@@ -31,5 +31,6 @@ bundle exec rspec
 | `web/public/` | Static files |
 | `storage/` | Runtime data<% if sourced? %>, including the Sourced SQLite database<% end %>. Not committed. |
 | `falcon.rb` | Falcon server settings |
+| `bin/sid` | Sidereal's command line with this app loaded. `bin/sid --help` lists its commands, e.g. `bin/sid console` |
 
 Classes in `system/` and `web/` are loaded by [Zeitwerk](https://github.com/fxn/zeitwerk): name a file after the class it defines and use the class anywhere, without `require`. Directories under `web/` are namespaces, so `web/ui/welcome_page.rb` defines `UI::WelcomePage`. Classes in `system/` are top-level.
