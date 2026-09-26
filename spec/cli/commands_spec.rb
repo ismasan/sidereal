@@ -139,3 +139,51 @@ RSpec.describe Sidereal::CLI::Commands, '.print_table' do
     expect(print_table([['a', 'string', '']], keep: 2)).to eq("Name  Type\na     string\n")
   end
 end
+
+RSpec.describe Sidereal::CLI::Commands::Arguments do
+  subject(:arguments) { described_class.new(CLISchemaOrder::Payload.to_json_schema) }
+
+  it 'reads --name value and --name=value' do
+    expect(arguments.parse(%w[--dish Pizza --quantity=2])).to eq(dish: 'Pizza', quantity: '2')
+  end
+
+  it 'reads a bare flag as true, before another attribute or at the end' do
+    expect(arguments.parse(%w[--dish --quantity 2])).to eq(dish: 'true', quantity: '2')
+    expect(arguments.parse(%w[--quantity 2 --dish])).to eq(quantity: '2', dish: 'true')
+  end
+
+  it 'keeps values that start with a single dash' do
+    expect(arguments.parse(%w[--quantity -2])).to eq(quantity: '-2')
+  end
+
+  it 'builds nested attributes from dotted names' do
+    expect(arguments.parse(%w[--table.number 4])).to eq(table: { number: '4' })
+  end
+
+  it 'collects array attributes, even from a single value' do
+    expect(arguments.parse(%w[--extras cheese])).to eq(extras: ['cheese'])
+    expect(arguments.parse(%w[--extras cheese --extras olives])).to eq(extras: %w[cheese olives])
+  end
+
+  it 'rejects unknown attributes, naming the known ones' do
+    expect { arguments.parse(%w[--dsh Pizza]) }
+      .to raise_error(Sidereal::CLI::Error, /Unknown attribute --dsh\. Expected: --dish, --quantity/)
+    expect { arguments.parse(%w[--table.nmber 4]) }
+      .to raise_error(Sidereal::CLI::Error, 'Unknown attribute --table.nmber. Expected: --table.number')
+  end
+
+  it 'rejects an attribute given twice' do
+    expect { arguments.parse(%w[--dish a --dish b]) }
+      .to raise_error(Sidereal::CLI::Error, '--dish is given more than once')
+  end
+
+  it 'rejects values without an attribute name' do
+    expect { arguments.parse(%w[Pizza]) }
+      .to raise_error(Sidereal::CLI::Error, 'Expected an attribute like --name, got "Pizza"')
+  end
+
+  it 'says so when the command has no attributes' do
+    expect { described_class.new(CLISchemaPing::Payload.to_json_schema).parse(%w[--x 1]) }
+      .to raise_error(Sidereal::CLI::Error, 'Unknown attribute --x. This command has no attributes.')
+  end
+end

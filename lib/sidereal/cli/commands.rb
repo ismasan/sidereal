@@ -74,6 +74,85 @@ module Sidereal
       # A class's name, or its inspect output for an anonymous class.
       def self.display_name(klass) = klass.name || klass.inspect
 
+      # The catalog entry for a command, by class name or type.
+      #
+      # @param name [String] e.g. Greetings::SayHello or my_app.greetings.say_hello
+      # @return [Catalog::Entry]
+      # @raise [Error] when the app has no such command
+      def self.find!(name)
+        catalog.entries.find { |e| display_name(e.command_class) == name || e.type == name } ||
+          raise(Error, "No command named #{name.inspect}. Run `bin/sid commands list` to see them.")
+      end
+
+      # Command line attributes (--name value) as a params hash for a
+      # command's payload, before any type coercion: every value is a String,
+      # as in a web form.
+      #
+      #   --units 2            {units: '2'}
+      #   --units=2            {units: '2'}
+      #   --gift               {gift: 'true'}, a flag without a value
+      #   --address.city Paris {address: {city: 'Paris'}}
+      #   --tags a --tags b    {tags: ['a', 'b']}, for an array attribute
+      class Arguments
+        # @param schema [Hash] the payload's JSON Schema
+        def initialize(schema)
+          @schema = schema
+        end
+
+        # @param tokens [Array<String>]
+        # @return [Hash{Symbol => Object}]
+        # @raise [Error] for a malformed or unknown attribute
+        def parse(tokens)
+          tokens = tokens.dup
+          params = {}
+
+          until tokens.empty?
+            token = tokens.shift
+            unless token.start_with?('--') && token.size > 2
+              raise Error, "Expected an attribute like --name, got #{token.inspect}"
+            end
+
+            key, value = token.delete_prefix('--').split('=', 2)
+            value ||= tokens.empty? || tokens.first.start_with?('--') ? 'true' : tokens.shift
+            assign(params, key, value)
+          end
+
+          params
+        end
+
+        private
+
+        def assign(params, key, value)
+          *parents, leaf = key.split('.')
+          target = params
+          schema = @schema
+
+          parents.each_with_index do |segment, depth|
+            schema = property!(schema, segment, key, parents.first(depth))
+            target = target[segment.to_sym] ||= {}
+            raise Error, "--#{key} conflicts with an earlier attribute" unless target.is_a?(Hash)
+          end
+
+          property = property!(schema, leaf, key, parents)
+          if property['type'] == 'array'
+            (target[leaf.to_sym] ||= []) << value
+          elsif target.key?(leaf.to_sym)
+            raise Error, "--#{key} is given more than once"
+          else
+            target[leaf.to_sym] = value
+          end
+        end
+
+        def property!(schema, segment, key, parents)
+          properties = schema.fetch('properties', {})
+          properties.fetch(segment) do
+            known = properties.keys.map { |name| "--#{[*parents, name].join('.')}" }
+            raise Error, "Unknown attribute --#{key}. " +
+                         (known.any? ? "Expected: #{known.join(', ')}" : 'This command has no attributes.')
+          end
+        end
+      end
+
       # A payload's JSON Schema as table rows: one per attribute, with nested
       # objects flattened to dotted names (address.city) and objects inside
       # arrays to name[].attribute.
@@ -198,13 +277,7 @@ module Sidereal
 
           CLI.boot_app!
 
-          entry = Commands.catalog.entries.find do |e|
-            Commands.display_name(e.command_class) == @class_name || e.type == @class_name
-          end
-          unless entry
-            raise Error, "No command named #{@class_name.inspect}. Run `bin/sid commands list` to see them."
-          end
-
+          entry = Commands.find!(@class_name)
           schema = entry.command_class::Payload.to_json_schema
           if @options[:json]
             terminal.puts JSON.pretty_generate(schema)
@@ -226,9 +299,85 @@ module Sidereal
         end
       end
 
-      self.description = "Inspect the app's commands"
+      # `sid commands dispatch NAME --attribute value ...`
+      class Dispatch < Command
+        self.description = 'Send a command to the app, e.g. dispatch Greetings::SayHello --name Ada'
 
-      nested :command, { 'list' => List, 'info' => Info }
+        # Not `name`: Samovar::Command#name is the command's own name.
+        one :class_name, 'Command class name or type', pattern: /\A[^-]/
+        many :attributes, 'Payload attributes as --name value, see `bin/sid commands info NAME`', stop: nil
+
+        HELP = %w[-h --help].freeze
+
+        # A codec registry holding a single command class.
+        OneCommand = Data.define(:command_class) do
+          def all(&) = [command_class].each(&)
+
+          def [](type)
+            command_class if type == command_class.type
+          end
+        end
+
+        def call
+          attributes = @attributes || []
+          return print_usage if (attributes & HELP).any?
+          raise Error, 'Name a command, e.g. `bin/sid commands dispatch Greetings::SayHello --name Ada`' unless @class_name
+
+          CLI.boot_app!
+
+          entry = Commands.find!(@class_name)
+          if entry.handlers.empty?
+            raise Error, "Nothing handles #{entry.type}, so it would never run. Run `bin/sid commands list` to see handlers."
+          end
+
+          command_class = entry.command_class
+          params = Arguments.new(command_class::Payload.to_json_schema).parse(attributes)
+          result = forms_codec(command_class).resolve(command_class.type, params)
+          unless result.valid?
+            lines = error_lines(result.errors, params).map { |line| "  #{line}" }
+            raise Error, ["Not dispatched. Invalid attributes for #{entry.type}:", *lines].join("\n")
+          end
+
+          command = command_class.new(payload: result.value)
+          Sidereal.dispatch!(command)
+
+          terminal.print_line :title, 'Dispatched ', :reset, "#{entry.type}  #{Commands.display_name(command_class)}"
+          terminal.print_line :key, 'id  ', :reset, command.id.to_s
+          command.payload.to_h.each do |key, value|
+            terminal.print_line :key, "  #{key}  ", :reset, value.inspect
+          end
+        end
+
+        private
+
+        # A forms codec for this one command. Commands the web accepts already
+        # have one (App.forms_codec), but any command can be dispatched here,
+        # so build it on the spot.
+        def forms_codec(command_class)
+          Sidereal::FormsCodec.new(registry: OneCommand.new(command_class)).compile!
+        end
+
+        # {attribute => message}, nested for nested attributes, as --path: message.
+        # An attribute missing from the command line is reported as required,
+        # rather than as a type mismatch against nothing.
+        def error_lines(errors, params, prefix = nil)
+          errors.flat_map do |key, message|
+            path = prefix ? "#{prefix}.#{key}" : key.to_s
+            given = params.is_a?(Hash) && params.key?(key.to_sym)
+            if !given
+              "--#{path}: is required"
+            elsif message.is_a?(Hash)
+              error_lines(message, params[key.to_sym], path)
+            else
+              "--#{path}: #{Array(message).join(', ')}"
+            end
+          end
+        end
+      end
+
+      self.description = "Inspect and send the app's commands"
+
+      nested :command, { 'list' => List, 'info' => Info, 'dispatch' => Dispatch }
 
       def call
         if @command
