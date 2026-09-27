@@ -185,19 +185,13 @@ RSpec.describe Sidereal::Exceptions do
       end
     end
 
-    around do |ex|
-      original_pubsub = Sidereal.config.pubsub
-      Sidereal.config.instance_variable_set(:@pubsub, pubsub)
-      ex.run
-    ensure
-      Sidereal.config.instance_variable_set(:@pubsub, original_pubsub)
-      Sidereal.reset_channels!
+    # In a `before`: the suite-wide hook that resets the process-global
+    # registries and config runs inside every `around`, so anything installed
+    # there would be dropped before the example ran.
+    before do
+      Sidereal.config.pubsub = pubsub
+      Sidereal.channels = channels
     end
-
-    # A `before`, not the `around` above: the suite-wide hook that empties the
-    # process-global registries runs inside every `around`, so a registry
-    # installed there would be dropped before the example ran.
-    before { Sidereal.channels = channels }
 
     def collect_published(channel_name)
       received = []

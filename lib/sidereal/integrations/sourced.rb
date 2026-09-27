@@ -40,9 +40,10 @@
 #
 # Under the forking Falcon environment each worker loads boot.rb in its own
 # process, so this registration (and Sourced's own store) is established fresh
-# per worker. The integration also registers {Sourced.setup!} as a boot hook
-# ({Sidereal::Configuration#on_boot}), which {Sidereal::Host#start} runs in
-# every process, leader or follower, before anything starts: it re-establishes
+# per worker. The integration also registers a +'sourced'+ singleton in
+# {Sidereal::Configuration#dependencies} that runs {Sourced.setup!}, which
+# {Sidereal::Host#start} builds (via {Sidereal::Dependencies#finalize!}) in every
+# process, leader or follower, before anything starts: it re-establishes
 # connections for the current process — so a *callable* store (below) stays
 # fork-safe even if the app is preloaded in the parent — installs the store's
 # tables and recompiles its codec against every message type the app has
@@ -175,9 +176,10 @@ module Sidereal
         config.dispatcher_process = :leader
         # Every process appends, only the leader consumes: prepare Sourced's
         # store (connection, tables, codec) at boot everywhere, not just where
-        # the dispatcher starts. Runs once per process: +::Sourced.setup!+
-        # rebuilds the store from the configure blocks and freezes the
-        # configuration afterwards.
+        # the dispatcher starts. A singleton, so it runs once per process:
+        # +::Sourced.setup!+ rebuilds the store from the configure blocks and
+        # freezes the configuration afterwards. Resolving +'sourced'+ before
+        # boot (a CLI, a rake task) sets Sourced up there instead.
         #
         # The store's codec is then recompiled, because +::Sourced.configure+
         # compiles it when it runs — in boot.rb, before the app has defined its
@@ -185,9 +187,10 @@ module Sidereal
         # +compile!+ is a no-op once compiled. At boot every type is loaded,
         # and +recompile!+ is incremental (pairs are cached per message class),
         # so it builds only what the early compile could not see.
-        config.on_boot do
+        config.dependencies.register!('sourced') do
           ::Sourced.setup!
           ::Sourced.store.message_codec.recompile!
+          ::Sourced
         end
 
         # Report Sourced's retry / terminal-failure events to Sidereal's exception
@@ -285,11 +288,12 @@ module Sidereal
         # @param task [Async::Task]
         # @return [Sourced::Dispatcher] the running dispatcher (Host keeps it to #stop)
         def self.start(task)
-          # Sourced is already set up for this process: the boot hook that
-          # {Sourced.setup} registers ran +::Sourced.setup!+ before the Host
-          # started anything. It is not called again here — +::Sourced.setup!+
-          # freezes the configuration, so it runs once per process. A dispatcher
-          # driven without a Host (tests, CLIs) calls it before this.
+          # Sourced is already set up for this process: the +'sourced'+
+          # dependency that {Sourced.setup} registers ran +::Sourced.setup!+
+          # when the Host finalized the dependencies, before it started
+          # anything. It is not called again here — +::Sourced.setup!+ freezes
+          # the configuration, so it runs once per process. A dispatcher driven
+          # without a Host (tests, CLIs) resolves +'sourced'+ before this.
           Sidereal.registry.commanders.each do |commander|
             ::Sourced.register(commander) unless ::Sourced.router.reactors.include?(commander)
           end

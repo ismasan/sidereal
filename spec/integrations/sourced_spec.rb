@@ -125,14 +125,8 @@ RSpec.describe 'Sidereal::Commander on the Sourced runtime' do
   let(:router) { Sourced::Router.new(store: store) }
   let(:pubsub) { IntgFakePubSub.new }
 
-  around do |example|
-    original = Sidereal.config.pubsub
-    Sidereal.config.pubsub = pubsub
-    example.run
-    Sidereal.config.pubsub = original
-  end
-
   before do
+    Sidereal.config.pubsub = pubsub
     # setup! creates the tables and compiles the store's message codec, which
     # serializes payloads on #append.
     store.setup!
@@ -188,7 +182,7 @@ RSpec.describe 'Sidereal::Commander on the Sourced runtime' do
       msg = late.new(payload: { price: CodecMoney.new(cents: 250, currency: 'GBP') })
       expect { config.store.append(msg) }.to raise_error(Sourced::Message::Codec::UnregisteredTypeError)
 
-      config.boot_hooks.each(&:call)
+      config.dependencies.finalize!
 
       config.store.append(msg)
       expect(Sourced.store.read_correlation_batch(msg.id).map(&:payload).map(&:price)).to eq([msg.payload.price])
@@ -270,9 +264,9 @@ RSpec.describe 'Sidereal::Commander on the Sourced runtime' do
   end
 
   describe 'Sidereal::Integrations::Sourced::Dispatcher.start' do
-    it 'starts the Sourced runtime without re-running Sourced.setup!, which the boot hook already did once' do
+    it 'starts the Sourced runtime without re-running Sourced.setup!, which the sourced dependency already did once' do
       # Sourced.setup! freezes the configuration, so a second call in the same
-      # process raises. The boot hook is the one call per process.
+      # process raises. Building the 'sourced' dependency is the one call per process.
       task = double('task')
       allow(Sidereal.registry).to receive(:commanders).and_return([])
       expect(Sourced).not_to receive(:setup!)
@@ -281,7 +275,7 @@ RSpec.describe 'Sidereal::Commander on the Sourced runtime' do
       expect(Sidereal::Integrations::Sourced::Dispatcher.start(task)).to eq(:running)
     end
 
-    it 'boots and starts on the same frozen configuration: the boot hook, then the dispatcher' do
+    it 'boots and starts on the same frozen configuration: the dependencies, then the dispatcher' do
       # The sequence Host#start drives in the leader process.
       config = Sidereal::Configuration.new
       config.use(Sidereal::Integrations::Sourced, store: Sequel.sqlite)
@@ -289,7 +283,7 @@ RSpec.describe 'Sidereal::Commander on the Sourced runtime' do
       task = double('task')
       allow(Sourced::Dispatcher).to receive(:start).with(task).and_return(:running)
 
-      config.boot_hooks.each(&:call)
+      config.dependencies.finalize!
       expect(Sourced.config).to be_frozen
 
       expect { Sidereal::Integrations::Sourced::Dispatcher.start(task) }.not_to raise_error
@@ -299,8 +293,8 @@ RSpec.describe 'Sidereal::Commander on the Sourced runtime' do
   describe Sidereal::Integrations::Sourced::Notifier do
     subject(:notifier) { described_class.new }
 
-    # The outer around installs a publish-only fake; this needs real
-    # subscriptions. The around restores the original afterwards.
+    # The outer before installs a publish-only fake; this needs real
+    # subscriptions.
     before { Sidereal.config.pubsub = Sidereal::PubSub::Memory.new }
     after { Sourced.reset! }
 

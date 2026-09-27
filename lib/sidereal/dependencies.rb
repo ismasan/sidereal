@@ -50,6 +50,9 @@ module Sidereal
     class DuplicateDependencyError < Error; end
     # A registration after {#finalize!}.
     class LockedError < Error; end
+    # An override of a key whose value, or a value built from it, already
+    # exists: whatever holds that value would keep the replaced one.
+    class ResolvedDependencyError < Error; end
 
     NOOP_STOP = proc { |_value| }
 
@@ -156,20 +159,34 @@ module Sidereal
 
     # Register a singleton: built once, memoized, and built at boot by {#finalize!}.
     #
+    # A key registers once. Pass +override: true+ to replace an existing
+    # registration (or add it if absent) — how an integration swaps a default:
+    #
+    #   config.dependencies.register!('sidereal.store', override: true) do
+    #     Sidereal::Store::FileSystem.new(root: 'storage/store')
+    #   end
+    #
+    # An override is refused once the key has been resolved, or any singleton
+    # built from it, since whoever holds that value would keep the old one.
+    #
     # @param key [String, Symbol]
     # @param deps [Array<String, Symbol>] keys whose values the factory receives, in order
+    # @param override [Boolean] replace an existing registration instead of raising
     # @yield the factory
     # @return [Registration] chain +.stop { |value| ... }+ to add a stop callback
-    def register!(key, deps = [], &factory)
-      add(key, deps, factory, memoize: true)
+    # @raise [DuplicateDependencyError] the key is registered and +override+ is false
+    # @raise [ResolvedDependencyError] overriding a key already resolved
+    # @raise [LockedError] after {#finalize!}
+    def register!(key, deps = [], override: false, &factory)
+      add(key, deps, factory, memoize: true, override:)
     end
 
     # Register a transient dependency: the factory runs on every {#[]}.
     #
     # @param (see #register!)
     # @return [Registration]
-    def register(key, deps = [], &factory)
-      add(key, deps, factory, memoize: false)
+    def register(key, deps = [], override: false, &factory)
+      add(key, deps, factory, memoize: false, override:)
     end
 
     # Resolve a dependency, resolving the ones it names first.
@@ -309,18 +326,35 @@ module Sidereal
 
     private
 
-    def add(key, deps, factory, memoize:)
+    def add(key, deps, factory, memoize:, override:)
       raise ArgumentError, 'a dependency requires a factory block' unless factory
 
       key = key.to_s
       registration = Registration.new(key, Array(deps).map(&:to_s).freeze, factory, memoize:)
       @monitor.synchronize do
         raise LockedError, "Cannot register '#{key}': dependencies are finalized" if @finalized
-        raise DuplicateDependencyError, "'#{key}' is already registered" if @registrations.key?(key)
+
+        if @registrations.key?(key)
+          raise DuplicateDependencyError, "'#{key}' is already registered. Pass override: true to replace it" unless override
+
+          if (holder = @values.each_key.find { |built| reaches?(built, key) })
+            raise ResolvedDependencyError,
+                  "Cannot override '#{key}': '#{holder}' has already been resolved. Override before first use"
+          end
+        end
 
         @registrations[key] = registration
       end
       registration
+    end
+
+    # Whether resolving +from+ resolves +target+, directly or through its dependencies.
+    def reaches?(from, target, seen = {})
+      return true if from == target
+      return false if seen[from]
+
+      seen[from] = true
+      @registrations.fetch(from).deps.any? { |dep| @registrations.key?(dep) && reaches?(dep, target, seen) }
     end
 
     def inspect_state = @finalized ? '(finalized)' : '(open)'

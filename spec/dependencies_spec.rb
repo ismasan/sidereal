@@ -88,7 +88,55 @@ RSpec.describe Sidereal::Dependencies do
       deps.register!('db') { :one }
 
       expect { deps.register('db') { :two } }
-        .to raise_error(described_class::DuplicateDependencyError, "'db' is already registered")
+        .to raise_error(described_class::DuplicateDependencyError, "'db' is already registered. Pass override: true to replace it")
+    end
+
+    describe 'override: true' do
+      it 'replaces a registration' do
+        deps.register!('db') { :one }
+        deps.register('db', override: true) { Object.new }
+
+        expect(deps['db']).not_to be(deps['db'])
+      end
+
+      it 'adds a key that is not registered yet' do
+        deps.register!('db', override: true) { :db }
+
+        expect(deps['db']).to eq(:db)
+      end
+
+      it 'is picked up by dependents not yet built' do
+        deps.register!('db') { :one }
+        deps.register!('store', ['db']) { |db| [:store, db] }
+        deps.register!('db', override: true) { :two }
+
+        expect(deps['store']).to eq([:store, :two])
+      end
+
+      it 'is refused once the key has been resolved' do
+        deps.register!('db') { :one }
+        deps['db']
+
+        expect { deps.register!('db', override: true) { :two } }
+          .to raise_error(described_class::ResolvedDependencyError, /'db' has already been resolved/)
+      end
+
+      it 'is refused once a singleton built from the key has been resolved, even through a transient' do
+        deps.register('conn') { :one }
+        deps.register('repo', ['conn']) { |conn| conn }
+        deps.register!('store', ['repo']) { |repo| repo }
+        deps['store']
+
+        expect { deps.register('conn', override: true) { :two } }
+          .to raise_error(described_class::ResolvedDependencyError, /'store' has already been resolved/)
+      end
+
+      it 'is refused after finalize!' do
+        deps.register!('db') { :db }
+        deps.finalize!
+
+        expect { deps.register!('db', override: true) { :two } }.to raise_error(described_class::LockedError)
+      end
     end
 
     it 'requires a factory block' do

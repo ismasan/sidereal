@@ -57,6 +57,11 @@ RSpec.configure do |config|
 
   # Start each example with empty process-global registries, so nothing a
   # previous example registered — a commander, a channel resolver, an exception
-  # subscriber, a compiled message type — leaks into this one.
-  config.before(:each) { Sidereal.reload! }
+  # subscriber, a compiled message type — leaks into this one. The config goes
+  # too, and with it the dependency container, so an example that swaps the
+  # pubsub or store does so before anything has resolved it.
+  config.before(:each) do
+    Sidereal.reload!
+    Sidereal.reset_config!
+  end
 end
