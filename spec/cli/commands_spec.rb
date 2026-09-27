@@ -109,6 +109,17 @@ RSpec.describe Sidereal::CLI::Commands::SchemaTable do
     expect(rows_for(CLISchemaPing)).to eq([])
   end
 
+  it "shows a union's shared type once, with its variants' notes" do
+    schema = {
+      'type' => 'object',
+      'properties' => {
+        'id' => { 'anyOf' => [{ 'type' => 'string', 'pattern' => '^[0-9a-f-]+$' }, { 'type' => 'string', 'format' => 'uuid' }] }
+      }
+    }
+
+    expect(described_class.new(schema).rows).to eq([['id', 'string', '', '', 'pattern: "^[0-9a-f-]+$"; format: "uuid"']])
+  end
+
   it 'lists keywords without a column of their own as notes' do
     schema = {
       'type' => 'object',

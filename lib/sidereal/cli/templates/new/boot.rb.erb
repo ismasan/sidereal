@@ -41,3 +41,10 @@ Sidereal.configure do |config|
     store: -> { Sequel.sqlite(File.expand_path('storage/<%= app_name %>.db', __dir__)) }
 <% end -%>
 end
+
+# Dependencies: connections, clients and other services the app's classes
+# use, registered with Sidereal.dependencies. Loaded after the configuration
+# above, so a file here can also replace one of Sidereal's own with
+# `override: true`. Nothing is built while this file loads: each process
+# builds its dependencies when it starts. See config/dependencies/example.rb.
+Dir[File.join(__dir__, 'config/dependencies/**/*.rb')].sort.each { |file| require file }

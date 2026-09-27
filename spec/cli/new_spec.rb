@@ -57,8 +57,8 @@ RSpec.describe Sidereal::CLI::New do
       bin/sid
       boot.rb
       config.ru
+      config/dependencies/example.rb
       falcon.rb
-      skills/sidereal-cli/SKILL.md
       storage/.keep
       system/greetings.rb
       web/app.rb
@@ -87,24 +87,29 @@ RSpec.describe Sidereal::CLI::New do
     end
   end
 
-  it 'adds a skill for using bin/sid' do
-    root = generate('my_app')
-    skill = read(root, 'skills/sidereal-cli/SKILL.md')
+  describe 'after generating' do
+    # Records the commands `sid new` runs in the app instead of running them.
+    def commands_run(*arguments)
+      commands = []
+      allow_any_instance_of(described_class).to receive(:system) { |_, *command, **| commands << command }
+      expect { expect(sid_new(File.join(@dir, 'app'), *arguments)).to be(true), io.string }.to output.to_stdout
+      commands
+    end
 
-    front_matter = YAML.safe_load(skill[/\A---\n(.*?)\n---\n/m, 1])
-    expect(front_matter['name']).to eq('sidereal-cli')
-    expect(front_matter['description']).to include('bin/sid')
-    expect(skill).to include('bin/sid --help')
-  end
+    it 'bundles, then installs skills' do
+      expect(commands_run).to eq([%w[bundle install], %w[bin/sid skills update]])
+    end
 
-  it 'links .claude/skills and .agents/skills to skills/' do
-    root = generate
+    it "doesn't install skills with --no-skills" do
+      expect(commands_run('--no-skills')).to eq([%w[bundle install]])
+    end
 
-    %w[.claude/skills .agents/skills].each do |link|
-      path = File.join(root, link)
-      expect(File.symlink?(path)).to be(true), link
-      expect(File.readlink(path)).to eq('../skills')
-      expect(File.file?(File.join(path, 'sidereal-cli/SKILL.md'))).to be(true)
+    it 'says to install skills with --skip-bundle' do
+      expect { sid_new(File.join(@dir, 'app'), '--skip-bundle') }.to output(%r{bundle install\n\s+bin/sid skills update\n}).to_stdout
+    end
+
+    it "doesn't mention skills with --skip-bundle --no-skills" do
+      expect { sid_new(File.join(@dir, 'app'), '--skip-bundle', '--no-skills') }.not_to output(/skills/).to_stdout
     end
   end
 
@@ -142,6 +147,22 @@ RSpec.describe Sidereal::CLI::New do
   end
 
   describe 'boot.rb' do
+    it 'loads config/dependencies after configuring Sidereal, so files there can override' do
+      boot = read(generate, 'boot.rb')
+
+      expect(boot).to include("Dir[File.join(__dir__, 'config/dependencies/**/*.rb')].sort.each { |file| require file }")
+      expect(boot.index('config/dependencies/**')).to be > boot.index('Sidereal.configure')
+    end
+
+    it 'comes with an example dependency file, all commented out' do
+      example = read(generate('app', '--sourced'), 'config/dependencies/example.rb')
+      code = example.lines.reject { |line| line.strip.empty? || line.start_with?('#') }
+
+      expect(code).to eq([])
+      expect(example).to include("register!('mailer')", "override: true", 'dep :mailer', "store: 'db'")
+      expect(read(generate('plain'), 'config/dependencies/example.rb')).not_to include('Sourced')
+    end
+
     it 'uses the file system backend' do
       boot = read(generate, 'boot.rb')
 
@@ -228,6 +249,19 @@ RSpec.describe Sidereal::CLI::New do
 
       expect(status).to be_success, out
       expect(out).to include("App\nUI::WelcomePage\n#{File.realpath(root)}\n")
+    end
+
+    it 'loads dependencies from config/dependencies, nested too' do
+      root = generate
+      FileUtils.mkdir_p(File.join(root, 'config/dependencies/services'))
+      File.write(File.join(root, 'config/dependencies/services/greeter.rb'), <<~RUBY)
+        Sidereal.dependencies.register!('greeter') { 'hello from greeter' }
+      RUBY
+
+      out, status = bin_sid(root, 'console', stdin_data: "puts Sidereal.dependencies['greeter']\n")
+
+      expect(status).to be_success, out
+      expect(out).to include('hello from greeter')
     end
 
     it "lists the app's commands" do
@@ -348,6 +382,43 @@ RSpec.describe Sidereal::CLI::New do
       expect(out).to include('--name: is required')
     end
 
+    def front_matter(skill) = YAML.safe_load(skill[/\A---\n(.*?)\n---\n/m, 1])
+
+    it "installs Sidereal's skills with skills update, and links to them" do
+      root = generate
+
+      out, status = bin_sid(root, 'skills', 'update')
+
+      expect(status).to be_success, out
+      expect(out).to include('write   skills/sidereal-cli', 'link    .claude/skills -> ../skills')
+      expect(Dir.children(File.join(root, 'skills'))).to eq(['sidereal-cli'])
+      skill = read(root, 'skills/sidereal-cli/SKILL.md')
+      expect(front_matter(skill)['name']).to eq('sidereal-cli')
+      expect(skill).to include('bin/sid --help')
+      %w[.claude/skills .agents/skills].each do |link|
+        expect(File.readlink(File.join(root, link))).to eq('../skills')
+        expect(File.file?(File.join(root, link, 'sidereal-cli/SKILL.md'))).to be(true), link
+      end
+    end
+
+    it "installs the skills of the integrations the app requires, keeping the app's own" do
+      root = generate('app', '--sourced')
+      FileUtils.mkdir_p(File.join(root, 'skills/my-skill'))
+      File.write(File.join(root, 'skills/my-skill/SKILL.md'), 'mine')
+      FileUtils.mkdir_p(File.join(root, 'skills/sidereal-cli'))
+      File.write(File.join(root, 'skills/sidereal-cli/SKILL.md'), 'edited')
+
+      out, status = bin_sid(root, 'skills', 'update')
+
+      expect(status).to be_success, out
+      expect(out).to include('write   skills/sidereal-cli', 'write   skills/sidereal-sourced')
+      expect(front_matter(read(root, 'skills/sidereal-cli/SKILL.md'))['name']).to eq('sidereal-cli')
+      skill = read(root, 'skills/sidereal-sourced/SKILL.md')
+      expect(front_matter(skill)['name']).to eq('sidereal-sourced')
+      expect(skill).to include('bin/sid sourced --help', 'bin/sid sourced topology --schemas')
+      expect(read(root, 'skills/my-skill/SKILL.md')).to eq('mine')
+    end
+
     it 'lists commands handled by Sourced deciders' do
       root = generate('app', '--sourced')
       File.write(File.join(root, 'system/todos.rb'), <<~RUBY)
@@ -358,7 +429,12 @@ RSpec.describe Sidereal::CLI::New do
             attribute :title, String
           end
 
-          command AddTodo do |_state, _cmd|
+          TodoAdded = Sourced::Event.define('app.todos.added') do
+            attribute :title, String
+          end
+
+          command AddTodo do |_state, cmd|
+            event TodoAdded, title: cmd.payload.title
           end
         end
       RUBY
@@ -375,6 +451,17 @@ RSpec.describe Sidereal::CLI::New do
       expect(status).to be_success, out
       expect(out).to match(/^Handled by\s+Todos$/)
       expect(out).to match(/^title\s+string\s+yes$/)
+
+      out, status = bin_sid(root, 'sourced', 'topology')
+
+      expect(status).to be_success, out
+      expect(out).to include("command app.todos.add  Todos::AddTodo\n└─ event app.todos.added  Todos::TodoAdded")
+
+      out, status = bin_sid(root, 'sourced', 'topology', '--schemas')
+
+      expect(status).to be_success, out
+      schema_line = out.lines.find { |line| line.start_with?('│  schema ') }
+      expect(JSON.parse(schema_line.delete_prefix('│  schema '))).to include('required' => ['title'])
     end
   end
 

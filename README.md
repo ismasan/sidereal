@@ -43,7 +43,7 @@ cd my_app
 bin/dev
 ```
 
-`sid new` creates the `my_app` directory, runs `bundle install` in it, and prints how to start the server. `bin/dev` starts it at <http://localhost:9292>. Open the page in two windows and say hello: every window sees every hello as it happens.
+`sid new` creates the `my_app` directory, runs `bundle install` and `bin/sid skills update` in it, and prints how to start the server. `bin/dev` starts it at <http://localhost:9292>. Open the page in two windows and say hello: every window sees every hello as it happens.
 
 `sid new` options:
 
@@ -52,7 +52,8 @@ bin/dev
 | `--rspec` | Adds RSpec to the Gemfile and runs `rspec --init` |
 | `--sourced` | Uses [Sourced](https://github.com/ismasan/sourced) for durable, event-sourced storage, in a SQLite database under `storage/` |
 | `--sidereal-path PATH` | Uses a local checkout of Sidereal in the Gemfile, instead of GitHub |
-| `--skip-bundle` | Doesn't run `bundle install` |
+| `--skip-bundle` | Doesn't run `bundle install`, or `bin/sid skills update`, which needs the bundle |
+| `--no-skills` | Doesn't install AI agent skills with `bin/sid skills update` (see [Agent skills](#agent-skills)) |
 | `--force` | Writes into a directory that isn't empty |
 
 The app's name comes before the options: `sid new my_app --rspec`.
@@ -837,6 +838,55 @@ Not dispatched. Invalid attributes for my_app.greetings.say_hello:
 An unknown attribute, such as a typo, is an error too, and lists the attributes the command takes. So is a command that nothing handles, since it would never run.
 
 Commands dispatched from `bin/sid` don't go through the app's `before_command` hooks, which run for commands sent from the web.
+
+### Sourced topology
+
+In apps that use [Sourced](https://github.com/ismasan/sourced), `bin/sid` also has a `sourced` namespace. `bin/sid sourced topology` prints how the app's commands, events, read models and automations connect, as a tree starting from each command. Part of the output for the `sourced_donations` example:
+
+```
+$ bin/sid sourced topology
+command donations.enter_donor_details  Donation::EnterDonorDetails
+└─ event donations.donor_details_entered  Donation::DonorDetailsEntered
+   └─ automation reaction(Donation::DonorDetailsEntered)  in donations
+      └─ command donations.send_verification_email  Donation::SendVerificationEmail
+         └─ event donations.email_sent  Donation::EmailSent
+
+command donations.start_payment  Donation::StartPayment
+└─ event donations.payment_started  Donation::PaymentStarted
+   └─ automation reaction(Donation::PaymentStarted)  in donations
+      └─ command donations.confirm_payment  Donation::ConfirmPayment
+         └─ event donations.payment_confirmed  Donation::PaymentConfirmed
+            └─ read model campaigns_projector
+
+command campaigns.create_campaign  Campaign::CreateCampaign
+└─ event campaigns.campaign_created  Campaign::CampaignCreated
+   └─ read model campaigns_projector (see above)
+```
+
+Each command leads to the events it produces, each event to the read models (projectors) and automations (reactions) that consume it, and each automation to the commands it dispatches. Something that appears more than once is expanded the first time and marked `(see above)` after that. The tree comes from `Sourced.topology`, which reads the events and commands each handler produces from its source code.
+
+Add `--schemas` for a line under each command and event with its payload's JSON Schema, so one call shows what every message carries.
+
+Apps that use Sourced also get a `sidereal-sourced` skill (see [Agent skills](#agent-skills)), which points AI coding agents to `bin/sid sourced`.
+
+### Agent skills
+
+Sidereal and its integrations provide skills that teach AI coding agents to work with an app, such as `sidereal-cli`, for using `bin/sid`. `bin/sid skills update` writes them into the app's `skills/` directory, which `.claude/skills` and `.agents/skills` link to, where agents look for skills. `sid new` runs it for a new app, unless you pass `--no-skills`.
+
+Run it again after updating Sidereal or adding an integration:
+
+```bash
+bin/sid skills update
+```
+
+This loads the app, without connecting to anything, and writes the skills of Sidereal and of every integration the app requires. It rewrites those skills in `skills/` and leaves any other skills there alone.
+
+An integration registers its skills when it's required, with the path to a skill's `SKILL.md` or a directory holding it:
+
+```ruby
+# lib/my_integration.rb
+Sidereal.skills.add('my-integration', File.expand_path('skills/my-integration', __dir__))
+```
 
 ### Console
 

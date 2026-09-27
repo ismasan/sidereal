@@ -302,6 +302,12 @@ RSpec.describe 'Sidereal::Commander on the Sourced runtime' do
     end
   end
 
+  it 'registers the sidereal-sourced skill' do
+    skill = File.read(File.join(Sidereal.skills['sidereal-sourced'], 'SKILL.md'))
+
+    expect(skill).to include('name: sidereal-sourced', 'bin/sid sourced topology')
+  end
+
   describe 'Sourced::Decider auto-publishes emitted events' do
     include Sourced::Testing::RSpec
 

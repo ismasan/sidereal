@@ -368,3 +368,10 @@ end
 
 # Projectors: auto-generate + publish a "projected" signal from partition_by.
 ::Sourced::Projector.singleton_class.prepend(Sidereal::Integrations::Sourced::ProjectorSignals)
+
+# --- Agent skills (runs at require time) ---
+
+# The sidereal-sourced skill points agents to `bin/sid sourced`, whose
+# commands bin/sid registers when the app's bundle includes sourced.
+# `bin/sid skills update` writes it into apps that require this file.
+Sidereal.skills.add('sidereal-sourced', File.expand_path('sourced/skills/sidereal-sourced', __dir__))

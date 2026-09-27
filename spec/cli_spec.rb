@@ -73,7 +73,7 @@ RSpec.describe Sidereal::CLI do
 
   describe 'app commands' do
     it 'are not available outside an app' do
-      %w[console commands].each do |command|
+      %w[console commands skills].each do |command|
         io = StringIO.new
 
         expect(Sidereal::CLI::Application.call([command], output: io)).to be(false)
