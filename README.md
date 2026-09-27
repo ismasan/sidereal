@@ -808,7 +808,7 @@ id  52c79eda-d348-4b88-b056-830bf60e7620
 
 With `bin/dev` running, the hello appears on the welcome page, just as if it had been sent from the form. The command is appended to the app's store, so if the server isn't running, it's handled once it starts.
 
-Attributes follow the command's payload schema (see `bin/sid commands info`):
+Attributes follow the command's payload schema (see `bin/sid commands info`). `bin/sid commands dispatch --help` summarizes the syntax:
 
 | Command line | Payload |
 | --- | --- |
