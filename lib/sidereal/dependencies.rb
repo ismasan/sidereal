@@ -107,6 +107,8 @@ module Sidereal
     # {Dependencies#args} is a module of its own, so several includes chain.
     class Injection < Module
       IDENTIFIER = /\A[a-z_][a-zA-Z0-9_]*\z/
+      # The default of every injected keyword: "not given".
+      UNSET = Object.new.freeze
 
       # @return [Hash{Symbol => String}] keyword argument => dependency key
       attr_reader :names
@@ -118,11 +120,19 @@ module Sidereal
         @container = container
         @names = names.freeze
         const_set(:CONTAINER, container)
-        # Evaluated as a string so each dependency is a real keyword argument
-        # with a default, visible to #parameters and to ArgumentError messages.
-        # CONTAINER resolves lexically, against this module.
-        params = names.map { |name, key| "#{name}: CONTAINER[#{key.inspect}]" }.join(', ')
-        assigns = names.keys.map { |name| "@#{name} = #{name}" }.join('; ')
+        const_set(:UNSET, UNSET)
+        # Evaluated as a string so each dependency is a real keyword argument,
+        # visible to #parameters and to ArgumentError messages. CONTAINER
+        # resolves lexically, against this module.
+        #
+        # An injection further out — a subclass's, or a later include — runs
+        # first and takes the keyword, so this one leaves the ivar it set
+        # alone, and resolves the default only when it assigns it.
+        params = names.keys.map { |name| "#{name}: UNSET" }.join(', ')
+        assigns = names.map do |name, key|
+          "@#{name} = #{name}.equal?(UNSET) ? CONTAINER[#{key.inspect}] : #{name} " \
+            "unless instance_variable_defined?(:@#{name})"
+        end.join("\n")
         module_eval <<~RUBY, __FILE__, __LINE__ + 1
           def initialize(*args, #{params}, **kwargs, &block)
             #{assigns}
@@ -132,7 +142,21 @@ module Sidereal
         attr_reader(*names.keys)
       end
 
+      # Prepended, the readers would replace any method of the same name —
+      # an App's +#store+ or +#params+, a reactor's +#state+ — so a name the
+      # class already has is refused, unless an earlier injection defined it.
       def append_features(base)
+        @names.each do |name, key|
+          next unless base.method_defined?(name) || base.private_method_defined?(name)
+
+          owner = base.instance_method(name).owner
+          next if owner.is_a?(Injection)
+
+          raise ArgumentError,
+                "#{base.name || base.inspect} already has ##{name} (from #{owner.name || owner.inspect}), " \
+                "which injecting '#{key}' as #{name} would replace. Alias it: '#{key}' => 'another_name'"
+        end
+
         @container.injected(base, @names.values)
         base.prepend(self)
         true

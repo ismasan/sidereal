@@ -454,6 +454,42 @@ RSpec.describe Sidereal::Dependencies do
       expect(injection.names).to eq(db: 'db', st: 'sourced.store')
     end
 
+    it 'does not resolve a default for a value it is given' do
+      builds = 0
+      deps.register('conn') { builds += 1 }
+      klass = Class.new
+      klass.include deps.args('conn')
+
+      klass.new(conn: :given)
+
+      expect(builds).to eq(0)
+    end
+
+    it 'refuses a name the class already has, since the reader would replace it' do
+      klass = Class.new do
+        def db = :own
+      end
+
+      expect { klass.include deps.args('db') }.to raise_error(ArgumentError, /already has #db.*Alias it: 'db' => 'another_name'/)
+    end
+
+    it 'refuses a private method too' do
+      klass = Class.new do
+        private def db = :own
+      end
+
+      expect { klass.include deps.args('db') }.to raise_error(ArgumentError, /already has #db/)
+    end
+
+    it 'lets a subclass inject again a name its parent injected' do
+      parent = Class.new
+      parent.include deps.args('db')
+      child = Class.new(parent)
+
+      expect { child.include deps.args('sourced.store' => 'db') }.not_to raise_error
+      expect(child.new.db).to eq(:store)
+    end
+
     it 'refuses two keys that inject under the same name' do
       expect { deps.args('sourced.store', 'fs.store') }.to raise_error(ArgumentError, /both inject as 'store'/)
     end

@@ -1025,6 +1025,8 @@ class OrdersProjector < Sourced::Projector::StateStored
 end
 ```
 
+A name the class already has is refused, since the reader would replace it — alias it instead (`dep 'store' => 'orders_store'`).
+
 Commanders extend it already, and with the [Sourced integration](#using-sourced-as-a-backend) loaded so do `Sourced::Decider` and `Sourced::Projector`, so their handlers can use what they declare:
 
 ```ruby
@@ -1036,6 +1038,25 @@ class Orders < Sidereal::Commander
   end
 end
 ```
+
+On an App, `dep` reaches both kinds of handler: `handle` blocks, which run on the app for each request, and `command` blocks, which run on its commander:
+
+```ruby
+class ShopApp < Sidereal::App
+  dep 'repos.orders' => 'orders'
+
+  handle PlaceOrder do |cmd|
+    halt 422 if orders.duplicate?(cmd.payload)
+    dispatch cmd
+  end
+
+  command PlaceOrder do |cmd|
+    orders.insert(cmd.payload)
+  end
+end
+```
+
+Commanders added with `commands` declare their own, and an App subclass has a commander of its own, so it declares again what its `command` blocks use.
 
 ### Sidereal's own services
 

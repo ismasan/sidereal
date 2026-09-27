@@ -579,3 +579,59 @@ RSpec.describe 'Sidereal::App.schedule' do
     Object.send(:remove_const, :AppSchedTestApp) if Object.const_defined?(:AppSchedTestApp, false)
   end
 end
+
+RSpec.describe 'Sidereal::App.dep' do
+  include Rack::Test::Methods
+
+  let(:todos) { [] }
+  let(:store) { Sidereal::Store::Memory.new }
+
+  before do
+    saved = todos
+    Sidereal.dependencies.register!('todos') { saved }
+    allow(Sidereal).to receive(:store).and_return(store)
+  end
+
+  let(:test_app) do
+    Class.new(Sidereal::App) do
+      session secret: 'a' * 64
+      dep :todos
+
+      handle HandleTestCmd do |cmd|
+        todos << [:handled, cmd.payload.title]
+        status 200
+      end
+
+      command HandleTestCmd do |cmd|
+        todos << [:processed, cmd.payload.title]
+      end
+    end
+  end
+
+  def app = test_app
+
+  it 'is available in handle blocks' do
+    post '/commands', command: { type: 'app_test.do_thing', payload: { title: 'hello' } }
+
+    expect(last_response.status).to eq(200)
+    expect(todos).to eq([[:handled, 'hello']])
+  end
+
+  it "is available in command blocks, through the app's commander" do
+    test_app.commander.handle(HandleTestCmd.new(payload: { title: 'hello' }), pubsub: Sidereal::PubSub::Memory.new)
+
+    expect(todos).to eq([[:processed, 'hello']])
+  end
+
+  it 'supports aliases' do
+    aliased = Class.new(Sidereal::App) { dep 'todos' => 'items' }
+
+    expect(aliased.commander.new(pubsub: nil).items).to be(todos)
+  end
+
+  it "refuses a name the app already uses, such as #store" do
+    Sidereal.dependencies.register!('store') { :mine }
+
+    expect { Class.new(Sidereal::App) { dep :store } }.to raise_error(ArgumentError, /already has #store/)
+  end
+end
