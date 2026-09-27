@@ -46,6 +46,11 @@ module Sidereal
       #   dies during boot is respawned forever. The failure repeats every few
       #   milliseconds and the host never exits.
       class Service < ::Falcon::Service::Server
+        # How a shutdown reaches a booting worker: a signal, or Async stopping
+        # the task it runs in by raising Async::Cancel (an Exception, so a
+        # plain `rescue ::Exception` would mistake it for a boot failure).
+        SHUTDOWN = [::SignalException, ::Async::Cancel].freeze
+
         # Runs in the controller process, before the container forks any worker,
         # so each worker inherits the controller's pid and can tell whether it is
         # a forked child (and therefore has a controller to interrupt).
@@ -78,7 +83,10 @@ module Sidereal
             begin
               server.run
               @sidereal_host.start(task)
-            rescue ::SignalException
+            rescue *SHUTDOWN
+              # server.run answers requests before host.start returns, so a
+              # shutdown can land in the middle of boot. Let the task stop, so
+              # the host reaches #stop rather than boot_failed!'s exit!.
               raise
             rescue ::Exception => e # rubocop:disable Lint/RescueException
               boot_failed!(e)
@@ -88,7 +96,7 @@ module Sidereal
           end
 
           server
-        rescue ::SignalException
+        rescue *SHUTDOWN
           # The host is already shutting down and said so; nothing to report.
           raise
         rescue ::SystemExit => e

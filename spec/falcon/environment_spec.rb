@@ -83,6 +83,27 @@ RSpec.describe Sidereal::Falcon::Environment::Service do
       expect(service.terminations).to eq([1])
     end
 
+    # Async stops a task by raising Async::Cancel in it (an Exception, not a
+    # SignalException): an interrupt that lands while the host is still booting
+    # is a shutdown, and must reach the orderly #stop path, not boot_failed!.
+    it 'lets a cancellation during boot inside the async task through, as a shutdown' do
+      server = double('server')
+      allow(server).to receive(:run).and_raise(Async::Cancel)
+      allow(evaluator).to receive(:make_server).and_return(server)
+
+      expect(Console).not_to receive(:error)
+      service.run(instance, evaluator, listener)
+      expect(service.terminations).to be_empty
+    end
+
+    it 'lets a cancellation while loading the app through untouched' do
+      allow(evaluator).to receive(:make_server).and_raise(Async::Cancel)
+
+      expect(Console).not_to receive(:error)
+      expect { service.run(instance, evaluator, listener) }.to raise_error(Async::Cancel)
+      expect(service.terminations).to be_empty
+    end
+
     it 'lets a shutdown signal through untouched' do
       allow(evaluator).to receive(:make_server).and_raise(Interrupt)
 
