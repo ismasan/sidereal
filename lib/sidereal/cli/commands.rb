@@ -192,7 +192,7 @@ module Sidereal
 
         def type_of(schema)
           if (variants = schema['anyOf'] || schema['oneOf'])
-            types = variants.map { |variant| type_of(variant) }
+            types = variants.map { |variant| type_of(variant) }.uniq
             (types - ['null'] + (types & ['null'])).join(' | ')
           elsif schema['type'].is_a?(Array)
             schema['type'].join(' | ')
@@ -208,13 +208,21 @@ module Sidereal
         end
 
         def notes_of(schema)
+          notes_list(schema).uniq.join('; ')
+        end
+
+        # Notes for a schema and, for a union, each of its variants.
+        def notes_list(schema)
           notes = []
           notes << schema['description'] if schema['description']
           notes << "one of: #{schema['enum'].map { |value| JSON.generate(value) }.join(', ')}" if schema['enum']
           schema.each do |key, value|
             notes << "#{key}: #{JSON.generate(value)}" unless SHOWN.include?(key)
           end
-          notes.join('; ')
+          (schema['anyOf'] || schema['oneOf'] || []).each do |variant|
+            notes.concat(notes_list(variant))
+          end
+          notes
         end
       end
 
