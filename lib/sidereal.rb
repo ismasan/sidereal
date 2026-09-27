@@ -38,7 +38,7 @@ module Sidereal
     #
     # @return [Dependencies]
     attr_reader :dependencies
-    attr_reader :dispatcher, :dispatcher_process, :boot_hooks
+    attr_reader :dispatcher, :dispatcher_process
 
     # @param dependencies [Dependencies] the container to register the default
     #   store, pubsub and elector into
@@ -47,7 +47,6 @@ module Sidereal
       @dependencies = dependencies
       @dispatcher = Sidereal::Dispatcher
       @dispatcher_process = :all
-      @boot_hooks = []
       dependencies.register!('sidereal.store') { Store::Memory.instance }
       dependencies.register!('sidereal.pubsub') { PubSub::Memory.instance }
       dependencies.register!('sidereal.elector') { Elector::AlwaysLeader.new }
@@ -56,26 +55,6 @@ module Sidereal
     def store = @dependencies['sidereal.store']
     def pubsub = @dependencies['sidereal.pubsub']
     def elector = @dependencies['sidereal.elector']
-
-    # Register a block to run in every process at boot, before any subsystem
-    # starts. {Sidereal::Host#start} runs the hooks in registration order,
-    # once per process, so this is where an integration prepares per-process
-    # state that every role needs — a web worker that only appends as much as
-    # the leader that consumes: opening a fork-unsafe connection, compiling a
-    # serializer, installing tables.
-    #
-    #   Sidereal.configure do |c|
-    #     c.on_boot { Sourced.setup! }
-    #   end
-    #
-    # @yield the hook; its return value is ignored
-    # @return [self]
-    def on_boot(&block)
-      raise ArgumentError, 'on_boot requires a block' unless block
-
-      @boot_hooks << block
-      self
-    end
 
     # Replace +'sidereal.store'+ with an instance built elsewhere. To build it
     # from other dependencies, register the key with +override: true+ instead.
@@ -356,7 +335,6 @@ module Sidereal
       dispatcher:,
       scheduler:,
       dispatcher_process: config.dispatcher_process,
-      boot_hooks: config.boot_hooks,
       dependencies:
     )
   end

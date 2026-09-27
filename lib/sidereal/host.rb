@@ -7,10 +7,9 @@ module Sidereal
   # re-implement the boot sequence.
   #
   # {#start} is the one place that decides ordering: it builds the
-  # dependency container (every singleton, in this process), runs
-  # the boot hooks (per-process preparation registered via
-  # {Sidereal::Configuration#on_boot}), locks the channels and exceptions
-  # registries (boot-time registration is over) and then brings the
+  # dependency container (every singleton, in this process — the
+  # per-process preparation every role needs), locks the channels and
+  # exceptions registries (boot-time registration is over) and then brings the
   # subsystems up in dependency order — elector before pubsub (the Unix
   # pubsub consults the elector for leadership), and both before the
   # dispatcher's workers begin consuming. {#stop} tears down the running
@@ -48,12 +47,10 @@ module Sidereal
     # @param scheduler [#start] scheduled-command ticker
     # @param dispatcher_process [Symbol] +:all+ or +:leader+; see
     #   {Sidereal::Configuration#dispatcher_process}
-    # @param boot_hooks [Array<#call>] run in order by {#start}, in every
-    #   process, after the dependencies; see {Sidereal::Configuration#on_boot}
     # @param dependencies [Sidereal::Dependencies] built first by {#start},
     #   torn down last by {#stop}
     def initialize(channels:, exceptions:, elector:, pubsub:, dispatcher:, scheduler:, dispatcher_process: :all,
-                   boot_hooks: [], dependencies: Dependencies.new)
+                   dependencies: Dependencies.new)
       @channels = channels
       @exceptions = exceptions
       @elector = elector
@@ -61,34 +58,29 @@ module Sidereal
       @dispatcher = dispatcher
       @scheduler = scheduler
       @dispatcher_process = DispatcherProcess.parse(dispatcher_process)
-      @boot_hooks = boot_hooks
       @dependencies = dependencies
       @dispatcher_instance = nil
     end
 
-    # Build the dependencies, run the boot hooks, lock the registries,
+    # Build the dependencies, lock the registries,
     # then start every subsystem in dependency order. The captured return of
     # +dispatcher.start+ is retained for {#stop} — the dispatcher field is
     # a factory, so its +start+ yields a distinct running instance (unlike
     # elector/pubsub/scheduler, which return themselves).
     #
-    # A dependency that fails to resolve or build, or a boot hook that
-    # raises, fails the boot: nothing after it starts, and the exception
-    # reaches the caller (the Falcon service routes it to its boot-failure
-    # path).
+    # A dependency that fails to resolve or build fails the boot: nothing
+    # after it starts, and the exception reaches the caller (the Falcon
+    # service routes it to its boot-failure path).
     #
     # @param task [Async::Task] long-lived parent task; each subsystem's
     #   background fibers are spawned as children of it
     # @return [self]
     def start(task)
-      # Every singleton is built here, in this process, before anything
-      # that may use one: boot hooks included.
+      # Per-process preparation first, in every process, leader or not:
+      # every singleton is built here, before anything that may use one,
+      # and while the registries are still open, so a dependency may
+      # register exception subscribers or channel resolvers.
       @dependencies.build!
-
-      # Per-process preparation first, while the registries are still
-      # open: a hook may register subscribers, and everything below
-      # (leader or not) may depend on what it sets up.
-      @boot_hooks.each(&:call)
 
       # Boot is over: classes have loaded, channel routes and
       # exception subscribers are registered. Lock both registries
