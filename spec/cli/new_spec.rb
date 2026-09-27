@@ -58,7 +58,7 @@ RSpec.describe Sidereal::CLI::New do
       boot.rb
       config.ru
       falcon.rb
-      skills/sidereal-commands/SKILL.md
+      skills/sidereal-cli/SKILL.md
       storage/.keep
       system/greetings.rb
       web/app.rb
@@ -87,14 +87,14 @@ RSpec.describe Sidereal::CLI::New do
     end
   end
 
-  it 'adds a skill for working with commands through bin/sid' do
+  it 'adds a skill for using bin/sid' do
     root = generate('my_app')
-    skill = read(root, 'skills/sidereal-commands/SKILL.md')
+    skill = read(root, 'skills/sidereal-cli/SKILL.md')
 
     front_matter = YAML.safe_load(skill[/\A---\n(.*?)\n---\n/m, 1])
-    expect(front_matter['name']).to eq('sidereal-commands')
+    expect(front_matter['name']).to eq('sidereal-cli')
     expect(front_matter['description']).to include('bin/sid')
-    expect(skill).to include('bin/sid commands dispatch my_app.greetings.say_hello --name Sidereal')
+    expect(skill).to include('bin/sid --help')
   end
 
   it 'links .claude/skills and .agents/skills to skills/' do
@@ -104,7 +104,7 @@ RSpec.describe Sidereal::CLI::New do
       path = File.join(root, link)
       expect(File.symlink?(path)).to be(true), link
       expect(File.readlink(path)).to eq('../skills')
-      expect(File.file?(File.join(path, 'sidereal-commands/SKILL.md'))).to be(true)
+      expect(File.file?(File.join(path, 'sidereal-cli/SKILL.md'))).to be(true)
     end
   end
 
@@ -307,6 +307,16 @@ RSpec.describe Sidereal::CLI::New do
       expect(message['payload']).to eq(
         'dish' => 'Pizza', 'quantity' => 2, 'gift' => true, 'tags' => ['vegan'], 'table' => { 'number' => 4 }
       )
+    end
+
+    it 'explains the attribute syntax with dispatch --help, without dispatching' do
+      root = generate
+
+      out, status = bin_sid(root, 'commands', 'dispatch', 'Greetings::SayHello', '--name', 'Ada', '--help')
+
+      expect(status).to be_success, out
+      expect(out).to include('dispatch <class_name> <attributes...>', '--address.city Paris', '--tags a --tags b')
+      expect(Dir[File.join(root, 'storage/store/ready/*')]).to be_empty
     end
 
     it 'does not dispatch a command with invalid attributes' do
