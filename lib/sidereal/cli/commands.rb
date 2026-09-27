@@ -305,9 +305,24 @@ module Sidereal
 
         # Not `name`: Samovar::Command#name is the command's own name.
         one :class_name, 'Command class name or type', pattern: /\A[^-]/
-        many :attributes, 'Payload attributes as --name value, see `bin/sid commands info NAME`', stop: nil
+        many :attributes, 'Payload attributes as --name value. `dispatch --help` for more', stop: nil
 
         HELP = %w[-h --help].freeze
+
+        # Printed after the usage by `dispatch --help`.
+        ATTRIBUTES_HELP = <<~TEXT
+
+          Attributes follow the command's payload (see `bin/sid commands info NAME --json`).
+          Values are converted to the payload's types, as form fields from the web are.
+
+            --units 2, --units=2      units: 2
+            --gift                    gift: true, a flag without a value
+            --address.city Paris      address: {city: "Paris"}
+            --tags a --tags b         tags: ["a", "b"], for an array attribute
+
+          The command is validated first: if anything is invalid, nothing is dispatched
+          and every error is listed.
+        TEXT
 
         # A codec registry holding a single command class.
         OneCommand = Data.define(:command_class) do
@@ -320,7 +335,11 @@ module Sidereal
 
         def call
           attributes = @attributes || []
-          return print_usage if (attributes & HELP).any?
+          if (attributes & HELP).any?
+            print_usage
+            output.puts ATTRIBUTES_HELP
+            return
+          end
           raise Error, 'Name a command, e.g. `bin/sid commands dispatch Greetings::SayHello --name Ada`' unless @class_name
 
           CLI.boot_app!
