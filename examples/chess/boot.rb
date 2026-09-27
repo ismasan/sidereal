@@ -7,7 +7,10 @@ require 'sidereal'
 require 'sidereal/integrations/sourced'
 
 DB_PATH = File.expand_path('storage/chess.db', __dir__)
-FileUtils.mkdir_p(File.dirname(DB_PATH))
+
+# Dependencies first: nothing resolves until something asks for a value, so
+# the files can register in any order, and app classes can inject them.
+Dir[File.join(__dir__, 'config/dependencies/*.rb')].sort.each { |f| require f }
 
 require_relative 'domain/chess_engine'
 require_relative 'domain/game'
@@ -24,7 +27,7 @@ Sourced.config.error_strategy.retry(times: 3, after: 1)
 # Sourced store and reactors are established fresh per worker (SQLite
 # connections aren't fork-safe, but nothing is inherited across the fork).
 Sourced.configure do |config|
-  config.store = Sequel.sqlite(DB_PATH) unless ENV['TEST']
+  config.store = Sidereal.dependencies['db'] unless ENV['TEST']
 end
 
 Sourced.register(Game)

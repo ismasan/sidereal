@@ -7,8 +7,11 @@ class GamesProjector < Sourced::Projector::StateStored
   consumer_group 'games_projector'
   partition_by :game_id
 
+  # Sourced builds an instance per claimed batch with new(partition_values);
+  # the injected db: defaults to Sidereal.dependencies['db'].
+  include Sidereal.dependencies.args('db')
+
   state do |values|
-    db = Sourced.store.db
     db[:games].where(game_id: values[:game_id]).first ||
       {
         game_id: nil,
@@ -49,7 +52,7 @@ class GamesProjector < Sourced::Projector::StateStored
   sync do |state:, **|
     next unless state[:game_id]
 
-    Sourced.store.db[:games].insert_conflict(:replace).insert(state)
+    db[:games].insert_conflict(:replace).insert(state)
   end
 
   # A `Projected` signal (attribute: game_id) is auto-generated from
@@ -57,22 +60,24 @@ class GamesProjector < Sourced::Projector::StateStored
   # Sidereal::Integrations::Sourced — routed via Sidereal.channels.for.
 
   def self.on_reset
-    Sourced.store.db[:games].delete
+    db[:games].delete
   end
 
   # ---- Class-level queries ----
 
   def self.open_games
-    Sourced.store.db[:games].where(status: 'created').order(Sequel.desc(:created_at)).all
+    db[:games].where(status: 'created').order(Sequel.desc(:created_at)).all
   end
 
   # Games where +username+ is white or black, EXCLUDING open games where
   # they are white (those already appear under "Open games"). Newest first.
   def self.games_for(username)
-    Sourced.store.db[:games]
+    db[:games]
       .where(Sequel.|({ white_username: username }, { black_username: username }))
       .exclude(status: 'created', white_username: username)
       .order(Sequel.desc(:created_at))
       .all
   end
+
+  def self.db = Sidereal.dependencies['db']
 end

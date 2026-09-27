@@ -7,7 +7,7 @@ Sequel.extension :migration
 namespace :db do
   desc 'Run database migrations'
   task :migrate do
-    Sequel::Migrator.run(Sourced.store.db, 'db/migrations')
+    Sequel::Migrator.run(Sidereal.dependencies['db'], 'db/migrations')
     puts 'Migrations complete.'
   end
 
