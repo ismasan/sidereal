@@ -26,6 +26,7 @@ bundle exec rspec
 | Path | What's in it |
 | --- | --- |
 | `boot.rb` | Loads and configures the app |
+| `config/dependencies/` | Connections, clients and other services the app's classes use, registered with `Sidereal.dependencies`. `boot.rb` loads every file here. See `example.rb` |
 | `system/` | Backend code that doesn't know about the web: messages, commanders, Sourced deciders and reactors |
 | `web/app.rb` | `App`, the web app: commands it accepts, their handlers, and pages |
 | `web/ui/` | Pages and the layout, in the `UI` namespace |
@@ -35,6 +36,6 @@ bundle exec rspec
 | `falcon.rb` | Falcon server settings |
 | `bin/dev` | Development server that reloads on code changes |
 | `bin/sid` | Sidereal's command line with this app loaded. `bin/sid --help` lists its commands, e.g. `bin/sid console` |
-| `skills/` | Skills that teach AI coding agents to work with this app, such as using `bin/sid`. `.claude/skills` and `.agents/skills` link here, where agents look for them |
+| `skills/` | Skills that teach AI coding agents to work with this app, such as using `bin/sid`. `.claude/skills` and `.agents/skills` link here, where agents look for them. `bin/sid skills update` refreshes the ones Sidereal and its integrations provide |
 
 Classes in `system/` and `web/` are loaded by [Zeitwerk](https://github.com/fxn/zeitwerk): name a file after the class it defines and use the class anywhere, without `require`. Directories under `web/` are namespaces, so `web/ui/welcome_page.rb` defines `UI::WelcomePage`. Classes in `system/` are top-level.

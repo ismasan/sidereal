@@ -36,6 +36,7 @@ module Sidereal
     require_relative 'cli/new'
     require_relative 'cli/app_console'
     require_relative 'cli/commands'
+    require_relative 'cli/skills'
 
     class << self
       # The root directory of the app `sid` is running in, set by
@@ -43,15 +44,23 @@ module Sidereal
       attr_reader :app_root
 
       # Called by an app's bin/sid: remembers the app's root and registers
-      # the commands that only make sense inside an app. The app itself is
-      # loaded by the commands that need it ({.boot_app!}), so `bin/sid --help`
-      # stays fast.
+      # the commands that only make sense inside an app, including those of
+      # integrations the app's bundle includes (`sourced` for Sourced). The
+      # app itself is loaded by the commands that need it ({.boot_app!}), so
+      # `bin/sid --help` stays fast.
       #
       # @param root [String] the app's root directory
       def load_app(root)
         @app_root = File.expand_path(root)
         Application.register 'console', AppConsole
         Application.register 'commands', Commands
+        Application.register 'skills', SkillsCommand
+
+        # Integrations add their own commands, for apps that bundle them.
+        if Gem.loaded_specs.key?('sourced')
+          require 'sidereal/integrations/sourced/cli'
+          Integrations::Sourced::CLI.install(Application)
+        end
       end
 
       # Load the app as a server worker has it: change into its root, since
@@ -59,13 +68,15 @@ module Sidereal
       # build its dependencies ({Sidereal::Dependencies#build!}), which is
       # where integrations such as Sourced finish setting up.
       #
+      # @param build [Boolean] false to load the app's code only, without
+      #   connecting to anything
       # @raise [Error] outside an app
-      def boot_app!
+      def boot_app!(build: true)
         raise Error, 'Run this command from inside a Sidereal app, with bin/sid' unless app_root
 
         Dir.chdir(app_root)
         require File.join(app_root, 'boot')
-        Sidereal.dependencies.build!
+        Sidereal.dependencies.build! if build
       end
     end
 
