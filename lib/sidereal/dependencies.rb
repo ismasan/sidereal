@@ -147,7 +147,9 @@ module Sidereal
     def initialize
       @registrations = {}
       @values = {}
-      @injections = []
+      # Class name => keys it injects. Names rather than classes, so reloading
+      # a class replaces its entry instead of retaining the old class.
+      @injections = {}
       @finalized = false
       @monitor = Monitor.new
     end
@@ -205,11 +207,11 @@ module Sidereal
       @monitor.synchronize do
         return self if @finalized
 
-        @injections.each do |klass, keys|
+        @injections.each do |class_name, keys|
           keys.each do |key|
             next if @registrations.key?(key)
 
-            raise UnknownDependencyError, "#{klass} injects '#{key}', which is not registered"
+            raise UnknownDependencyError, "#{class_name} injects '#{key}', which is not registered"
           end
         end
         each_strongly_connected_component { |component| check_component!(component) }
@@ -301,7 +303,8 @@ module Sidereal
     #
     # @api private
     def injected(klass, keys)
-      @monitor.synchronize { @injections << [klass, keys] }
+      class_name = klass.name || klass.inspect
+      @monitor.synchronize { @injections[class_name] = @injections.fetch(class_name, []) | keys }
     end
 
     private

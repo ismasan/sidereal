@@ -146,6 +146,14 @@ RSpec.describe Sidereal::Dependencies do
 
       expect { deps.finalize! }.to raise_error(described_class::UnknownDependencyError, /injects 'db'/)
     end
+
+    it 'names the injecting class' do
+      stub_const('GamesProjector', Class.new)
+      GamesProjector.include deps.args('db')
+
+      expect { deps.finalize! }
+        .to raise_error(described_class::UnknownDependencyError, "GamesProjector injects 'db', which is not registered")
+    end
   end
 
   describe '#stop' do
