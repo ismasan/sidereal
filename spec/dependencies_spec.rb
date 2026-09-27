@@ -227,23 +227,23 @@ RSpec.describe Sidereal::Dependencies do
       reader.read
     end
 
-    it 'refuses to build in the process that forbade builds' do
+    it 'refuses to build in the process that locked it' do
       deps.register!('db') { :db }
-      deps.forbid_builds!
+      deps.lock!
 
       expect { deps['db'] }.to raise_error(described_class::ForkError, /Cannot build 'db' in the process that forks/)
       expect { deps.build! }.to raise_error(described_class::ForkError)
     end
 
-    it 'still accepts registrations in the process that forbade builds' do
-      deps.forbid_builds!
+    it 'still accepts registrations in the process that locked it' do
+      deps.lock!
 
       expect { deps.register!('db') { :db } }.not_to raise_error
     end
 
-    it 'builds in a child of the process that forbade builds' do
+    it 'builds in a child of the process that locked it' do
       deps.register!('db') { :db }
-      deps.forbid_builds!
+      deps.lock!
 
       expect(in_child { deps.build!['db'] }).to eq('db')
     end

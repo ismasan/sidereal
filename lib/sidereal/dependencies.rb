@@ -36,7 +36,7 @@ module Sidereal
   # Code to share between workers — +require+s — belongs outside the blocks,
   # where it runs as the file loads: in the process that forks the workers when
   # the host preloads the app. Values must not be built there, or every worker
-  # would inherit them: that process calls {#forbid_builds!}, and a value used
+  # would inherit them: that process calls {#lock!}, and a value used
   # in a process other than the one that built it raises {ForkError}.
   #
   # {#args} builds a module that injects dependencies into a class's
@@ -170,8 +170,8 @@ module Sidereal
       @values = {}
       # The process the values were built in.
       @values_pid = nil
-      # The process that forks workers, where nothing may be built.
-      @forbidden_pid = nil
+      # The process that called #lock!, where nothing may be built.
+      @locked_pid = nil
       # Class name => keys it injects. Names rather than classes, so reloading
       # a class replaces its entry instead of retaining the old class.
       @injections = {}
@@ -217,7 +217,7 @@ module Sidereal
     # @param key [String, Symbol]
     # @return [Object]
     # @raise [UnknownDependencyError, CircularDependencyError]
-    # @raise [ForkError] in a process that called {#forbid_builds!}, or for
+    # @raise [ForkError] in a process that called {#lock!}, or for
     #   values built in another process
     def [](key)
       key = key.to_s
@@ -246,7 +246,7 @@ module Sidereal
     # @raise [UnknownDependencyError] a dependency, or a key injected with
     #   {#args}, is not registered
     # @raise [CircularDependencyError]
-    # @raise [ForkError] in a process that called {#forbid_builds!}, or when
+    # @raise [ForkError] in a process that called {#lock!}, or when
     #   values were built in another process
     def build!
       @monitor.synchronize do
@@ -288,14 +288,15 @@ module Sidereal
       self
     end
 
-    # Refuse to build anything in the calling process. Called by a host in the
-    # process that forks its workers, before it loads the app: whatever is
-    # built there is inherited by every worker, and a connection or socket
-    # shared across processes is corrupted. Child processes are unaffected.
+    # Lock the calling process against building anything; registering is
+    # still allowed. Called by a host in the process that forks its workers,
+    # before it loads the app: whatever is built there is inherited by every
+    # worker, and a connection or socket shared across processes is
+    # corrupted. Child processes are unaffected.
     #
     # @return [self]
-    def forbid_builds!
-      @forbidden_pid = Process.pid
+    def lock!
+      @locked_pid = Process.pid
       self
     end
 
@@ -398,7 +399,7 @@ module Sidereal
     end
 
     def build(registration)
-      if @forbidden_pid == Process.pid
+      if @locked_pid == Process.pid
         raise ForkError,
               "Cannot build '#{registration.key}' in the process that forks workers: every worker would " \
               'inherit it. Resolve it after boot (in a dependency block, or at runtime), not while the app loads'

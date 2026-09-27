@@ -58,11 +58,11 @@ module Sidereal
         # It is also where the app is loaded when the service preloads it
         # (+preload "boot.rb"+ in falcon.rb, run by +super+), so its code is
         # shared by every worker. Nothing may be built here — every worker
-        # would inherit it — so builds are forbidden first; each worker builds
-        # the dependencies in {Sidereal::Host#start}.
+        # would inherit it — so the dependencies are locked first; each worker
+        # builds them in {Sidereal::Host#start}.
         def start
           @controller_pid = ::Process.pid
-          Sidereal.dependencies.forbid_builds!
+          Sidereal.dependencies.lock!
           super
         end
 
