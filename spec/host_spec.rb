@@ -130,6 +130,44 @@ RSpec.describe Sidereal::Host do
     end
   end
 
+  describe 'dependencies' do
+    let(:dependencies) do
+      log = events
+      Sidereal::Dependencies.new.tap do |deps|
+        deps.register!('db') { log << [:dependency, :build]; :db }.stop { log << [:dependency, :stop] }
+      end
+    end
+
+    subject(:host) do
+      Sidereal::Host.new(
+        channels:, exceptions:, elector:, pubsub:, dispatcher:, scheduler:, dependencies:,
+        boot_hooks: [-> { events << [:hook, dependencies.finalized?] }]
+      )
+    end
+
+    it 'finalizes them first, before the boot hooks and every subsystem' do
+      host.start(task)
+
+      expect(events.first(2)).to eq([[:dependency, :build], [:hook, true]])
+      expect(events.drop(2).map(&:first)).to eq(%i[elector pubsub dispatcher scheduler])
+    end
+
+    it 'fails the boot when they do not resolve: nothing starts' do
+      dependencies.register!('sourced.store', ['missing']) { :store }
+
+      expect { host.start(task) }.to raise_error(Sidereal::Dependencies::UnknownDependencyError)
+      expect(events).to be_empty
+      expect(channels).not_to be_locked
+    end
+
+    it 'stops them from #stop, after the running dispatcher' do
+      host.start(task)
+      host.stop
+
+      expect(events.last(2)).to eq([[:running_dispatcher, :stop], [:dependency, :stop]])
+    end
+  end
+
   describe 'dispatcher_process: :leader' do
     # Elector that starts as follower and lets the spec drive transitions
     # through the same promote!/demote! the real electors call.

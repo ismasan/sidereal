@@ -30,6 +30,7 @@ PATH
       rack (~> 3)
       rack-session
       sourced-message (>= 0.3.0)
+      tsort
 
 GEM
   remote: https://rubygems.org/

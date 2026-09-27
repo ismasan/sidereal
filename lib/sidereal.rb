@@ -178,10 +178,10 @@ module Sidereal
   # is the hook a development-mode class reloader would use, so a redefined
   # commander or message type doesn't leave the previous one registered.
   #
-  # {.config} is deliberately untouched. It holds deployment wiring — an open
-  # store, a connected pubsub, an elected leader — none of which is derived from
-  # app classes, and all of which would be expensive and disruptive to rebuild
-  # every time code changes.
+  # {.config} and {.dependencies} are deliberately untouched. They hold
+  # deployment wiring — an open store, a connected pubsub, an elected leader, a
+  # database connection — none of which is derived from app classes, and all of
+  # which would be expensive and disruptive to rebuild every time code changes.
   #
   # @return [self]
   def self.reload!
@@ -190,6 +190,19 @@ module Sidereal
     reset_exceptions!
     reset_message_codec!
     self
+  end
+
+  # Process-global dependency container, which apps and integrations register
+  # into at load time and {Host#start} finalizes. Like {.config} it holds
+  # deployment wiring, so {.reload!} leaves it alone.
+  #
+  # @return [Dependencies]
+  def self.dependencies
+    @dependencies ||= Dependencies.new
+  end
+
+  def self.reset_dependencies!
+    @dependencies = nil
   end
 
   def self.scheduler
@@ -323,7 +336,8 @@ module Sidereal
       dispatcher:,
       scheduler:,
       dispatcher_process: config.dispatcher_process,
-      boot_hooks: config.boot_hooks
+      boot_hooks: config.boot_hooks,
+      dependencies:
     )
   end
 
@@ -388,6 +402,7 @@ require_relative 'sidereal/registry'
 require_relative 'sidereal/dispatcher'
 require_relative 'sidereal/elector'
 require_relative 'sidereal/scheduler'
+require_relative 'sidereal/dependencies'
 require_relative 'sidereal/host'
 require_relative 'sidereal/app'
 require_relative 'sidereal/components/command'
