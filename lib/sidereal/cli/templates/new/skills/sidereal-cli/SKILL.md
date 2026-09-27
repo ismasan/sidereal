@@ -15,7 +15,7 @@ It lists what it can do, including listing the app's commands, inspecting a comm
 
 What `bin/sid` shows comes from the app's command classes, so ask it which commands exist and what they take, rather than searching the code for a list.
 
-- `bin/sid commands info NAME --json` prints a command's payload as JSON Schema: the clearest way to see its attributes.
+- `bin/sid commands list --schemas` lists every command with its payload's JSON Schema on the line below it: all you need to dispatch any of them, in one call. `bin/sid commands info NAME --json` prints one command's payload schema.
 - `bin/sid commands dispatch --help` explains how to write attributes.
 - Errors say what's wrong and exit with status 1. Fix the command line from the message.
 

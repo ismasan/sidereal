@@ -238,6 +238,20 @@ RSpec.describe Sidereal::CLI::New do
       expect(out).to match(/^app\.greetings\.say_hello\s+Greetings::SayHello\s+App::Commander\s+yes$/)
     end
 
+    it "adds each command's payload schema under it with --schemas" do
+      out, status = bin_sid(generate, 'commands', 'list', '--schemas')
+
+      expect(status).to be_success, out
+      lines = out.lines(chomp: true)
+      expect(lines[1]).to match(/^app\.greetings\.say_hello\s+Greetings::SayHello\s+App::Commander\s+yes$/)
+      expect(lines[2]).to start_with('  ')
+      expect(JSON.parse(lines[2])).to eq(
+        'type' => 'object',
+        'properties' => { 'name' => { 'type' => 'string' } },
+        'required' => ['name']
+      )
+    end
+
     it "prints a command's payload schema as a table, found by class name or type" do
       root = generate
 
