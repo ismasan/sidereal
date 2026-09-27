@@ -1014,6 +1014,29 @@ OrdersProjector.new(partition_values, db: test_db)
 - Several `include`s add up, and every other argument reaches the class's own `initialize` untouched — it doesn't need to call `super` — so classes that frameworks instantiate themselves, like Sourced's reactors, work unchanged.
 - Defaults are looked up each time an object is created, so a class can be defined before its dependencies are registered.
 
+`Sidereal::Deps` is class-level shorthand for the same thing — `dep` is `include Sidereal.dependencies.args(...)`:
+
+```ruby
+class OrdersProjector < Sourced::Projector::StateStored
+  extend Sidereal::Deps
+
+  dep :db
+  dep 'sourced.store' => 'events'
+end
+```
+
+Commanders extend it already, so their handlers can use what they declare:
+
+```ruby
+class Orders < Sidereal::Commander
+  dep 'repos.orders' => 'orders'
+
+  command PlaceOrder do |cmd|
+    orders.insert(cmd.payload)
+  end
+end
+```
+
 ### Sidereal's own services
 
 The store, pubsub and elector are registered as `'sidereal.store'`, `'sidereal.pubsub'` and `'sidereal.elector'`. `Sidereal.store` and friends read them, and `c.store = ...` and the other [setters](#custom-backends) replace them. To replace one with something built from other dependencies, register it with `override: true`:

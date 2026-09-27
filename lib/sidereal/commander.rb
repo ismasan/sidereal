@@ -1,10 +1,14 @@
 # frozen_string_literal: true
 
 require_relative 'scheduling'
+require_relative 'deps'
 
 module Sidereal
   class Commander
     include Scheduling
+    # Handlers run on an instance built per command, so +dep :db+ makes +db+
+    # available inside +command+ blocks.
+    extend Deps
 
     CMD_METHOD_PREFIX = '__cmd_'
     CMD_HASH = Types::Hash[type: String, payload?: Hash]
