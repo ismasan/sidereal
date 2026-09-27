@@ -135,6 +135,16 @@ RSpec.describe Sidereal::CLI::Commands, '.print_table' do
     TEXT
   end
 
+  it 'prints a detail line, indented, under each row' do
+    expect(print_table([%w[a string x], %w[b int y]], details: %w[one two])).to eq(<<~TEXT)
+      Name  Type    Notes
+      a     string  x
+        one
+      b     int     y
+        two
+    TEXT
+  end
+
   it 'leaves out empty columns after the first `keep`' do
     expect(print_table([['a', 'string', '']], keep: 2)).to eq("Name  Type\na     string\n")
   end

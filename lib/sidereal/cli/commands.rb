@@ -219,8 +219,9 @@ module Sidereal
       end
 
       # Print rows as aligned columns under bold headers. Columns after the
-      # first +keep+ are left out when every row is empty in them.
-      def self.print_table(terminal, headers, rows, keep: headers.size)
+      # first +keep+ are left out when every row is empty in them. +details+,
+      # when given, holds a line per row, printed indented under it.
+      def self.print_table(terminal, headers, rows, keep: headers.size, details: nil)
         columns = headers.each_index.select do |i|
           i < keep || rows.any? { |row| !row[i].empty? }
         end
@@ -230,12 +231,19 @@ module Sidereal
         end
 
         terminal.puts line.call(headers), style: :title
-        rows.each { |row| terminal.puts line.call(row) }
+        rows.each_with_index do |row, index|
+          terminal.puts line.call(row)
+          terminal.puts "  #{details[index]}" if details
+        end
       end
 
-      # `sid commands list`
+      # `sid commands list [--schemas]`
       class List < Command
         self.description = 'List the commands the app handles'
+
+        options do
+          option '--schemas', "Add a line under each command with its payload's JSON Schema"
+        end
 
         HEADERS = ['Command', 'Class', 'Handled by', 'Web'].freeze
 
@@ -257,7 +265,8 @@ module Sidereal
               entry.web? ? 'yes' : ''
             ]
           end
-          Commands.print_table(terminal, HEADERS, rows)
+          details = entries.map { |entry| JSON.generate(entry.command_class::Payload.to_json_schema) } if @options[:schemas]
+          Commands.print_table(terminal, HEADERS, rows, details:)
         end
       end
 
