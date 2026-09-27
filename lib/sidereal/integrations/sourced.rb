@@ -377,6 +377,16 @@ end
   const_defined?(:Projected, false) ? [const_get(:Projected)] : []
 end
 
+# --- Dependency injection (runs at require time) ---
+
+# +dep :db+ in a decider or projector, as in a Sidereal::Commander: Sourced
+# builds an instance per claimed batch with +new(partition_values)+, which the
+# injected +initialize+ passes through, so +dep+ readers work in +state+,
+# +evolve+, +command+, +reaction+ and +sync+ blocks. Extending the base
+# classes' singletons reaches every subclass, defined before or after this.
+::Sourced::Decider.extend(Sidereal::Deps)
+::Sourced::Projector.extend(Sidereal::Deps)
+
 # --- Auto-publish wiring (runs at require time, before domain reactors load) ---
 
 # Deciders: publish the domain events they emitted. Copied into every app decider

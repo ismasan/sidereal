@@ -1025,7 +1025,7 @@ class OrdersProjector < Sourced::Projector::StateStored
 end
 ```
 
-Commanders extend it already, so their handlers can use what they declare:
+Commanders extend it already, and with the [Sourced integration](#using-sourced-as-a-backend) loaded so do `Sourced::Decider` and `Sourced::Projector`, so their handlers can use what they declare:
 
 ```ruby
 class Orders < Sidereal::Commander

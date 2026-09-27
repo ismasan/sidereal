@@ -386,6 +386,48 @@ RSpec.describe 'Sidereal::Commander on the Sourced runtime' do
 
   # -- Auto-publish injected by the Sourced integration --
 
+  describe 'dep in Sourced reactors' do
+    include Sourced::Testing::RSpec
+
+    before { Sidereal.dependencies.register!('naming') { ->(id) { "named-#{id}" } } }
+
+    it "injects into a decider, for its command blocks" do
+      stub_const('IntgDepWidget', Class.new(Sourced::Decider) do
+        consumer_group 'intg_dep_widget'
+        partition_by :widget_id
+        dep :naming
+
+        command(IntgWidget::Create) do |_state, cmd|
+          event IntgWidget::Created, widget_id: naming.call(cmd.payload.widget_id)
+        end
+      end)
+
+      with_reactor(IntgDepWidget, widget_id: 'w1')
+        .when(IntgWidget::Create, widget_id: 'w1')
+        .then(IntgWidget::Created, widget_id: 'named-w1')
+    end
+
+    it 'injects into a projector, for its state and evolve blocks' do
+      stub_const('IntgDepProjector', Class.new(Sourced::Projector::StateStored) do
+        consumer_group 'intg_dep_projector'
+        partition_by :thing_id
+        dep 'naming' => 'namer'
+
+        state do |values|
+          { thing_id: values[:thing_id], label: namer.call(values[:thing_id]) }
+        end
+
+        evolve(IntgThingHappenedEvt) do |state, _evt|
+          state[:seen] = true
+        end
+      end)
+
+      with_reactor(IntgDepProjector, thing_id: 't1')
+        .given(IntgThingHappenedEvt, thing_id: 't1')
+        .then { |result| expect(result.state).to eq(thing_id: 't1', label: 'named-t1', seen: true) }
+    end
+  end
+
   describe 'sidereal_events for Page.on' do
     it 'a decider stands for the events it evolves' do
       expect(IntgWidget.sidereal_events).to eq(IntgWidget.handled_messages_for_evolve)
