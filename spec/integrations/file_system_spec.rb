@@ -42,7 +42,7 @@ RSpec.describe Sidereal::Integrations::FileSystem do
         .and_return(elector)
 
       described_class.setup(config)
-      config.dependencies.finalize!
+      config.dependencies.build!
     end
 
     it 'builds nothing until resolved' do

@@ -4,37 +4,40 @@ require 'monitor'
 require 'tsort'
 
 module Sidereal
-  # A container of named dependencies whose factories may depend on each other.
+  # A container of named dependencies whose values may depend on each other.
   #
   # Apps register their dependencies at load time (by convention in
   # +config/dependencies/*.rb+), and integrations register their own. A
-  # dependency names the keys it needs, and its factory receives their values
-  # in that order, so registrations can come in any order: nothing is resolved
-  # until a value is asked for, and {#finalize!} checks the whole graph at boot.
+  # dependency names the keys it needs, and its block builds the value from
+  # theirs, in that order, so registrations can come in any order: nothing is
+  # built until a value is asked for.
   #
-  #   Sidereal.dependencies.register!('db') do
+  #   require 'sequel'
+  #
+  #   Sidereal.dependencies.register!('db', ['logger']) do |logger|
+  #     logger.info 'Connecting to DB'
   #     Sequel.sqlite(ENV.fetch('DB_PATH'))
-  #   end.stop do |db|
+  #   end.teardown do |db|
   #     db.disconnect
   #   end
   #
-  #   Sidereal.dependencies.register!('sourced.store', ['db']) do |db|
-  #     Sourced::Store.new(db)
-  #   end
-  #
-  #   Sidereal.dependencies['sourced.store'] # builds 'db' first
+  #   Sidereal.dependencies['db'] # builds 'logger' first
   #
   # Two lifecycles:
   #
-  # - {#register!} — a singleton, built once and memoized. {#finalize!} builds
-  #   every singleton at boot; before that, the first {#[]} builds it.
-  # - {#register} — transient: the factory runs on every {#[]}.
+  # - {#register!} — a singleton, built once per process and memoized.
+  # - {#register} — transient: built on every {#[]}.
   #
-  # {Sidereal::Host#start} calls {#finalize!} in every process before anything
-  # else boots, so a fork-unsafe singleton (a database connection) is built
-  # per worker, and a missing key or a cycle fails the boot. {Sidereal::Host#stop}
-  # calls {#stop}, which runs each built singleton's stop callback, dependents
-  # before their dependencies.
+  # {Sidereal::Host#start} calls {#build!} in every process before anything
+  # else boots, so a fork-unsafe singleton (a database connection) is built per
+  # worker, and a missing key or a cycle fails the boot. {Sidereal::Host#stop}
+  # calls {#teardown}, dependents before their dependencies.
+  #
+  # Code to share between workers — +require+s — belongs outside the blocks,
+  # where it runs as the file loads: in the process that forks the workers when
+  # the host preloads the app. Values must not be built there, or every worker
+  # would inherit them: that process calls {#forbid_builds!}, and a value used
+  # in a process other than the one that built it raises {ForkError}.
   #
   # {#args} builds a module that injects dependencies into a class's
   # +#initialize+ as keyword arguments defaulting to their values here.
@@ -48,61 +51,52 @@ module Sidereal
     # Dependencies that depend on each other, directly or through others.
     class CircularDependencyError < Error; end
     class DuplicateDependencyError < Error; end
-    # A registration after {#finalize!}.
+    # A registration after {#build!}.
     class LockedError < Error; end
     # An override of a key whose value, or a value built from it, already
     # exists: whatever holds that value would keep the replaced one.
     class ResolvedDependencyError < Error; end
+    # A build in the process that forks workers, or a value used in a process
+    # other than the one that built it.
+    class ForkError < Error; end
 
-    NOOP_STOP = proc { |_value| }
-
-    # One registered dependency. Returned by {Dependencies#register} and
-    # {Dependencies#register!} so a stop callback can be chained on.
+    # One registered dependency. Returned by {Dependencies#register!} and
+    # {Dependencies#register} so a teardown can be chained on.
     class Registration
-      attr_reader :key, :deps, :factory, :stopper
+      attr_reader :key, :deps, :builder, :tearer
 
-      def initialize(key, deps, factory, memoize:)
+      def initialize(key, deps, builder, memoize:)
         @key = key
         @deps = deps
-        @factory = factory
+        @builder = builder
         @memoize = memoize
-        @stopper = NOOP_STOP
+        @tearer = nil
       end
 
       def memoize? = @memoize
 
-      # Set the callback {Dependencies#stop} runs with this dependency's value.
-      # Only singletons have a value to stop.
+      # Set the block {Dependencies#teardown} runs with this dependency's
+      # value. Only singletons have a value to tear down.
       #
       # @yieldparam value [Object] the built value
       # @return [self]
-      def stop(&block)
-        raise ArgumentError, 'stop requires a block' unless block
+      def teardown(&block)
+        raise ArgumentError, 'teardown requires a block' unless block
         unless memoize?
           raise ArgumentError,
-                "'#{key}' is transient (registered with #register), so there is no instance to stop. " \
-                'Register it with #register! to give it a stop callback.'
+                "'#{key}' is transient (registered with #register), so there is no instance to tear down. " \
+                'Register it with #register! to give it a teardown.'
         end
 
-        @stopper = block
+        @tearer = block
         self
       end
 
-      # The registration as the call that made it, e.g.
-      # +register!("sourced.store", ["db"]).stop+.
-      #
-      # @return [String]
-      def to_s
-        call = +"#{memoize? ? 'register!' : 'register'}(#{key.inspect}"
-        call << ", #{deps.inspect}" unless deps.empty?
-        call << ')'
-        call << '.stop' unless stopper.equal?(NOOP_STOP)
-        call
-      end
+      def to_s = deps.empty? ? key : "#{key}[#{deps.join(', ')}]"
 
       def inspect
-        file, line = factory.source_location
-        "#<#{self.class.name} #{self}#{" at #{file}:#{line}" if file}>"
+        file, line = builder.source_location
+        "#<#{self.class.name} #{memoize? ? 'register!' : 'register'} #{self}#{" at #{file}:#{line}" if file}>"
       end
     end
 
@@ -150,14 +144,19 @@ module Sidereal
     def initialize
       @registrations = {}
       @values = {}
+      # The process the values were built in.
+      @values_pid = nil
+      # The process that forks workers, where nothing may be built.
+      @forbidden_pid = nil
       # Class name => keys it injects. Names rather than classes, so reloading
       # a class replaces its entry instead of retaining the old class.
       @injections = {}
-      @finalized = false
+      @built = false
       @monitor = Monitor.new
     end
 
-    # Register a singleton: built once, memoized, and built at boot by {#finalize!}.
+    # Register a singleton: built once per process and memoized. {#build!}
+    # builds every singleton; before that, the first {#[]} builds it.
     #
     # A key registers once. Pass +override: true+ to replace an existing
     # registration (or add it if absent) — how an integration swaps a default:
@@ -170,40 +169,43 @@ module Sidereal
     # built from it, since whoever holds that value would keep the old one.
     #
     # @param key [String, Symbol]
-    # @param deps [Array<String, Symbol>] keys whose values the factory receives, in order
+    # @param deps [Array<String, Symbol>] keys whose values the block receives, in order
     # @param override [Boolean] replace an existing registration instead of raising
-    # @yield the factory
-    # @return [Registration] chain +.stop { |value| ... }+ to add a stop callback
+    # @yield the dependencies' values; returns the value
+    # @return [Registration] chain +.teardown { |value| ... }+ to release it at shutdown
     # @raise [DuplicateDependencyError] the key is registered and +override+ is false
     # @raise [ResolvedDependencyError] overriding a key already resolved
-    # @raise [LockedError] after {#finalize!}
-    def register!(key, deps = [], override: false, &factory)
-      add(key, deps, factory, memoize: true, override:)
+    # @raise [LockedError] after {#build!}
+    def register!(key, deps = [], override: false, &builder)
+      add(key, deps, builder, memoize: true, override:)
     end
 
-    # Register a transient dependency: the factory runs on every {#[]}.
+    # Register a transient dependency: built on every {#[]}.
     #
     # @param (see #register!)
     # @return [Registration]
-    def register(key, deps = [], override: false, &factory)
-      add(key, deps, factory, memoize: false, override:)
+    def register(key, deps = [], override: false, &builder)
+      add(key, deps, builder, memoize: false, override:)
     end
 
-    # Resolve a dependency, resolving the ones it names first.
+    # Resolve a dependency, building the ones it names first.
     #
     # @param key [String, Symbol]
     # @return [Object]
     # @raise [UnknownDependencyError, CircularDependencyError]
+    # @raise [ForkError] in a process that called {#forbid_builds!}, or for
+    #   values built in another process
     def [](key)
       key = key.to_s
       registration = @registrations.fetch(key) { raise UnknownDependencyError, "'#{key}' is not registered" }
-      # Finalizing checked the whole graph; until then, check what this key reaches.
-      check!(key) unless @finalized
+      # build! checked the whole graph; until then, check what this key reaches.
+      check!(key) unless @built
       return build(registration) unless registration.memoize?
 
+      check_values_pid!
       @values.fetch(key) do
         @monitor.synchronize do
-          @values.fetch(key) { @values[key] = build(registration) }
+          @values.fetch(key) { store(key, build(registration)) }
         end
       end
     end
@@ -211,51 +213,65 @@ module Sidereal
     # @param key [String, Symbol]
     def key?(key) = @registrations.key?(key.to_s)
 
-    def finalized? = @finalized
+    def built? = @built
 
     # Check the graph, build every singleton in dependency order, and lock the
-    # container against further registration. Idempotent.
+    # container against further registration. Idempotent within a process.
     #
     # @return [self]
     # @raise [UnknownDependencyError] a dependency, or a key injected with
     #   {#args}, is not registered
     # @raise [CircularDependencyError]
-    def finalize!
+    # @raise [ForkError] in a process that called {#forbid_builds!}, or when
+    #   values were built in another process
+    def build!
       @monitor.synchronize do
-        return self if @finalized
+        return self if @built
 
-        @injections.each do |class_name, keys|
-          keys.each do |key|
-            next if @registrations.key?(key)
-
-            raise UnknownDependencyError, "#{class_name} injects '#{key}', which is not registered"
-          end
-        end
+        check_injections!
         each_strongly_connected_component { |component| check_component!(component) }
+        check_values_pid!
         tsort_each { |key| self[key] if @registrations[key].memoize? }
-        @finalized = true
+        @built = true
       end
       self
     end
 
-    # Run the stop callback of every singleton that has been built, dependents
-    # before their dependencies, and forget the values. A callback that raises
-    # is logged and the rest still run. Idempotent.
+    # Run the teardown of every singleton built in this process, dependents
+    # before their dependencies, and forget the values, so a later {#build!}
+    # builds afresh. A teardown that raises is logged and the rest still run.
+    # Idempotent.
     #
     # @return [self]
-    def stop
+    def teardown
       @monitor.synchronize do
         # A value is stored only after the values it depends on, so the
         # reverse of insertion order puts dependents first.
         @values.keys.reverse_each do |key|
           value = @values.delete(key)
+          tearer = @registrations[key].tearer
+          next unless tearer
+
           begin
-            @registrations[key].stopper.call(value)
+            tearer.call(value)
           rescue StandardError => e
-            Console.error(self, "Stopping dependency '#{key}' failed", exception: e)
+            Console.error(self, "Tearing down dependency '#{key}' failed", exception: e)
           end
         end
+        @values_pid = nil
+        @built = false
       end
+      self
+    end
+
+    # Refuse to build anything in the calling process. Called by a host in the
+    # process that forks its workers, before it loads the app: whatever is
+    # built there is inherited by every worker, and a connection or socket
+    # shared across processes is corrupted. Child processes are unaffected.
+    #
+    # @return [self]
+    def forbid_builds!
+      @forbidden_pid = Process.pid
       self
     end
 
@@ -271,8 +287,8 @@ module Sidereal
     #   CampaignsProjector.new(partition_values, db:)  # db given, st from the container
     #
     # Defaults are resolved on each instantiation, so a class can include this
-    # before its dependencies are registered; {#finalize!} checks they are.
-    # Every other argument reaches the class's own +#initialize+ untouched.
+    # before its dependencies are registered; {#build!} checks they are. Every
+    # other argument reaches the class's own +#initialize+ untouched.
     #
     # @param specs [Array<String, Symbol, Hash{String => String, Symbol}>]
     # @return [Injection]
@@ -315,7 +331,7 @@ module Sidereal
       end
     end
 
-    # Record that +klass+ injects +keys+, for {#finalize!} to check.
+    # Record that +klass+ injects +keys+, for {#build!} to check.
     # Called by {Injection#append_features}.
     #
     # @api private
@@ -326,13 +342,13 @@ module Sidereal
 
     private
 
-    def add(key, deps, factory, memoize:, override:)
-      raise ArgumentError, 'a dependency requires a factory block' unless factory
+    def add(key, deps, builder, memoize:, override:)
+      raise ArgumentError, 'a dependency requires a block that builds it' unless builder
 
       key = key.to_s
-      registration = Registration.new(key, Array(deps).map(&:to_s).freeze, factory, memoize:)
+      registration = Registration.new(key, Array(deps).map(&:to_s).freeze, builder, memoize:)
       @monitor.synchronize do
-        raise LockedError, "Cannot register '#{key}': dependencies are finalized" if @finalized
+        raise LockedError, "Cannot register '#{key}': dependencies are already built" if @built
 
         if @registrations.key?(key)
           raise DuplicateDependencyError, "'#{key}' is already registered. Pass override: true to replace it" unless override
@@ -357,15 +373,42 @@ module Sidereal
       @registrations.fetch(from).deps.any? { |dep| @registrations.key?(dep) && reaches?(dep, target, seen) }
     end
 
-    def inspect_state = @finalized ? '(finalized)' : '(open)'
-
-    def inspect_entries
-      @registrations.values.map { |r| r.deps.empty? ? r.key : "#{r.key}[#{r.deps.join(', ')}]" }
-    end
-
     def build(registration)
-      registration.factory.call(*registration.deps.map { |dep| self[dep] })
+      if @forbidden_pid == Process.pid
+        raise ForkError,
+              "Cannot build '#{registration.key}' in the process that forks workers: every worker would " \
+              'inherit it. Resolve it after boot (in a dependency block, or at runtime), not while the app loads'
+      end
+
+      registration.builder.call(*registration.deps.map { |dep| self[dep] })
     end
+
+    def store(key, value)
+      @values_pid ||= Process.pid
+      @values[key] = value
+    end
+
+    def check_values_pid!
+      return if @values_pid.nil? || @values_pid == Process.pid
+
+      raise ForkError,
+            "Dependencies #{@values.keys.map { |k| "'#{k}'" }.join(', ')} were built in process #{@values_pid} " \
+            "and inherited by process #{Process.pid}. Build them in each process, after the fork"
+    end
+
+    def check_injections!
+      @injections.each do |class_name, keys|
+        keys.each do |key|
+          next if @registrations.key?(key)
+
+          raise UnknownDependencyError, "#{class_name} injects '#{key}', which is not registered"
+        end
+      end
+    end
+
+    def inspect_state = @built ? '(built)' : '(open)'
+
+    def inspect_entries = @registrations.values.map(&:to_s)
 
     def check!(key)
       each_strongly_connected_component_from(key) { |component| check_component!(component) }

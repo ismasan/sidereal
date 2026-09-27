@@ -54,8 +54,15 @@ module Sidereal
         # Runs in the controller process, before the container forks any worker,
         # so each worker inherits the controller's pid and can tell whether it is
         # a forked child (and therefore has a controller to interrupt).
+        #
+        # It is also where the app is loaded when the service preloads it
+        # (+preload "boot.rb"+ in falcon.rb, run by +super+), so its code is
+        # shared by every worker. Nothing may be built here — every worker
+        # would inherit it — so builds are forbidden first; each worker builds
+        # the dependencies in {Sidereal::Host#start}.
         def start
           @controller_pid = ::Process.pid
+          Sidereal.dependencies.forbid_builds!
           super
         end
 

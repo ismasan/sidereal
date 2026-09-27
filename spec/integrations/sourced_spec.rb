@@ -182,7 +182,7 @@ RSpec.describe 'Sidereal::Commander on the Sourced runtime' do
       msg = late.new(payload: { price: CodecMoney.new(cents: 250, currency: 'GBP') })
       expect { config.store.append(msg) }.to raise_error(Sourced::Message::Codec::UnregisteredTypeError)
 
-      config.dependencies.finalize!
+      config.dependencies.build!
 
       config.store.append(msg)
       expect(Sourced.store.read_correlation_batch(msg.id).map(&:payload).map(&:price)).to eq([msg.payload.price])
@@ -247,19 +247,29 @@ RSpec.describe 'Sidereal::Commander on the Sourced runtime' do
       Sidereal::Configuration.new.use(Sidereal::Integrations::Sourced, store: Sequel.sqlite)
     end
 
-    it 'is fork-safe: a callable store yields a fresh connection when Sourced re-establishes' do
-      Sidereal::Configuration.new.use(
-        Sidereal::Integrations::Sourced,
-        store: -> { Sequel.sqlite }
-      )
-      store1 = Sourced.store
+    it 'opens a callable store when the sourced dependency builds, never at use' do
+      calls = 0
+      db = Sequel.sqlite
+      config = Sidereal::Configuration.new
+      config.use(Sidereal::Integrations::Sourced, store: -> { calls += 1; db })
+      expect(calls).to eq(0)
 
-      # Sourced.setup! re-runs the store's configure block (what the dispatcher
-      # factory does per worker) — a bare connection would be reused, a factory
-      # opens a new one.
-      Sourced.setup!
+      config.dependencies['sourced']
 
-      expect(Sourced.store).not_to be(store1)
+      expect(calls).to be_positive
+      expect(Sourced.store.db).to be(db)
+    end
+
+    it 'takes the store from a dependency named by store:, which sourced then depends on' do
+      db = Sequel.sqlite
+      config = Sidereal::Configuration.new
+      config.dependencies.register!('db') { db }
+      config.use(Sidereal::Integrations::Sourced, store: 'db')
+
+      expect(config.dependencies.inspect).to include('sourced[db]')
+      config.dependencies['sourced']
+
+      expect(Sourced.store.db).to be(db)
     end
   end
 
@@ -283,7 +293,7 @@ RSpec.describe 'Sidereal::Commander on the Sourced runtime' do
       task = double('task')
       allow(Sourced::Dispatcher).to receive(:start).with(task).and_return(:running)
 
-      config.dependencies.finalize!
+      config.dependencies.build!
       expect(Sourced.config).to be_frozen
 
       expect { Sidereal::Integrations::Sourced::Dispatcher.start(task) }.not_to raise_error

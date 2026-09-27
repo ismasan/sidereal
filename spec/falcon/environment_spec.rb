@@ -2,6 +2,8 @@
 
 require 'spec_helper'
 require 'sidereal/falcon/environment'
+require 'tmpdir'
+require 'fileutils'
 
 RSpec.describe Sidereal::Falcon::Environment::Service do
   # Records terminations instead of exiting, so the failure paths of #run can be
@@ -27,6 +29,63 @@ RSpec.describe Sidereal::Falcon::Environment::Service do
   let(:instance) { double('instance') }
   let(:listener) { double('listener', endpoint: double('bound endpoint')) }
   let(:service) { RecordingService.new(environment, evaluator) }
+
+  describe '#start, in the process that forks the workers' do
+    let(:root) { Dir.mktmpdir }
+    # Falcon's Server#start binds the endpoint before anything else: a free
+    # local port, released by #stop.
+    let(:endpoint) { Async::HTTP::Endpoint.parse('http://127.0.0.1:0') }
+    let(:evaluator) { double('evaluator', name: 'test-service', count: 1, root:, preload:, endpoint:) }
+
+    after do
+      service.stop
+      FileUtils.rm_rf(root)
+    end
+
+    context 'when it preloads the app' do
+      let(:preload) { ['boot.rb'] }
+
+      let(:boot) { "Sidereal.dependencies.register!('db') { PRELOAD_LOG << :built }\n" }
+
+      before do
+        File.write(File.join(root, 'boot.rb'), boot)
+        stub_const('PRELOAD_LOG', [])
+      end
+
+      it "loads the app's registrations there, for every worker to share, and builds none" do
+        service.start
+
+        expect(Sidereal.dependencies).to be_key('db')
+        expect(PRELOAD_LOG).to be_empty
+      end
+
+      it 'refuses to build there' do
+        service.start
+
+        expect { Sidereal.dependencies['db'] }.to raise_error(Sidereal::Dependencies::ForkError)
+      end
+
+      context 'and the app resolves a dependency while it loads' do
+        let(:boot) { super() + "Sidereal.dependencies['db']\n" }
+
+        it 'fails to start instead of handing every worker the same value' do
+          expect { service.start }.to raise_error(Sidereal::Dependencies::ForkError, /Cannot build 'db'/)
+          expect(PRELOAD_LOG).to be_empty
+        end
+      end
+    end
+
+    context 'when each worker loads the app' do
+      let(:preload) { [] }
+
+      it 'leaves the dependencies for the worker to register into and build' do
+        service.start
+
+        expect { Sidereal.dependencies.register!('db') { :db } }.not_to raise_error
+        expect(Sidereal.dependencies).not_to be_built
+      end
+    end
+  end
 
   describe 'a boot failure' do
     before { allow(Console).to receive(:error) }

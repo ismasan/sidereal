@@ -6,15 +6,15 @@ module Sidereal
   # lifecycle, so hosts (the Falcon service, tests, CLIs) don't each
   # re-implement the boot sequence.
   #
-  # {#start} is the one place that decides ordering: it finalizes the
-  # dependency container (building every singleton in this process), runs
+  # {#start} is the one place that decides ordering: it builds the
+  # dependency container (every singleton, in this process), runs
   # the boot hooks (per-process preparation registered via
   # {Sidereal::Configuration#on_boot}), locks the channels and exceptions
   # registries (boot-time registration is over) and then brings the
   # subsystems up in dependency order — elector before pubsub (the Unix
   # pubsub consults the elector for leadership), and both before the
   # dispatcher's workers begin consuming. {#stop} tears down the running
-  # dispatcher captured from +dispatcher.start+, then stops the dependencies.
+  # dispatcher captured from +dispatcher.start+, then tears down the dependencies.
   #
   # +dispatcher_process+ decides where that dispatcher runs. With +:all+
   # every process starts one at boot. With +:leader+ the factory is
@@ -50,8 +50,8 @@ module Sidereal
     #   {Sidereal::Configuration#dispatcher_process}
     # @param boot_hooks [Array<#call>] run in order by {#start}, in every
     #   process, after the dependencies; see {Sidereal::Configuration#on_boot}
-    # @param dependencies [Sidereal::Dependencies] finalized first by {#start},
-    #   stopped last by {#stop}
+    # @param dependencies [Sidereal::Dependencies] built first by {#start},
+    #   torn down last by {#stop}
     def initialize(channels:, exceptions:, elector:, pubsub:, dispatcher:, scheduler:, dispatcher_process: :all,
                    boot_hooks: [], dependencies: Dependencies.new)
       @channels = channels
@@ -66,7 +66,7 @@ module Sidereal
       @dispatcher_instance = nil
     end
 
-    # Finalize the dependencies, run the boot hooks, lock the registries,
+    # Build the dependencies, run the boot hooks, lock the registries,
     # then start every subsystem in dependency order. The captured return of
     # +dispatcher.start+ is retained for {#stop} — the dispatcher field is
     # a factory, so its +start+ yields a distinct running instance (unlike
@@ -83,7 +83,7 @@ module Sidereal
     def start(task)
       # Every singleton is built here, in this process, before anything
       # that may use one: boot hooks included.
-      @dependencies.finalize!
+      @dependencies.build!
 
       # Per-process preparation first, while the registries are still
       # open: a hook may register subscribers, and everything below
@@ -120,7 +120,7 @@ module Sidereal
     end
 
     # Stop the running dispatcher captured during {#start}, then the
-    # dependencies it may have been using (see {Dependencies#stop}). Each is
+    # dependencies it may have been using (see {Dependencies#teardown}). Each is
     # a no-op when nothing is running or built. The other
     # subsystems' fibers are children of the task passed to {#start} and
     # are torn down when that task ends, so they need no explicit stop here.
@@ -128,7 +128,7 @@ module Sidereal
     # @return [void]
     def stop
       stop_dispatcher
-      @dependencies.stop
+      @dependencies.teardown
     end
 
     private

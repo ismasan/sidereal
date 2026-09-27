@@ -219,7 +219,7 @@ module Sidereal
 
   # Process-global dependency container, {.config}'s: Sidereal's own store,
   # pubsub and elector, and whatever apps and integrations register at load
-  # time. {Host#start} finalizes it. Deployment wiring, so {.reload!} leaves it
+  # time. {Host#start} builds it. Deployment wiring, so {.reload!} leaves it
   # alone.
   #
   # @return [Dependencies]

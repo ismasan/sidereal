@@ -134,18 +134,18 @@ RSpec.describe Sidereal::Host do
     let(:dependencies) do
       log = events
       Sidereal::Dependencies.new.tap do |deps|
-        deps.register!('db') { log << [:dependency, :build]; :db }.stop { log << [:dependency, :stop] }
+        deps.register!('db') { log << [:dependency, :build] }.teardown { log << [:dependency, :teardown] }
       end
     end
 
     subject(:host) do
       Sidereal::Host.new(
         channels:, exceptions:, elector:, pubsub:, dispatcher:, scheduler:, dependencies:,
-        boot_hooks: [-> { events << [:hook, dependencies.finalized?] }]
+        boot_hooks: [-> { events << [:hook, dependencies.built?] }]
       )
     end
 
-    it 'finalizes them first, before the boot hooks and every subsystem' do
+    it 'builds them first, before the boot hooks and every subsystem' do
       host.start(task)
 
       expect(events.first(2)).to eq([[:dependency, :build], [:hook, true]])
@@ -160,11 +160,11 @@ RSpec.describe Sidereal::Host do
       expect(channels).not_to be_locked
     end
 
-    it 'stops them from #stop, after the running dispatcher' do
+    it 'tears them down from #stop, after the running dispatcher' do
       host.start(task)
       host.stop
 
-      expect(events.last(2)).to eq([[:running_dispatcher, :stop], [:dependency, :stop]])
+      expect(events.last(2)).to eq([[:running_dispatcher, :stop], [:dependency, :teardown]])
     end
   end
 

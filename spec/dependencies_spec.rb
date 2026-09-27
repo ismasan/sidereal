@@ -12,7 +12,7 @@ RSpec.describe Sidereal::Dependencies do
       expect(deps['db']).to be(deps['db'])
     end
 
-    it 'runs a transient factory on every call' do
+    it 'builds a transient on every call' do
       deps.register('conn') { Object.new }
 
       expect(deps['conn']).not_to be(deps['conn'])
@@ -43,6 +43,14 @@ RSpec.describe Sidereal::Dependencies do
       expect(deps[:store]).to eq([:store, :db])
       expect(deps).to be_key(:db)
     end
+
+    it "keeps the caller's self in the block" do
+      deps.register!('db') { caller_value }
+
+      expect(deps['db']).to eq(:from_the_caller)
+    end
+
+    def caller_value = :from_the_caller
 
     it 'builds a singleton once when fibers ask for it concurrently' do
       builds = 0
@@ -91,6 +99,16 @@ RSpec.describe Sidereal::Dependencies do
         .to raise_error(described_class::DuplicateDependencyError, "'db' is already registered. Pass override: true to replace it")
     end
 
+    it 'requires a block' do
+      expect { deps.register!('db') }.to raise_error(ArgumentError, /block that builds it/)
+    end
+
+    it 'refuses a teardown on a transient dependency' do
+      registration = deps.register('conn') { :conn }
+
+      expect { registration.teardown { |_c| } }.to raise_error(ArgumentError, /transient/)
+    end
+
     describe 'override: true' do
       it 'replaces a registration' do
         deps.register!('db') { :one }
@@ -130,54 +148,44 @@ RSpec.describe Sidereal::Dependencies do
         expect { deps.register('conn', override: true) { :two } }
           .to raise_error(described_class::ResolvedDependencyError, /'store' has already been resolved/)
       end
-
-      it 'is refused after finalize!' do
-        deps.register!('db') { :db }
-        deps.finalize!
-
-        expect { deps.register!('db', override: true) { :two } }.to raise_error(described_class::LockedError)
-      end
-    end
-
-    it 'requires a factory block' do
-      expect { deps.register!('db') }.to raise_error(ArgumentError)
     end
   end
 
-  describe '#finalize!' do
+  describe '#build!' do
     it 'builds every singleton, dependencies first, and no transient' do
       built = []
       deps.register!('store', ['db']) { built << :store }
       deps.register!('db') { built << :db }
       deps.register('conn') { built << :conn }
 
-      deps.finalize!
+      deps.build!
 
       expect(built).to eq(%i[db store])
+      expect(deps).to be_built
     end
 
     it 'locks the container' do
-      deps.finalize!
+      deps.build!
 
-      expect(deps).to be_finalized
       expect { deps.register!('db') { :db } }.to raise_error(described_class::LockedError)
+      expect { deps.register!('db', override: true) { :db } }.to raise_error(described_class::LockedError)
     end
 
     it 'is idempotent' do
       builds = 0
       deps.register!('db') { builds += 1 }
 
-      deps.finalize!
-      deps.finalize!
+      deps.build!
+      deps.build!
 
       expect(builds).to eq(1)
     end
 
-    it 'raises for a missing dependency anywhere in the graph' do
+    it 'raises for a missing dependency anywhere in the graph, without locking' do
       deps.register('store', ['db']) { |db| db }
 
-      expect { deps.finalize! }.to raise_error(described_class::UnknownDependencyError, /'db'/)
-      expect(deps).not_to be_finalized
+      expect { deps.build! }.to raise_error(described_class::UnknownDependencyError, /'db'/)
+      expect(deps).not_to be_built
     end
 
     it 'raises for a cycle anywhere in the graph' do
@@ -185,82 +193,130 @@ RSpec.describe Sidereal::Dependencies do
       deps.register('b', ['c']) { :b }
       deps.register('c', ['a']) { :c }
 
-      expect { deps.finalize! }.to raise_error(described_class::CircularDependencyError, /'a'.*'b'.*'c'|'c'.*'b'.*'a'/)
+      expect { deps.build! }.to raise_error(described_class::CircularDependencyError, /'a'.*'b'.*'c'|'c'.*'b'.*'a'/)
     end
 
     it 'raises for a key injected with #args that is not registered' do
       klass = Class.new
       klass.include deps.args('db')
 
-      expect { deps.finalize! }.to raise_error(described_class::UnknownDependencyError, /injects 'db'/)
+      expect { deps.build! }.to raise_error(described_class::UnknownDependencyError, /injects 'db'/)
     end
 
     it 'names the injecting class' do
       stub_const('GamesProjector', Class.new)
       GamesProjector.include deps.args('db')
 
-      expect { deps.finalize! }
+      expect { deps.build! }
         .to raise_error(described_class::UnknownDependencyError, "GamesProjector injects 'db', which is not registered")
     end
   end
 
-  describe '#stop' do
-    it 'runs the stop callbacks of built singletons, dependents first' do
-      stopped = []
-      deps.register!('db') { :db }.stop { |db| stopped << db }
-      deps.register!('store', ['db']) { :store }.stop { |store| stopped << store }
-      deps.register!('cache', ['store']) { :cache }.stop { |cache| stopped << cache }
-      deps.finalize!
-
-      deps.stop
-
-      expect(stopped).to eq(%i[cache store db])
+  describe 'across a fork' do
+    # Runs the block in a forked child and returns what it wrote.
+    def in_child
+      reader, writer = IO.pipe
+      pid = fork do
+        reader.close
+        writer.write(yield.to_s)
+        writer.close
+        exit!(0)
+      end
+      writer.close
+      Process.wait(pid)
+      reader.read
     end
 
-    it 'stops only what was built' do
-      stopped = []
-      deps.register!('db') { :db }.stop { |db| stopped << db }
-      deps.register!('unused') { :unused }.stop { |v| stopped << v }
+    it 'refuses to build in the process that forbade builds' do
+      deps.register!('db') { :db }
+      deps.forbid_builds!
+
+      expect { deps['db'] }.to raise_error(described_class::ForkError, /Cannot build 'db' in the process that forks/)
+      expect { deps.build! }.to raise_error(described_class::ForkError)
+    end
+
+    it 'still accepts registrations in the process that forbade builds' do
+      deps.forbid_builds!
+
+      expect { deps.register!('db') { :db } }.not_to raise_error
+    end
+
+    it 'builds in a child of the process that forbade builds' do
+      deps.register!('db') { :db }
+      deps.forbid_builds!
+
+      expect(in_child { deps.build!['db'] }).to eq('db')
+    end
+
+    it 'refuses values a parent built and a child inherited' do
+      deps.register!('db') { Object.new }
       deps['db']
 
-      deps.stop
+      message = in_child do
+        deps['db']
+        'used'
+      rescue described_class::ForkError => e
+        e.message
+      end
 
-      expect(stopped).to eq([:db])
+      expect(message).to match(/'db' were built in process #{Process.pid} and inherited/)
+    end
+  end
+
+  describe '#teardown' do
+    it 'runs the teardowns of built singletons, dependents first' do
+      torn = []
+      deps.register!('db') { :db }.teardown { |db| torn << db }
+      deps.register!('store', ['db']) { :store }.teardown { |store| torn << store }
+      deps.register!('cache', ['store']) { :cache }.teardown { |cache| torn << cache }
+      deps.build!
+
+      deps.teardown
+
+      expect(torn).to eq(%i[cache store db])
     end
 
-    it 'has a no-op callback by default' do
+    it 'tears down only what was built' do
+      torn = []
+      deps.register!('db') { :db }.teardown { |db| torn << db }
+      deps.register!('unused') { :unused }.teardown { |v| torn << v }
+      deps['db']
+
+      deps.teardown
+
+      expect(torn).to eq([:db])
+    end
+
+    it 'skips singletons without a teardown' do
       deps.register!('db') { :db }
-      deps.finalize!
+      deps.build!
 
-      expect { deps.stop }.not_to raise_error
+      expect { deps.teardown }.not_to raise_error
     end
 
-    it 'keeps stopping the rest when a callback raises' do
-      stopped = []
-      deps.register!('db') { :db }.stop { |db| stopped << db }
-      deps.register!('store', ['db']) { :store }.stop { raise 'boom' }
-      deps.finalize!
+    it 'keeps tearing down the rest when a teardown raises' do
+      torn = []
+      deps.register!('db') { :db }.teardown { |db| torn << db }
+      deps.register!('store', ['db']) { :store }.teardown { raise 'boom' }
+      deps.build!
 
-      deps.stop
+      deps.teardown
 
-      expect(stopped).to eq([:db])
+      expect(torn).to eq([:db])
     end
 
-    it 'is idempotent' do
-      stops = 0
-      deps.register!('db') { :db }.stop { stops += 1 }
-      deps.finalize!
+    it 'is idempotent, and lets a later build! build afresh' do
+      teardowns = 0
+      deps.register!('db') { Object.new }.teardown { teardowns += 1 }
+      deps.build!
+      first = deps['db']
 
-      deps.stop
-      deps.stop
+      deps.teardown
+      deps.teardown
+      deps.build!
 
-      expect(stops).to eq(1)
-    end
-
-    it 'refuses a stop callback on a transient dependency' do
-      registration = deps.register('conn') { :conn }
-
-      expect { registration.stop { |_c| } }.to raise_error(ArgumentError, /transient/)
+      expect(teardowns).to eq(1)
+      expect(deps['db']).not_to be(first)
     end
   end
 
@@ -278,11 +334,11 @@ RSpec.describe Sidereal::Dependencies do
       expect(deps.inspect).to eq('#<Sidereal::Dependencies (open) dispatcher[db, logger] logger[printer] printer db>')
     end
 
-    it 'says when the container is finalized' do
+    it 'says when the container is built' do
       deps.register!('db') { :db }
-      deps.finalize!
+      deps.build!
 
-      expect(deps.inspect).to eq('#<Sidereal::Dependencies (finalized) db>')
+      expect(deps.inspect).to eq('#<Sidereal::Dependencies (built) db>')
     end
 
     it 'pretty-prints one dependency per line when they do not fit on one' do
@@ -296,11 +352,11 @@ RSpec.describe Sidereal::Dependencies do
       TEXT
     end
 
-    it "shows a registration with its factory's location" do
-      registration = deps.register!('db', []) { :db }
+    it "shows a registration with its block's location" do
+      registration = deps.register!('db', ['conn']) { :db }
 
       expect(registration.inspect)
-        .to eq(%(#<Sidereal::Dependencies::Registration register!("db") at #{__FILE__}:#{__LINE__ - 3}>))
+        .to eq(%(#<Sidereal::Dependencies::Registration register! db[conn] at #{__FILE__}:#{__LINE__ - 3}>))
     end
   end
 
