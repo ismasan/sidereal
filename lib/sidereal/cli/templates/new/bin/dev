@@ -4,8 +4,8 @@
 #
 # Runs `falcon host` and, whenever a Ruby or config file changes, sends SIGHUP
 # to the Falcon controller. Falcon then forks fresh workers, each of which
-# loads config.ru -> boot.rb from scratch, so changes to system/, web/ and gems
-# are all picked up. The controller keeps the port; browsers reconnect their
+# loads config.ru -> boot.rb from scratch, so changes to config/, system/,
+# web/ and gems are all picked up. The controller keeps the port; browsers reconnect their
 # SSE streams and catch up on connect.
 #
 # Reloads run one at a time: a SIGHUP that arrives while Falcon is still
@@ -21,7 +21,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-WATCH_PATHS=(boot.rb config.ru falcon.rb system web)
+WATCH_PATHS=(boot.rb config.ru falcon.rb config system web)
 
 # Open SSE streams never finish on their own, so old workers wait out the whole
 # graceful stop timeout (10s by default) before they're killed. Keep it short.
