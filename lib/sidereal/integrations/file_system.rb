@@ -16,7 +16,9 @@
 #     c.use Sidereal::Integrations::FileSystem, dir: 'tmp'
 #   end
 #
-# Override any individual collaborator afterward:
+# Each is registered in {Sidereal::Configuration#dependencies} and built when
+# first resolved (at the latest by {Sidereal::Host#start}), so override any
+# individual collaborator afterward:
 #
 #   c.use_file_system!
 #   c.store = Sourced.config.store   # keep the filesystem pubsub + elector
@@ -35,9 +37,18 @@ module Sidereal
       # @param dir [String] base directory for store files, socket, and lock
       # @return [Sidereal::Configuration]
       def self.setup(config, dir: 'storage')
-        config.store   = Store::FileSystem.new(root: File.join(dir, 'store'))
-        config.pubsub  = PubSub::Unix.new(socket_path: File.join(dir, 'pubsub.sock'))
-        config.elector = Elector::FileSystem.new(lock_path: File.join(dir, 'leader.lock'))
+        deps = config.dependencies
+        deps.register!('sidereal.store', override: true) do
+          Store::FileSystem.new(root: File.join(dir, 'store'))
+        end
+        deps.register!('sidereal.elector', override: true) do
+          Elector::FileSystem.new(lock_path: File.join(dir, 'leader.lock'))
+        end
+        # The broker role follows whichever elector is registered when the
+        # pubsub is built, including one that replaces this one.
+        deps.register!('sidereal.pubsub', ['sidereal.elector'], override: true) do |elector|
+          PubSub::Unix.new(socket_path: File.join(dir, 'pubsub.sock'), elector:)
+        end
         config
       end
     end

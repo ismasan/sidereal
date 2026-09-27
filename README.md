@@ -941,17 +941,145 @@ redirect '/new-path'              # 301 by default
 redirect '/new-path', status: 302 # temporary redirect
 ```
 
+## Dependencies
+
+`Sidereal.dependencies` is a container for the resources an app sets up at boot — a database connection, an API client — and for Sidereal's own services. Register them in `config/dependencies/*.rb`, loaded from `boot.rb`:
+
+```ruby
+# config/dependencies/db.rb
+require 'sequel'
+
+Sidereal.dependencies.register!('db') do
+  Sequel.sqlite(ENV.fetch('DB_PATH'))
+end.teardown do |db|
+  db.disconnect
+end
+```
+
+```ruby
+# config/dependencies/repos.rb
+Sidereal.dependencies.register!('repos.orders', ['db', 'logger']) do |db, logger|
+  OrdersRepo.new(db, logger:)
+end
+```
+
+```ruby
+# boot.rb
+Dir[File.join(__dir__, 'config/dependencies/*.rb')].sort.each { |f| require f }
+```
+
+- **`register!`** registers a singleton, built once per process and reused. **`register`** registers a transient dependency, built again on every lookup.
+- A dependency names the keys it needs; its block receives their values in that order and returns its own. Registrations can come in any order, because nothing is built until something asks for a value.
+- **`.teardown { |value| ... }`** releases a singleton at shutdown.
+- `require`s belong at the top of the file, outside the block: they run as the file loads, which is shared by every worker when the app is [preloaded](#preload-vs-lazy-loading-production).
+
+Look a value up with `Sidereal.dependencies['repos.orders']`, which builds `'db'` and `'logger'` first if they haven't been built.
+
+### Lifecycle
+
+`Sidereal::Host#start` calls **`Sidereal.dependencies.build!`** before anything else, in every process, leader or follower. It checks the graph — a missing key, a cycle, or a class injecting an unregistered key fails the boot — builds every singleton in dependency order, and locks the container against further registration. Anything a process needs set up, whatever its role, belongs here. Building happens while the channel and exception registries are still open, so a dependency's block can register an exception subscriber:
+
+```ruby
+Sidereal.dependencies.register!('error_reporter') do
+  client = ErrorReporter::Client.new(ENV.fetch('ERROR_REPORTER_KEY'))
+  Sidereal.exceptions.on_failure { |report| client.notify(report.exception) }
+  client
+end
+```
+
+`Sidereal::Host#stop` calls **`teardown`**, which runs the teardowns of the singletons built in that process, dependents before their dependencies.
+
+Outside a host — specs, rake tasks, a console — lookups build what they need on demand, or call `Sidereal.dependencies.build!` to build everything.
+
+Values are never shared across processes. The Falcon controller, which forks the workers, refuses to build anything (`Sidereal::Dependencies::ForkError`), and a value built in one process raises the same error if another process tries to use it.
+
+### Injecting dependencies into classes
+
+`args` adds keyword arguments to a class's constructor, defaulting to the container's values, with a reader for each:
+
+```ruby
+class OrdersProjector < Sourced::Projector::StateStored
+  include Sidereal.dependencies.args('db')
+
+  sync do |state:, **|
+    db[:orders].insert_conflict(:replace).insert(state)
+  end
+end
+
+OrdersProjector.new(partition_values)            # db: Sidereal.dependencies['db']
+OrdersProjector.new(partition_values, db: test_db)
+```
+
+- The keyword is the key's last segment (`'sourced.store'` → `store:`). A hash renames it: `args('sourced.store' => 'events')`.
+- Several `include`s add up, and every other argument reaches the class's own `initialize` untouched — it doesn't need to call `super` — so classes that frameworks instantiate themselves, like Sourced's reactors, work unchanged.
+- Defaults are looked up each time an object is created, so a class can be defined before its dependencies are registered.
+
+`Sidereal::Deps` is class-level shorthand for the same thing — `dep` is `include Sidereal.dependencies.args(...)`:
+
+```ruby
+class OrdersProjector < Sourced::Projector::StateStored
+  extend Sidereal::Deps
+
+  dep :db
+  dep 'sourced.store' => 'events'
+end
+```
+
+A name the class already has is refused, since the reader would replace it — alias it instead (`dep 'store' => 'orders_store'`).
+
+Commanders extend it already, and with the [Sourced integration](#using-sourced-as-a-backend) loaded so do `Sourced::Decider` and `Sourced::Projector`, so their handlers can use what they declare:
+
+```ruby
+class Orders < Sidereal::Commander
+  dep 'repos.orders' => 'orders'
+
+  command PlaceOrder do |cmd|
+    orders.insert(cmd.payload)
+  end
+end
+```
+
+On an App, `dep` reaches both kinds of handler: `handle` blocks, which run on the app for each request, and `command` blocks, which run on its commander:
+
+```ruby
+class ShopApp < Sidereal::App
+  dep 'repos.orders' => 'orders'
+
+  handle PlaceOrder do |cmd|
+    halt 422 if orders.duplicate?(cmd.payload)
+    dispatch cmd
+  end
+
+  command PlaceOrder do |cmd|
+    orders.insert(cmd.payload)
+  end
+end
+```
+
+Commanders added with `commands` declare their own, and an App subclass has a commander of its own, so it declares again what its `command` blocks use.
+
+### Sidereal's own services
+
+The store, pubsub and elector are registered as `'sidereal.store'`, `'sidereal.pubsub'` and `'sidereal.elector'`. `Sidereal.store` and friends read them, and `c.store = ...` and the other [setters](#custom-backends) replace them. To replace one with something built from other dependencies, register it with `override: true`:
+
+```ruby
+Sidereal.dependencies.register!('sidereal.store', ['db'], override: true) do |db|
+  MyStore.new(db)
+end
+```
+
+A key registers once: registering it again without `override: true` raises. An override is refused once the key, or anything built from it, has been resolved (whatever holds the old value would keep it), and every registration is refused after `build!`.
+
 ## Running with Falcon
 
 Sidereal is designed to run on [Falcon](https://github.com/socketry/falcon), which provides the async fiber runtime needed for SSE streaming and concurrent command processing.
 
-Create a `falcon.rb` file:
+Create a `falcon.rb` file. It requires only the environment: each worker loads the app itself through `config.ru` (see [Preload vs lazy loading](#preload-vs-lazy-loading-production)).
 
 ```ruby
 #!/usr/bin/env falcon-host
 # frozen_string_literal: true
 
-require_relative 'app'
 require 'sidereal/falcon/environment'
 
 service "my-app" do
@@ -979,9 +1107,9 @@ end
 
 ### Preload vs lazy loading (production)
 
-Falcon forks one worker per core (`count` defaults to the CPU count), and **where you load your app decides how fork-unsafe resources — DB connections, Sourced reactors — are handled across the fork:**
+Falcon forks worker processes (`count`, which defaults to the CPU count). **Where the app loads decides what the workers share, and what a zero-downtime restart picks up.** Whichever you choose, every worker builds its own connections: Sidereal builds [dependencies](#dependencies) in each worker, when it boots.
 
-- **Lazy (recommended default).** If `falcon.rb` requires *only* the environment (not the app), the controller never loads your app; each worker loads `config.ru` → `boot.rb` in its own process. Connections are opened **fresh per worker**, so nothing is stale and there's nothing to reconnect.
+- **Lazy (default).** `falcon.rb` requires only the environment, and each worker loads `config.ru` → `boot.rb` in its own process. Nothing of the app is shared across workers, and Falcon's zero-downtime restart (`SIGHUP`), which forks a fresh set of workers, loads the new code from disk — so `HUP` deploys work.
 
   ```ruby
   # falcon.rb — lazy: the app loads per worker via config.ru
@@ -994,18 +1122,31 @@ Falcon forks one worker per core (`count` defaults to the CPU count), and **wher
   end
   ```
   ```ruby
-  # config.ru — loads boot.rb (and its connections) inside each worker
+  # config.ru — loads boot.rb inside each worker
   require_relative 'boot'
   run MyApp
   ```
 
-- **Preload (opt-in).** If you `require_relative 'app'` in `falcon.rb` (as the example above does) — or use Falcon's `--preload` / the `:preload` Bundler group — the app loads **once in the controller** before forking. That saves memory via copy-on-write and speeds up worker boot, but workers then **inherit** the controller's DB connections, which are not fork-safe. You must re-establish them per worker, exactly the `on_worker_boot` reconnection you'd wire up under Puma's `preload_app!`. `c.on_boot { ... }` (see [Custom backends](#custom-backends)) is the place: it runs in every worker before anything starts, and the Sourced integration already registers `Sourced.setup!` there.
+- **Preload gems.** Gems in a `:preload` Bundler group are required by Falcon's controller, which then compacts its heap (`Process.warmup`), so workers forked from it share them copy-on-write. App code still loads per worker, and `HUP` deploys still work. As async-service implements it, the warm-up runs after the first workers have started, so it is the workers forked by later restarts that benefit.
 
-Either way Falcon already warms up **gems** in the controller (`Bundler.require(:preload)` + GC compaction) for copy-on-write efficiency, so the lazy model still shares gem memory across workers — only your app and its connections load per worker. For an in-memory backend the distinction doesn't matter; it only bites when a backend (like Sourced) holds a real, fork-unsafe connection.
+- **Preload the app (opt-in).** `preload "boot.rb"` in the service block loads the app once in the controller, before forking: code, classes and compiled codecs are shared copy-on-write, and workers boot faster. Two things to know:
+  - **Deploys need a full restart.** A `HUP` forks new workers from the controller, which still holds the code it loaded at start. Restart `falcon host` (or switch instances in front of it) to pick up new code.
+  - **Nothing fork-unsafe may be opened while the app loads.** The controller refuses to build dependencies — an app that resolves one while it loads fails at boot with `Sidereal::Dependencies::ForkError` instead of handing every worker the same connection. A connection opened *outside* the container can't be caught, though: keep them in dependencies rather than, say, `Sourced.configure { |c| c.store = Sequel.sqlite(...) }` or a `Sequel::Model` that reads its schema when defined. Preload through `preload`, not by requiring the app from `falcon.rb`, which runs before that check is in place.
+
+  ```ruby
+  service "my-app" do
+    include Sidereal::Falcon::Environment
+    include Falcon::Environment::Rackup
+    url "http://localhost:9292"
+    preload "boot.rb"   # everything the app needs; config.ru then just requires it
+  end
+  ```
+
+For an in-memory backend the distinction hardly matters; it bites when a backend holds a real, fork-unsafe connection.
 
 ### Custom backends
 
-The store, pubsub, and dispatcher are configurable. By default Sidereal uses in-memory implementations, but you can swap them out:
+The store, pubsub, elector and dispatcher are configurable. By default Sidereal uses in-memory implementations, but you can swap them out:
 
 ```ruby
 Sidereal.configure do |c|
@@ -1015,7 +1156,7 @@ Sidereal.configure do |c|
 end
 ```
 
-A custom store must respond to `#append(message)`. A custom dispatcher must respond to `.start(task)` (class-level) and `#stop`.
+A custom store must respond to `#append(message)`. A custom dispatcher must respond to `.start(task)` (class-level) and `#stop`. The store, pubsub and elector are [dependencies](#sidereals-own-services) (`'sidereal.store'` and so on) — the setters above replace them, and a replacement that needs other dependencies, such as the app's database, is registered directly.
 
 **Which process runs the dispatcher.** `c.dispatcher_process` is `:all` by default: every process starts a dispatcher at boot. Set it to `:leader` and only the process holding `Sidereal.elector` starts one — the same rule the [Scheduler](#multi-process-only-the-leader-runs-the-scheduler) follows. The dispatcher is stopped if that process is demoted, and the next leader starts its own. Web requests keep appending commands from every process; only the consuming side is pinned. That is the right shape for a backend that serializes writers (Sourced on SQLite, where the [Sourced integration](#using-sourced-as-a-backend) sets it for you): reads scale across workers while handler and projection writes come from one.
 
@@ -1027,14 +1168,6 @@ end
 ```
 
 With the default `Elector::AlwaysLeader` every process is leader, so the two modes coincide. A dispatcher that fails to start on a *later* promotion (after a failover) is logged by the elector's callback guard rather than failing the boot, since promotion happens after boot.
-
-**Per-process boot hooks.** `c.on_boot { ... }` registers a block that `Sidereal::Host#start` runs in **every** process, leader or follower, before the registries lock and before any subsystem starts. Pinning the dispatcher to the leader means the other workers never run the dispatcher's start path, yet they still serve requests and append commands, so anything a process needs regardless of its role belongs here: opening a fork-unsafe connection, installing tables, compiling a serializer. Hooks run in registration order; one that raises fails the boot. Integrations register their own through the `config` they receive in `setup` — the Sourced integration registers `Sourced.setup!` this way.
-
-```ruby
-Sidereal.configure do |c|
-  c.on_boot { MyDatabase.connect! }
-end
-```
 
 **Multi-process shortcut.** `c.use_file_system!` switches the store, pubsub, **and** elector to their filesystem / unix-socket implementations in one call — the combination needed to run across multiple Falcon workers on one host (a shared on-disk queue, a unix-socket pubsub broker, and file-lock leader election). Files and the socket live under `dir:` (default `./storage`, relative to the working directory). Override any individual collaborator afterward:
 
@@ -1481,39 +1614,40 @@ Commands are processed asynchronously by worker fibers. The browser never waits 
 
 ### Setup
 
-Require the Sourced integration, then point Sidereal at Sourced's store and dispatcher:
+Require the Sourced integration, register the database as a [dependency](#dependencies), then point Sidereal at Sourced's store and dispatcher:
 
 ```ruby
+require 'sequel'
 require 'sidereal'
 require 'sidereal/integrations/sourced'
 
-# Configure Sourced with a SQLite database
-Sourced.configure do |c|
-  c.store = Sequel.sqlite('db/app.db')
-end
+Sidereal.dependencies.register!('db') do
+  Sequel.sqlite('db/app.db')
+end.teardown(&:disconnect)
 
-# Point Sidereal at Sourced's store and dispatcher
 Sidereal.configure do |c|
   # Use file-system version of pubsub, elector
   c.use_file_system!
-  # Use Sourced as message store and dispatcher
-  c.use Sidereal::Integrations::Sourced
+  # Use Sourced as message store and dispatcher, on the 'db' connection
+  c.use Sidereal::Integrations::Sourced, store: 'db'
 end
 ```
 
 `c.use Sidereal::Integrations::Sourced` wires several things for you:
 
-- **Store + dispatcher** — Sourced becomes Sidereal's message store and dispatcher. Sidereal Commanders (`command` / `handle`) also register as Sourced reactors, so they run on the same runtime alongside your Deciders and Projectors. Instead of configuring `Sourced.configure { ... }` yourself, you can let the integration do it — pass a **callable** store so each forked worker opens its own connection:
+- **Store + dispatcher** — Sourced becomes Sidereal's message store and dispatcher. Sidereal Commanders (`command` / `handle`) also register as Sourced reactors, so they run on the same runtime alongside your Deciders and Projectors. `store:` sets Sourced's store in each worker: a **dependency key** (as above — the same connection your own classes can inject), or a **callable**:
 
   ```ruby
   c.use Sidereal::Integrations::Sourced, store: -> { Sequel.sqlite('db/app.db') }
   ```
 
+  Without `store:`, the integration uses whatever you configured with `Sourced.configure` — which opens its connection while the app loads, so avoid it if you [preload the app](#preload-vs-lazy-loading-production).
+
 - **Auto-publish to PubSub** — Deciders' emitted events and Projectors' updates are published to Sidereal's PubSub automatically (see [Auto-publish](#auto-publish) below), so Pages re-render over SSE with no hand-written bridge code in your reactors.
 - **Error toasts / reporting** — Sourced's retry and terminal-failure events are reported to `Sidereal.exceptions`, so the [default error toasts](#default-dev-ui-error-toasts) appear and any `on_retry` / `on_failure` / `on_fatal` subscribers (e.g. an APM hook) fire. When Sourced is the dispatcher it owns retry/fail orchestration, so Sidereal's *automatic* exception reporting doesn't run — this bridge is what surfaces failures in the UI.
 - **Leader-only runtime** — the integration sets `c.dispatcher_process = :leader` (see [Custom backends](#custom-backends)), so only the elected process runs the Sourced runtime — commanders, deciders and projectors. SQLite serializes writers, so N runtimes on N workers would queue on each other; with one, the other workers serve pages and queries in parallel. Every worker still appends commands (a form post appends from whichever worker served it); it is the claiming, handling and projecting that runs in one place. Set `c.dispatcher_process = :all` after `use` to run a runtime on every worker again.
 - **Cross-process wake-ups** — Sourced's store announces appends through a notifier that its dispatcher listens on, so a worker picks new messages up at once rather than on the next catch-up poll. Sourced's default notifier is in-process, which a leader-only runtime would defeat: an append on another worker would wait for the poll. The integration configures Sourced with `Sidereal::Integrations::Sourced::Notifier`, which carries those announcements over `Sidereal.pubsub` — with the unix-socket pubsub, an append on any worker wakes the leader immediately. Appends made outside an Async reactor (a rake task calling `Sidereal.dispatch!`) cannot reach the socket and fall back to the catch-up poll, which stays the safety net in every case.
-- **Per-process setup** — the integration registers a boot hook (`c.on_boot`, see [Custom backends](#custom-backends)) that calls `Sourced.setup!` and recompiles the store's message codec; `Sidereal::Host#start` runs it in every process before anything starts. Only the leader runs the runtime, but every worker appends, so every worker needs Sourced's store ready: its connection open, its tables installed and its codec compiled against every message type the app defines (`Sourced.configure` compiles it earlier, in `boot.rb`, before the app's types exist). Under the default Falcon setup each worker loads `boot.rb` in its own process, so a callable store (or a per-worker `Sourced.configure`) opens a fresh SQLite connection per worker and nothing is inherited across the fork; under `--preload` the same hook re-establishes the connection per worker, with no reconnection step to wire up yourself (see [Preload vs lazy loading](#preload-vs-lazy-loading-production)). `Sourced.setup!` freezes Sourced's configuration, so it runs once per process: the hook is that one call. A process without a Host, such as a rake task calling `Sidereal.dispatch!`, does the same itself, once, after its app has loaded: `Sourced.setup!` followed by `Sourced.store.message_codec.recompile!`.
+- **Per-process setup** — the integration registers a `'sourced'` [dependency](#dependencies) whose block sets Sourced's store from `store:`, calls `Sourced.setup!` and recompiles the store's message codec. `Sidereal::Host#start` builds it in every process before anything starts. Only the leader runs the runtime, but every worker appends, so every worker needs Sourced's store ready: its connection open, its tables installed and its codec compiled against every message type the app defines (`Sourced.configure` compiles it earlier, while `boot.rb` loads, before the app's types exist). Because the store is set up there and never while the app loads, each worker opens its own connection, preloaded or not. `Sourced.setup!` freezes Sourced's configuration, so it runs once per process: the dependency is that one call. A process without a Host, such as a rake task, resolves it itself after loading the app: `Sidereal.dependencies['sourced']`.
 
 > **Multi-process:** `use_file_system!` (cross-process pubsub + file-lock election) is required whenever you run more than one worker — otherwise the in-process pubsub/elector can't fan SSE updates across processes. If you start multiple workers with the default in-process subsystems, Sidereal **refuses to boot** with a loud error telling you to add it (see [Running with Falcon](#running-with-falcon)).
 
@@ -1638,7 +1772,6 @@ The standard Sidereal Falcon environment works with Sourced -- it uses the confi
 
 ```ruby
 #!/usr/bin/env falcon-host
-require_relative 'app'
 require 'sidereal/falcon/environment'
 
 service "my-app" do

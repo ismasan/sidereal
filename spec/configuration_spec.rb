@@ -25,6 +25,48 @@ RSpec.describe Sidereal::Configuration do
     end
   end
 
+  describe '#dependencies' do
+    subject(:config) { described_class.new }
+
+    it 'registers the default store, pubsub and elector' do
+      expect(config.dependencies['sidereal.store']).to be(Sidereal::Store::Memory.instance)
+      expect(config.dependencies['sidereal.pubsub']).to be(Sidereal::PubSub::Memory.instance)
+      expect(config.dependencies['sidereal.elector']).to be_a(Sidereal::Elector::AlwaysLeader)
+    end
+
+    it 'is what the readers resolve and the setters override' do
+      store = double('store', append: nil)
+      config.store = store
+
+      expect(config.dependencies['sidereal.store']).to be(store)
+      expect(config.store).to be(store)
+    end
+
+    it 'can be overridden directly, built from other dependencies' do
+      config.dependencies.register!('db') { :db }
+      config.dependencies.register!('sidereal.store', ['db'], override: true) do |db|
+        double('store', append: db)
+      end
+
+      expect(config.store.append).to eq(:db)
+    end
+
+    it 'refuses a setter once the service has been resolved' do
+      config.store
+
+      expect { config.store = double('store', append: nil) }
+        .to raise_error(Sidereal::Dependencies::ResolvedDependencyError)
+    end
+
+    it 'still validates what a setter is given' do
+      expect { config.store = Object.new }.to raise_error(Plumb::ParseError)
+    end
+
+    it 'is the container Sidereal.dependencies returns' do
+      expect(Sidereal.dependencies).to be(Sidereal.config.dependencies)
+    end
+  end
+
   describe '#single_process_subsystems' do
     # Cross-process-safe stand-ins: satisfy the config interfaces but carry no
     # SingleProcess marker (like the Unix pubsub / FileSystem elector+store).

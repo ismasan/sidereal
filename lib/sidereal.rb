@@ -32,44 +32,40 @@ module Sidereal
 
   class Configuration
     attr_accessor :workers
-    attr_reader :store, :pubsub, :dispatcher, :elector, :dispatcher_process, :boot_hooks
+    # The container the store, pubsub and elector live in, as +'sidereal.store'+,
+    # +'sidereal.pubsub'+ and +'sidereal.elector'+, next to whatever the app and
+    # integrations register. {Sidereal.dependencies} is this container.
+    #
+    # @return [Dependencies]
+    attr_reader :dependencies
+    attr_reader :dispatcher, :dispatcher_process
 
-    def initialize(workers: 25)
+    # @param dependencies [Dependencies] the container to register the default
+    #   store, pubsub and elector into
+    def initialize(workers: 25, dependencies: Dependencies.new)
       @workers = workers
-      @pubsub = PubSub::Memory.instance
-      @store = Store::Memory.instance
+      @dependencies = dependencies
       @dispatcher = Sidereal::Dispatcher
-      @elector = Elector::AlwaysLeader.new
       @dispatcher_process = :all
-      @boot_hooks = []
+      dependencies.register!('sidereal.store') { Store::Memory.instance }
+      dependencies.register!('sidereal.pubsub') { PubSub::Memory.instance }
+      dependencies.register!('sidereal.elector') { Elector::AlwaysLeader.new }
     end
 
-    # Register a block to run in every process at boot, before any subsystem
-    # starts. {Sidereal::Host#start} runs the hooks in registration order,
-    # once per process, so this is where an integration prepares per-process
-    # state that every role needs — a web worker that only appends as much as
-    # the leader that consumes: opening a fork-unsafe connection, compiling a
-    # serializer, installing tables.
-    #
-    #   Sidereal.configure do |c|
-    #     c.on_boot { Sourced.setup! }
-    #   end
-    #
-    # @yield the hook; its return value is ignored
-    # @return [self]
-    def on_boot(&block)
-      raise ArgumentError, 'on_boot requires a block' unless block
+    def store = @dependencies['sidereal.store']
+    def pubsub = @dependencies['sidereal.pubsub']
+    def elector = @dependencies['sidereal.elector']
 
-      @boot_hooks << block
-      self
-    end
-
+    # Replace +'sidereal.store'+ with an instance built elsewhere. To build it
+    # from other dependencies, register the key with +override: true+ instead.
     def store=(s)
-      @store = StoreWriterInterface.parse(s)
+      s = StoreWriterInterface.parse(s)
+      @dependencies.register!('sidereal.store', override: true) { s }
     end
 
     def pubsub=(p)
-      @pubsub = PubsubInterface.parse(p)
+      p = PubsubInterface.parse(p)
+      @dependencies.register!('sidereal.pubsub', override: true) { p }
     end
 
     def dispatcher=(d)
@@ -77,7 +73,8 @@ module Sidereal
     end
 
     def elector=(e)
-      @elector = ElectorInterface.parse(e)
+      e = ElectorInterface.parse(e)
+      @dependencies.register!('sidereal.elector', override: true) { e }
     end
 
     # Which process runs the configured {#dispatcher}:
@@ -141,7 +138,7 @@ module Sidereal
     #
     # @return [Array<String>] e.g. +["pubsub", "elector"]+
     def single_process_subsystems
-      { 'store' => @store, 'pubsub' => @pubsub, 'elector' => @elector }
+      { 'store' => store, 'pubsub' => pubsub, 'elector' => elector }
         .select { |_, impl| impl.is_a?(SingleProcess) }
         .keys
     end
@@ -149,6 +146,13 @@ module Sidereal
 
   def self.config
     @config ||= Configuration.new
+  end
+
+  # Drop {.config}, and with it {.dependencies}: the next access builds fresh
+  # defaults. For specs, which need each example to start from unwired services;
+  # {.reload!} deliberately keeps both.
+  def self.reset_config!
+    @config = nil
   end
 
   # Yield the process-global {.config} to a block. Apps call this once at
@@ -178,10 +182,10 @@ module Sidereal
   # is the hook a development-mode class reloader would use, so a redefined
   # commander or message type doesn't leave the previous one registered.
   #
-  # {.config} is deliberately untouched. It holds deployment wiring — an open
-  # store, a connected pubsub, an elected leader — none of which is derived from
-  # app classes, and all of which would be expensive and disruptive to rebuild
-  # every time code changes.
+  # {.config} and {.dependencies} are deliberately untouched. They hold
+  # deployment wiring — an open store, a connected pubsub, an elected leader, a
+  # database connection — none of which is derived from app classes, and all of
+  # which would be expensive and disruptive to rebuild every time code changes.
   #
   # @return [self]
   def self.reload!
@@ -191,6 +195,14 @@ module Sidereal
     reset_message_codec!
     self
   end
+
+  # Process-global dependency container, {.config}'s: Sidereal's own store,
+  # pubsub and elector, and whatever apps and integrations register at load
+  # time. {Host#start} builds it. Deployment wiring, so {.reload!} leaves it
+  # alone.
+  #
+  # @return [Dependencies]
+  def self.dependencies = config.dependencies
 
   def self.scheduler
     @scheduler ||= Scheduler.new
@@ -323,7 +335,7 @@ module Sidereal
       dispatcher:,
       scheduler:,
       dispatcher_process: config.dispatcher_process,
-      boot_hooks: config.boot_hooks
+      dependencies:
     )
   end
 
@@ -388,6 +400,8 @@ require_relative 'sidereal/registry'
 require_relative 'sidereal/dispatcher'
 require_relative 'sidereal/elector'
 require_relative 'sidereal/scheduler'
+require_relative 'sidereal/dependencies'
+require_relative 'sidereal/deps'
 require_relative 'sidereal/host'
 require_relative 'sidereal/app'
 require_relative 'sidereal/components/command'

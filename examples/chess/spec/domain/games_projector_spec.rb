@@ -5,10 +5,12 @@ require 'spec_helper'
 RSpec.describe GamesProjector do
   include Sourced::Testing::RSpec
 
-  let(:test_db) { Sequel.sqlite }
+  # The in-memory database config/dependencies/db.rb registers in TEST, which
+  # the projector's injected db: defaults to. Recreated per example.
+  let(:test_db) { Sidereal.dependencies['db'] }
 
   before do
-    test_db.create_table(:games) do
+    test_db.create_table!(:games) do
       String :game_id, primary_key: true
       String :white_username, null: false
       String :black_username
@@ -18,8 +20,6 @@ RSpec.describe GamesProjector do
       Integer :move_count, default: 0, null: false
       String :created_at, null: false
     end
-
-    allow(Sourced).to receive_message_chain(:store, :db).and_return(test_db)
   end
 
   let(:game_id) { 'game-1' }

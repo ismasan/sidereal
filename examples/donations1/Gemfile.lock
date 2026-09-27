@@ -5,12 +5,12 @@ PATH
       async
       brotli
       datastar (~> 1.0.6)
-      fugit
       phlex
       plumb (~> 0.3)
       rack (~> 3)
       rack-session
       sourced-message (>= 0.3.0)
+      tsort
 
 GEM
   remote: https://rubygems.org/
@@ -222,4 +222,4 @@ CHECKSUMS
   zeitwerk (2.7.5) sha256=d8da92128c09ea6ec62c949011b00ed4a20242b255293dd66bf41545398f73dd
 
 BUNDLED WITH
-  4.0.8
+  4.0.21

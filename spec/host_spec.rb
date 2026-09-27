@@ -100,33 +100,55 @@ RSpec.describe Sidereal::Host do
     end
   end
 
-  describe 'boot hooks' do
-    subject(:host) do
-      Sidereal::Host.new(
-        channels:, exceptions:, elector:, pubsub:, dispatcher:, scheduler:,
-        boot_hooks: [
-          -> { events << [:hook, :one, { channels_locked: channels.locked? }] },
-          -> { events << [:hook, :two] }
-        ]
-      )
+  describe 'dependencies' do
+    let(:dependencies) do
+      log = events
+      Sidereal::Dependencies.new.tap do |deps|
+        deps.register!('db') { log << [:dependency, :build] }.teardown { log << [:dependency, :teardown] }
+      end
     end
 
-    it 'runs them in order, before the registries lock and before any subsystem starts' do
+    subject(:host) do
+      Sidereal::Host.new(channels:, exceptions:, elector:, pubsub:, dispatcher:, scheduler:, dependencies:)
+    end
+
+    it 'builds them first, in registration order, before every subsystem' do
+      dependencies.register!('setup') { events << [:dependency, :setup] }
+
       host.start(task)
 
-      expect(events.first(2)).to eq([[:hook, :one, { channels_locked: false }], [:hook, :two]])
+      expect(events.first(2)).to eq([[:dependency, :build], [:dependency, :setup]])
       expect(events.drop(2).map(&:first)).to eq(%i[elector pubsub dispatcher scheduler])
     end
 
-    it 'fails the boot when a hook raises: nothing starts' do
-      failing = Sidereal::Host.new(
-        channels:, exceptions:, elector:, pubsub:, dispatcher:, scheduler:,
-        boot_hooks: [-> { raise 'no database' }]
-      )
+    it 'builds them while the registries are still open, so they can register subscribers' do
+      dependencies.register!('apm') { exceptions.on_failure { |_report| } }
 
-      expect { failing.start(task) }.to raise_error(RuntimeError, 'no database')
+      expect { host.start(task) }.not_to raise_error
+      expect(exceptions).to be_locked
+    end
+
+    it 'fails the boot when one raises: nothing starts' do
+      dependencies.register!('flaky') { raise 'no database' }
+
+      expect { host.start(task) }.to raise_error(RuntimeError, 'no database')
+      expect(events).to eq([[:dependency, :build]])
+      expect(channels).not_to be_locked
+    end
+
+    it 'fails the boot when they do not resolve: nothing starts' do
+      dependencies.register!('sourced.store', ['missing']) { :store }
+
+      expect { host.start(task) }.to raise_error(Sidereal::Dependencies::UnknownDependencyError)
       expect(events).to be_empty
       expect(channels).not_to be_locked
+    end
+
+    it 'tears them down from #stop, after the running dispatcher' do
+      host.start(task)
+      host.stop
+
+      expect(events.last(2)).to eq([[:running_dispatcher, :stop], [:dependency, :teardown]])
     end
   end
 

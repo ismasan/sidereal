@@ -12,6 +12,8 @@ end
 
 module Sidereal
   class App < Router
+    extend Deps
+
     HANDLE_METHOD_PREFIX = '__handle_'
 
     # Installed by {.handle} when called without a block: dispatches the
@@ -78,6 +80,28 @@ module Sidereal
         end
 
         self
+      end
+
+      # Inject dependencies where the app's handlers run: into the app itself,
+      # whose per-request instance runs the {.handle} blocks, and into its
+      # {.commander}, whose per-command instance runs the {.command} blocks.
+      #
+      #   dep :db
+      #   dep 'sourced.store' => 'events'
+      #
+      #   handle AddTodo do |cmd|
+      #     db[:todos].insert(cmd.payload.to_h)
+      #   end
+      #
+      # Commanders registered with {.commands} declare their own. A subclass
+      # gets its own commander, so it declares again what its +command+
+      # blocks use; its +handle+ blocks inherit the parent's.
+      #
+      # @param specs (see Sidereal::Deps#dep)
+      # @return [self]
+      def dep(*specs)
+        commander.dep(*specs)
+        super
       end
 
       def commander

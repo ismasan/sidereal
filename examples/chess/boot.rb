@@ -1,13 +1,13 @@
 # frozen_string_literal: true
 
-require 'fileutils'
-require 'sequel'
-require 'sqlite3'
 require 'sidereal'
 require 'sidereal/integrations/sourced'
 
 DB_PATH = File.expand_path('storage/chess.db', __dir__)
-FileUtils.mkdir_p(File.dirname(DB_PATH))
+
+# Dependencies first: nothing is built until something asks for a value, so
+# the files can register in any order, and app classes can inject them.
+Dir[File.join(__dir__, 'config/dependencies/*.rb')].sort.each { |f| require f }
 
 require_relative 'domain/chess_engine'
 require_relative 'domain/game'
@@ -20,13 +20,6 @@ require_relative 'domain/games_projector'
 # Sidereal.exceptions bridge on this same strategy.
 Sourced.config.error_strategy.retry(times: 3, after: 1)
 
-# Each forked Falcon worker loads this file in its own process, so the
-# Sourced store and reactors are established fresh per worker (SQLite
-# connections aren't fork-safe, but nothing is inherited across the fork).
-Sourced.configure do |config|
-  config.store = Sequel.sqlite(DB_PATH) unless ENV['TEST']
-end
-
 Sourced.register(Game)
 Sourced.register(GamesProjector)
 
@@ -35,7 +28,10 @@ Sourced.register(GamesProjector)
 unless ENV['TEST']
   Sidereal.configure do |c|
     c.use_file_system!
-    c.use Sidereal::Integrations::Sourced
+    # Sourced's store is the 'db' dependency: opened in each worker when the
+    # host builds the dependencies, never while this file loads (SQLite
+    # connections aren't fork-safe).
+    c.use Sidereal::Integrations::Sourced, store: 'db'
   end
 end
 

@@ -125,14 +125,8 @@ RSpec.describe 'Sidereal::Commander on the Sourced runtime' do
   let(:router) { Sourced::Router.new(store: store) }
   let(:pubsub) { IntgFakePubSub.new }
 
-  around do |example|
-    original = Sidereal.config.pubsub
-    Sidereal.config.pubsub = pubsub
-    example.run
-    Sidereal.config.pubsub = original
-  end
-
   before do
+    Sidereal.config.pubsub = pubsub
     # setup! creates the tables and compiles the store's message codec, which
     # serializes payloads on #append.
     store.setup!
@@ -188,7 +182,7 @@ RSpec.describe 'Sidereal::Commander on the Sourced runtime' do
       msg = late.new(payload: { price: CodecMoney.new(cents: 250, currency: 'GBP') })
       expect { config.store.append(msg) }.to raise_error(Sourced::Message::Codec::UnregisteredTypeError)
 
-      config.boot_hooks.each(&:call)
+      config.dependencies.build!
 
       config.store.append(msg)
       expect(Sourced.store.read_correlation_batch(msg.id).map(&:payload).map(&:price)).to eq([msg.payload.price])
@@ -253,26 +247,36 @@ RSpec.describe 'Sidereal::Commander on the Sourced runtime' do
       Sidereal::Configuration.new.use(Sidereal::Integrations::Sourced, store: Sequel.sqlite)
     end
 
-    it 'is fork-safe: a callable store yields a fresh connection when Sourced re-establishes' do
-      Sidereal::Configuration.new.use(
-        Sidereal::Integrations::Sourced,
-        store: -> { Sequel.sqlite }
-      )
-      store1 = Sourced.store
+    it 'opens a callable store when the sourced dependency builds, never at use' do
+      calls = 0
+      db = Sequel.sqlite
+      config = Sidereal::Configuration.new
+      config.use(Sidereal::Integrations::Sourced, store: -> { calls += 1; db })
+      expect(calls).to eq(0)
 
-      # Sourced.setup! re-runs the store's configure block (what the dispatcher
-      # factory does per worker) — a bare connection would be reused, a factory
-      # opens a new one.
-      Sourced.setup!
+      config.dependencies['sourced']
 
-      expect(Sourced.store).not_to be(store1)
+      expect(calls).to be_positive
+      expect(Sourced.store.db).to be(db)
+    end
+
+    it 'takes the store from a dependency named by store:, which sourced then depends on' do
+      db = Sequel.sqlite
+      config = Sidereal::Configuration.new
+      config.dependencies.register!('db') { db }
+      config.use(Sidereal::Integrations::Sourced, store: 'db')
+
+      expect(config.dependencies.inspect).to include('sourced[db]')
+      config.dependencies['sourced']
+
+      expect(Sourced.store.db).to be(db)
     end
   end
 
   describe 'Sidereal::Integrations::Sourced::Dispatcher.start' do
-    it 'starts the Sourced runtime without re-running Sourced.setup!, which the boot hook already did once' do
+    it 'starts the Sourced runtime without re-running Sourced.setup!, which the sourced dependency already did once' do
       # Sourced.setup! freezes the configuration, so a second call in the same
-      # process raises. The boot hook is the one call per process.
+      # process raises. Building the 'sourced' dependency is the one call per process.
       task = double('task')
       allow(Sidereal.registry).to receive(:commanders).and_return([])
       expect(Sourced).not_to receive(:setup!)
@@ -281,7 +285,7 @@ RSpec.describe 'Sidereal::Commander on the Sourced runtime' do
       expect(Sidereal::Integrations::Sourced::Dispatcher.start(task)).to eq(:running)
     end
 
-    it 'boots and starts on the same frozen configuration: the boot hook, then the dispatcher' do
+    it 'boots and starts on the same frozen configuration: the dependencies, then the dispatcher' do
       # The sequence Host#start drives in the leader process.
       config = Sidereal::Configuration.new
       config.use(Sidereal::Integrations::Sourced, store: Sequel.sqlite)
@@ -289,7 +293,7 @@ RSpec.describe 'Sidereal::Commander on the Sourced runtime' do
       task = double('task')
       allow(Sourced::Dispatcher).to receive(:start).with(task).and_return(:running)
 
-      config.boot_hooks.each(&:call)
+      config.dependencies.build!
       expect(Sourced.config).to be_frozen
 
       expect { Sidereal::Integrations::Sourced::Dispatcher.start(task) }.not_to raise_error
@@ -299,8 +303,8 @@ RSpec.describe 'Sidereal::Commander on the Sourced runtime' do
   describe Sidereal::Integrations::Sourced::Notifier do
     subject(:notifier) { described_class.new }
 
-    # The outer around installs a publish-only fake; this needs real
-    # subscriptions. The around restores the original afterwards.
+    # The outer before installs a publish-only fake; this needs real
+    # subscriptions.
     before { Sidereal.config.pubsub = Sidereal::PubSub::Memory.new }
     after { Sourced.reset! }
 
@@ -381,6 +385,48 @@ RSpec.describe 'Sidereal::Commander on the Sourced runtime' do
   end
 
   # -- Auto-publish injected by the Sourced integration --
+
+  describe 'dep in Sourced reactors' do
+    include Sourced::Testing::RSpec
+
+    before { Sidereal.dependencies.register!('naming') { ->(id) { "named-#{id}" } } }
+
+    it "injects into a decider, for its command blocks" do
+      stub_const('IntgDepWidget', Class.new(Sourced::Decider) do
+        consumer_group 'intg_dep_widget'
+        partition_by :widget_id
+        dep :naming
+
+        command(IntgWidget::Create) do |_state, cmd|
+          event IntgWidget::Created, widget_id: naming.call(cmd.payload.widget_id)
+        end
+      end)
+
+      with_reactor(IntgDepWidget, widget_id: 'w1')
+        .when(IntgWidget::Create, widget_id: 'w1')
+        .then(IntgWidget::Created, widget_id: 'named-w1')
+    end
+
+    it 'injects into a projector, for its state and evolve blocks' do
+      stub_const('IntgDepProjector', Class.new(Sourced::Projector::StateStored) do
+        consumer_group 'intg_dep_projector'
+        partition_by :thing_id
+        dep 'naming' => 'namer'
+
+        state do |values|
+          { thing_id: values[:thing_id], label: namer.call(values[:thing_id]) }
+        end
+
+        evolve(IntgThingHappenedEvt) do |state, _evt|
+          state[:seen] = true
+        end
+      end)
+
+      with_reactor(IntgDepProjector, thing_id: 't1')
+        .given(IntgThingHappenedEvt, thing_id: 't1')
+        .then { |result| expect(result.state).to eq(thing_id: 't1', label: 'named-t1', seen: true) }
+    end
+  end
 
   describe 'sidereal_events for Page.on' do
     it 'a decider stands for the events it evolves' do

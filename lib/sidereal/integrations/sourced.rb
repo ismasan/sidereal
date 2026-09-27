@@ -40,10 +40,12 @@
 #
 # Under the forking Falcon environment each worker loads boot.rb in its own
 # process, so this registration (and Sourced's own store) is established fresh
-# per worker. The integration also registers {Sourced.setup!} as a boot hook
-# ({Sidereal::Configuration#on_boot}), which {Sidereal::Host#start} runs in
-# every process, leader or follower, before anything starts: it re-establishes
-# connections for the current process — so a *callable* store (below) stays
+# per worker. The integration also registers a +'sourced'+ singleton in
+# {Sidereal::Configuration#dependencies} whose block configures Sourced's
+# store (when +store:+ is given) and runs {Sourced.setup!}.
+# {Sidereal::Host#start} builds it (via {Sidereal::Dependencies#build!}) in
+# every process, leader or follower, before anything starts: it opens the
+# store's connection in the current process — never at load time, so it stays
 # fork-safe even if the app is preloaded in the parent — installs the store's
 # tables and recompiles its codec against every message type the app has
 # loaded, so a follower that only appends is as ready as the leader that
@@ -62,12 +64,14 @@
 #     c.use Sidereal::Integrations::Sourced  # store + dispatcher + error bridge
 #   end
 #
-# Commander-only apps can let the integration configure Sourced's store too.
-# Pass a callable factory so each forked worker opens its own connection:
+# Or let the integration configure Sourced's store, from a dependency the app
+# registers (built per process, shareable with the app's own classes) or a
+# callable factory:
 #
 #   Sidereal.configure do |c|
 #     c.use_file_system!
-#     c.use Sidereal::Integrations::Sourced, store: -> { Sequel.sqlite('db/app.db') }
+#     c.use Sidereal::Integrations::Sourced, store: 'db'
+#     # or: store: -> { Sequel.sqlite('db/app.db') }
 #   end
 
 require 'sourced'
@@ -152,20 +156,17 @@ module Sidereal
       # Sidereal's exception registry. Called by {Sidereal::Configuration#use}.
       #
       # @param config [Sidereal::Configuration]
-      # @param store [#call, Sequel::Database, nil] when given, configures
-      #   Sourced's store. Prefer a callable factory (e.g.
-      #   +-> { Sequel.sqlite(path) }+): it is registered as a Sourced configure
-      #   block, so {::Sourced.setup!} re-runs it to open a fresh connection per
-      #   process — fork-safe even if the app is preloaded in the parent. A bare
-      #   Sequel::Database is reused as-is (fine when each worker loads its config
-      #   fresh, but not fork-safe under preload). When nil, the already-configured
-      #   Sourced store is used.
+      # @param store [String, Symbol, #call, Sequel::Database, nil] when given,
+      #   configures Sourced's store as the +'sourced'+ dependency is built, in
+      #   each process. A String or Symbol names a dependency whose value is the
+      #   store (e.g. the app's +'db'+), which +'sourced'+ then depends on. A
+      #   callable (e.g. +-> { Sequel.sqlite(path) }+) is called there. A
+      #   Sequel::Database is used as-is — it was opened wherever the caller
+      #   opened it, so not fork-safe under preload. When nil, the store the app
+      #   configured on Sourced is used.
       # @return [Sidereal::Configuration]
       def self.setup(config, store: nil)
-        # A Proc is a store factory (re-run per process for fork-safety); a
-        # Sequel::Database is used as-is. (Don't use respond_to?(:call): a
-        # Sequel::Database responds to #call — prepared-statement invocation.)
-        ::Sourced.configure { |c| c.store = store.is_a?(Proc) ? store.call : store } if store
+        store_key = store.to_s if store.is_a?(String) || store.is_a?(Symbol)
         # A configure block, not a one-off assignment: Sourced.setup! replays
         # these after a fork, and the store resolves the configured notifier on
         # every append, so ordering against the app's own store block is moot.
@@ -175,9 +176,10 @@ module Sidereal
         config.dispatcher_process = :leader
         # Every process appends, only the leader consumes: prepare Sourced's
         # store (connection, tables, codec) at boot everywhere, not just where
-        # the dispatcher starts. Runs once per process: +::Sourced.setup!+
-        # rebuilds the store from the configure blocks and freezes the
-        # configuration afterwards.
+        # the dispatcher starts. A singleton, so it runs once per process:
+        # +::Sourced.setup!+ rebuilds the store from the configure blocks and
+        # freezes the configuration afterwards. Resolving +'sourced'+ before
+        # boot (a CLI, a rake task) sets Sourced up there instead.
         #
         # The store's codec is then recompiled, because +::Sourced.configure+
         # compiles it when it runs — in boot.rb, before the app has defined its
@@ -185,9 +187,16 @@ module Sidereal
         # +compile!+ is a no-op once compiled. At boot every type is loaded,
         # and +recompile!+ is incremental (pairs are cached per message class),
         # so it builds only what the early compile could not see.
-        config.on_boot do
+        config.dependencies.register!('sourced', Array(store_key)) do |*values|
+          source = store_key ? values.first : store
+          # A configure block, so Sourced.setup! below replays it. A Proc is
+          # a store factory; a store or Sequel::Database is used as-is.
+          # (Not respond_to?(:call): a Sequel::Database responds to #call —
+          # prepared-statement invocation.)
+          ::Sourced.configure { |c| c.store = source.is_a?(Proc) ? source.call : source } if source
           ::Sourced.setup!
           ::Sourced.store.message_codec.recompile!
+          ::Sourced
         end
 
         # Report Sourced's retry / terminal-failure events to Sidereal's exception
@@ -285,11 +294,12 @@ module Sidereal
         # @param task [Async::Task]
         # @return [Sourced::Dispatcher] the running dispatcher (Host keeps it to #stop)
         def self.start(task)
-          # Sourced is already set up for this process: the boot hook that
-          # {Sourced.setup} registers ran +::Sourced.setup!+ before the Host
-          # started anything. It is not called again here — +::Sourced.setup!+
-          # freezes the configuration, so it runs once per process. A dispatcher
-          # driven without a Host (tests, CLIs) calls it before this.
+          # Sourced is already set up for this process: the +'sourced'+
+          # dependency that {Sourced.setup} registers ran +::Sourced.setup!+
+          # when the Host built the dependencies, before it started
+          # anything. It is not called again here — +::Sourced.setup!+ freezes
+          # the configuration, so it runs once per process. A dispatcher driven
+          # without a Host (tests, CLIs) resolves +'sourced'+ before this.
           Sidereal.registry.commanders.each do |commander|
             ::Sourced.register(commander) unless ::Sourced.router.reactors.include?(commander)
           end
@@ -366,6 +376,16 @@ end
 ::Sourced::Projector.define_singleton_method(:sidereal_events) do
   const_defined?(:Projected, false) ? [const_get(:Projected)] : []
 end
+
+# --- Dependency injection (runs at require time) ---
+
+# +dep :db+ in a decider or projector, as in a Sidereal::Commander: Sourced
+# builds an instance per claimed batch with +new(partition_values)+, which the
+# injected +initialize+ passes through, so +dep+ readers work in +state+,
+# +evolve+, +command+, +reaction+ and +sync+ blocks. Extending the base
+# classes' singletons reaches every subclass, defined before or after this.
+::Sourced::Decider.extend(Sidereal::Deps)
+::Sourced::Projector.extend(Sidereal::Deps)
 
 # --- Auto-publish wiring (runs at require time, before domain reactors load) ---
 

@@ -7,12 +7,13 @@ Sequel.extension :migration
 namespace :db do
   desc 'Run database migrations'
   task :migrate do
-    Sequel::Migrator.run(Sourced.store.db, 'db/migrations')
+    Sequel::Migrator.run(Sidereal.dependencies['db'], 'db/migrations')
     puts 'Migrations complete.'
   end
 
   desc 'Generate the Sourced migration file into db/migrations'
   task :sourced_migration do
+    Sidereal.dependencies['sourced'] # Sourced, set up on the app's database
     Sourced.store.copy_migration_to do
       "db/migrations/#{Time.now.strftime('%Y%m%d%H%M%S')}_create_sourced_tables.rb"
     end
@@ -21,6 +22,7 @@ namespace :db do
 
   desc 'Wipe all events from the Sourced store'
   task :reset do
+    Sidereal.dependencies['sourced']
     Sourced.store.clear!
     puts 'All events deleted.'
   end
