@@ -170,7 +170,7 @@ module Sidereal
         encoded = encode_payload(command.with_payload(fields), declared: fields.keys)
 
         fields.each_key do |key|
-          input(type: 'hidden', name: "command[payload][#{key}]", value: encoded[key.to_sym])
+          input(type: 'hidden', name: "command[payload][#{key}]", value: encoded[key.to_s])
         end
       end
 
@@ -312,7 +312,7 @@ module Sidereal
       # @param name [Symbol, String] the payload attribute name
       # @return [String, nil]
       def form_value(name)
-        form_values[name.to_sym]
+        form_values[name.to_s]
       end
 
       # Encoded once per render, not once per field. The codec resolves the whole
@@ -327,7 +327,8 @@ module Sidereal
       # @param declared [Array<Symbol>, nil] attribute names to verify against the
       #   payload schema first. +#with_payload+ drops keys the payload does not
       #   declare, which would silently render an empty hidden field.
-      # @return [Hash{Symbol => String}] only the attributes that could be encoded
+      # @return [Hash{String => String}] only the attributes that could be encoded,
+      #   keyed as the form submits them
       def encode_payload(message, declared: nil)
         if declared
           unknown = declared.map(&:to_sym) - message.class.payload_attribute_names

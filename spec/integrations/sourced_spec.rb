@@ -197,10 +197,10 @@ RSpec.describe 'Sidereal::Commander on the Sourced runtime' do
       Sourced.store.setup!
 
       msg = CodecPriced.new(payload: { price: CodecMoney.new(cents: 250, currency: 'GBP') })
-      expect(Sourced.store.message_codec.encode(msg)).to eq(price: '250 GBP')
+      expect(Sourced.store.message_codec.encode(msg)['payload']).to eq('price' => '250 GBP')
     end
 
-    it 'keeps the two serializers apart: payload-only for Sourced, whole message for Sidereal' do
+    it 'keeps the two serializers apart, over the same format' do
       # Compiled explicitly: nothing compiles a codec on first use, and neither
       # transport nor store has started here.
       sourced_codec = Sourced::Store::MessageCodec.default.compile!
@@ -208,10 +208,9 @@ RSpec.describe 'Sidereal::Commander on the Sourced runtime' do
       expect(sourced_codec).not_to be(sidereal_codec)
 
       msg = CodecPriced.new(payload: { price: CodecMoney.new(cents: 250, currency: 'GBP') })
-      # Same global encoders, different envelope handling: Sourced encodes the
-      # payload alone (its envelope goes to columns), Sidereal the whole document.
-      expect(sourced_codec.encode(msg).keys).to eq([:price])
-      expect(sidereal_codec.encode(msg)).to include(:type, :id, :created_at, payload: { price: '250 GBP' })
+      # Same global encoders, so both encode the whole message the same way.
+      expect(sourced_codec.encode(msg)).to eq(sidereal_codec.encode(msg))
+      expect(sidereal_codec.encode(msg)).to include('type', 'id', 'created_at', 'payload' => { 'price' => '250 GBP' })
     end
 
     it 'pins the dispatcher to the elected leader, overridable afterwards' do

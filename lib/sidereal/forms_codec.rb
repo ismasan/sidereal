@@ -56,7 +56,7 @@ module Sidereal
     # yet". So callers use +#value+ and ignore +#errors+.
     #
     # @param message [Sidereal::Message]
-    # @return [Plumb::Result] +#value+ is a +{attribute => String}+ hash, holding
+    # @return [Plumb::Result] +#value+ is a +{'attribute' => String}+ hash, holding
     #   only the attributes that could be encoded (+{}+ for a blank command, +nil+
     #   for one declaring no payload)
     # @raise [UnregisteredTypeError] if the type was not compiled

@@ -254,9 +254,9 @@ module Sidereal
   #
   # {Sourced::Message::JSONCodec} comes from the sourced-message gem and encodes whole
   # messages — envelope included — which is what a file body or a socket frame needs.
-  # Sourced's store subclasses it to encode payloads alone, keeping its envelope in
-  # columns; the two compile separately over the same +Plumb::Codec::JSON+ format, so
-  # an encoder registered there serves both.
+  # Sourced's store has its own subclass, so it keeps its own +.default+ and registry;
+  # the two compile separately over the same +Plumb::Codec::JSON+ format, so an
+  # encoder registered there serves both.
   def self.message_codec
     Sourced::Message::JSONCodec.default
   end

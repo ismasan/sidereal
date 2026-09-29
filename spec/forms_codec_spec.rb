@@ -96,7 +96,7 @@ RSpec.describe Sidereal::FormsCodec do
       encoded = codec.encode_payload(FormsCodecCourse.new(payload: values)).value
 
       expect(encoded).to eq(
-        course_name: 'Ruby 101', seats: '30', starts_on: '2026-09-01', published: 'false'
+        'course_name' => 'Ruby 101', 'seats' => '30', 'starts_on' => '2026-09-01', 'published' => 'false'
       )
     end
 
@@ -112,7 +112,7 @@ RSpec.describe Sidereal::FormsCodec do
     it 'yields the attributes that are set and leaves out the rest' do
       partial = FormsCodecCourse.new(payload: { course_name: 'Ruby 101', seats: 30 })
 
-      expect(codec.encode_payload(partial).value).to eq(course_name: 'Ruby 101', seats: '30')
+      expect(codec.encode_payload(partial).value).to eq('course_name' => 'Ruby 101', 'seats' => '30')
     end
 
     it 'yields an empty hash for a blank command, so no field renders a value' do
