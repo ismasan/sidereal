@@ -17,11 +17,7 @@ gem 'debug'
 # lib/sidereal/falcon need it to load.
 gem 'falcon'
 
-# Local checkouts while sourced (component-boot) and sourced-component are
-# unreleased.
-gem 'sourced-component', path: '../sourced-system'
-
 group :development do
   gem 'docco', github: 'ismasan/docco'
-  gem 'sourced', path: '../sourced'
+  gem 'sourced', github: 'ismasan/sourced', branch: 'ccc'
 end

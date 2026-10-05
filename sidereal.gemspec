@@ -41,7 +41,7 @@ Gem::Specification.new do |spec|
   # Plumb::Codec::Forms, so the codec API is part of Sidereal's public surface.
   spec.add_dependency('plumb', '~> 0.4')
   # Sidereal's configuration is a sourced-component tree (Sidereal.config).
-  spec.add_dependency('sourced-component')
+  spec.add_dependency('sourced-component', '~> 0.1')
   spec.add_dependency('rack', '~> 3')
   spec.add_dependency('rack-session')
   spec.add_dependency('phlex')

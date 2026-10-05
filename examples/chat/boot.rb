@@ -14,30 +14,29 @@ FileUtils.mkdir_p(File.dirname(DB_PATH))
 # when run from this directory.
 MESSAGES_FILE = 'chat_messages.jsonl'
 
-# Each forked Falcon worker loads this file in its own process, so the Sourced
-# SQLite store below is established fresh per worker (SQLite connections aren't
-# fork-safe, but nothing is inherited across the fork).
-Sourced.configure do |config|
-  config.store = Sequel.sqlite(DB_PATH) unless ENV['TEST']
-  # Poll every 0.5s so cross-process dispatches (e.g. `Sidereal.dispatch!` from a
-  # console) are picked up quickly. SQLite has no LISTEN/NOTIFY, so out-of-process
-  # appends rely on this catch-up poll rather than the in-process notifier.
-  config.catchup_interval = 0.5
+# The Sourced store's SQLite database. Each forked Falcon worker opens its own
+# connection when it starts (SQLite connections aren't fork-safe), and
+# disconnects it when it stops.
+Sidereal.config.declare('db', Sequel::Database)
+Sidereal.config.component!('db') do
+  build { Sequel.sqlite(DB_PATH) }
+  teardown(&:disconnect)
 end
 
+# Cross-process pubsub + leader election (unix socket + file lock under
+# tmp/), so SSE updates fan out to subscribers on every worker via one
+# elected broker — required for count > 1.
+Sidereal.use_file_system!(dir: 'tmp')
+
+# ...but keep commands in Sourced's SQLite store, on the 'db' component, and
+# run them on Sourced's runtime (+ the error bridge).
+#
 # This demo has no Sourced deciders/projectors — only Sidereal Commanders
-# (defined in app.rb). The Sourced integration's dispatcher auto-registers
-# those Commanders with Sourced before starting the runtime, so there's
-# nothing to Sourced.register here.
+# (defined in app.rb), which the integration registers with Sourced when the
+# app boots, so there's nothing to Sourced.register here.
+Sidereal.use Sidereal::Integrations::Sourced, db: 'db'
 
-Sidereal.configure do |c|
-  c.workers = 3
-  # Cross-process pubsub + leader election (unix socket + file lock under
-  # tmp/), so SSE updates fan out to subscribers on every worker via one
-  # elected broker — required for count > 1.
-  c.use_file_system!(dir: 'tmp')
-  # ...but keep Sourced's SQLite store + dispatcher, not the FS store. One call
-  # wires both (+ the error bridge). Sourced is already configured above, so no
-  # `store:` arg.
-  c.use Sidereal::Integrations::Sourced
-end
+# Poll every 0.5s so cross-process dispatches (e.g. `rake db:seed`) are picked
+# up quickly. SQLite has no LISTEN/NOTIFY, so appends from a process without
+# the unix-socket pubsub rely on this catch-up poll.
+Sidereal.config.config!('sourced.workers.catchup_interval') { 0.5 }

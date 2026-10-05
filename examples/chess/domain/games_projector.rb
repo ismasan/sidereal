@@ -8,7 +8,7 @@ class GamesProjector < Sourced::Projector::StateStored
   partition_by :game_id
 
   # Sourced builds an instance per claimed batch with new(partition_values);
-  # the injected db: defaults to Sidereal.dependencies['db'].
+  # the injected db: defaults to Sidereal.config['db'].
   dep :db
 
   state do |values|
@@ -79,5 +79,5 @@ class GamesProjector < Sourced::Projector::StateStored
       .all
   end
 
-  def self.db = Sidereal.dependencies['db']
+  def self.db = Sidereal.config['db']
 end
