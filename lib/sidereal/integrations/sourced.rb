@@ -47,7 +47,7 @@
 # Only the leader starts its dispatcher. The app can implement any of them,
 # ex. +Sidereal.config.config!('sourced.workers.count') { 4 }+.
 #
-# Require this at load time, then apply it with {Sidereal.use}. +db:+ names a
+# Require this at load time, then apply it with {Sidereal::Config::Root#use}. +db:+ names a
 # component of the app's that Sourced's store uses, built in each process when
 # it starts (so never shared across a fork):
 #
@@ -59,8 +59,8 @@
 #     teardown(&:disconnect)
 #   end
 #
-#   Sidereal.use_file_system!                              # pubsub + elector
-#   Sidereal.use Sidereal::Integrations::Sourced, db: 'db' # store + dispatcher + error bridge
+#   Sidereal.config.use_file_system!                              # pubsub + elector
+#   Sidereal.config.use Sidereal::Integrations::Sourced, db: 'db' # store + dispatcher + error bridge
 #   Sourced.register(SomeDecider)                          # deciders/projectors: registered as usual
 
 require 'sourced'
@@ -105,10 +105,10 @@ module Sidereal
 
   module Integrations
     # Backend integration wiring Sidereal to Sourced (store + dispatcher).
-    # Apply it with {Sidereal.use}:
+    # Apply it with {Sidereal::Config::Root#use}:
     #
-    #   Sidereal.use_file_system!                              # pubsub + elector
-    #   Sidereal.use Sidereal::Integrations::Sourced, db: 'db' # store + dispatcher + error bridge
+    #   Sidereal.config.use_file_system!                              # pubsub + elector
+    #   Sidereal.config.use Sidereal::Integrations::Sourced, db: 'db' # store + dispatcher + error bridge
     #
     module Sourced
       # Publish each message to Sidereal's pubsub on its resolved channel. The

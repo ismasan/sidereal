@@ -119,9 +119,14 @@ RSpec.describe Sidereal do
       expect(Sidereal.component).not_to be(component)
       expect(Sidereal.config.node('sidereal')).to be(Sidereal.component)
     end
+
+    it 'is a Config::Root, a Sourced::Component' do
+      expect(Sidereal.config).to be_a(Sidereal::Config::Root)
+      expect(Sidereal.config).to be_a(Sourced::Component)
+    end
   end
 
-  describe '.use' do
+  describe 'Sidereal.config.use' do
     it 'applies an integration via #setup(config, **opts) and returns the config' do
       received = nil
       integration = Object.new
@@ -130,19 +135,19 @@ RSpec.describe Sidereal do
         config
       end
 
-      expect(Sidereal.use(integration, foo: 1, bar: 2)).to be(Sidereal.config)
+      expect(Sidereal.config.use(integration, foo: 1, bar: 2)).to be(Sidereal.config)
       expect(received).to eq([Sidereal.config, { foo: 1, bar: 2 }])
     end
 
     it 'raises for an object that does not respond to #setup' do
-      expect { Sidereal.use(Object.new) }.to raise_error(Plumb::ParseError)
+      expect { Sidereal.config.use(Object.new) }.to raise_error(Plumb::ParseError)
     end
   end
 
-  describe '.use_file_system!' do
+  describe 'Sidereal.config.use_file_system!' do
     it 'switches store/pubsub/elector to the filesystem + unix-socket impls' do
       Dir.mktmpdir do |dir|
-        expect(Sidereal.use_file_system!(dir:)).to be(Sidereal.config)
+        expect(Sidereal.config.use_file_system!(dir:)).to be(Sidereal.config)
         Sidereal.config.build!
 
         expect(Sidereal.store).to be_a(Sidereal::Store::FileSystem)
@@ -153,7 +158,7 @@ RSpec.describe Sidereal do
 
     it 'lets an individual component be re-implemented afterward' do
       Dir.mktmpdir do |dir|
-        Sidereal.use_file_system!(dir:)
+        Sidereal.config.use_file_system!(dir:)
         custom_store = Class.new { def self.append(...) = self }
         Sidereal.config.config!('sidereal.store') { custom_store }
         Sidereal.config.build!

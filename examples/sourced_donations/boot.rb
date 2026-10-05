@@ -27,7 +27,7 @@ end
 # Cross-process pubsub + leader election (unix socket + file lock under
 # ./storage), so SSE updates fan out to subscribers on every worker via one
 # elected broker — required for count > 1.
-Sidereal.use_file_system!
+Sidereal.config.use_file_system!
 
 # ...but keep commands in Sourced's SQLite store, on the 'db' component, and
 # run Sourced's runtime (+ the error bridge). The runtime also runs any
@@ -38,7 +38,7 @@ Sidereal.use_file_system!
 # only serve pages and append commands, so SQLite sees one writer for handler
 # and projection work. Appends on any worker wake the leader through the
 # unix-socket pubsub.
-Sidereal.use Sidereal::Integrations::Sourced, db: 'db'
+Sidereal.config.use Sidereal::Integrations::Sourced, db: 'db'
 
 Sourced.register(Donation)
 Sourced.register(Campaign)

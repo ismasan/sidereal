@@ -8,18 +8,19 @@
 # (default ./storage, relative to the working directory — i.e. the app root when
 # launched with `falcon host` from there).
 #
-# Applied with {Sidereal.use} (or the {Sidereal.use_file_system!} shorthand,
-# which requires this file and delegates here):
+# Applied with {Sidereal::Config::Root#use} (or the
+# {Sidereal::Config::Root#use_file_system!} shorthand, which requires this file
+# and delegates here):
 #
-#   Sidereal.use Sidereal::Integrations::FileSystem             # dir: 'storage'
-#   Sidereal.use Sidereal::Integrations::FileSystem, dir: 'tmp'
+#   Sidereal.config.use Sidereal::Integrations::FileSystem             # dir: 'storage'
+#   Sidereal.config.use Sidereal::Integrations::FileSystem, dir: 'tmp'
 #
 # It implements +sidereal.store+, +sidereal.elector+ and +sidereal.pubsub+,
 # each built when the process starts, so re-implement any of them afterwards
 # to keep the others:
 #
-#   Sidereal.use_file_system!
-#   Sidereal.use Sidereal::Integrations::Sourced, db: 'db' # Sourced's store
+#   Sidereal.config.use_file_system!
+#   Sidereal.config.use Sidereal::Integrations::Sourced, db: 'db' # Sourced's store
 
 require 'sidereal/store/file_system'
 require 'sidereal/pubsub/unix'
@@ -28,7 +29,7 @@ require 'sidereal/elector/file_system'
 module Sidereal
   module Integrations
     # Backend integration wiring Sidereal's store + pubsub + elector to the
-    # filesystem / unix-socket implementations. Called by {Sidereal.use}.
+    # filesystem / unix-socket implementations. Called by {Sidereal::Config::Root#use}.
     module FileSystem
       # @param config [Sourced::Component] the app's root, see {Sidereal.config}
       # @param dir [String] base directory for store files, socket, and lock

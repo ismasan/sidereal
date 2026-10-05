@@ -26,7 +26,7 @@ end
 # Cross-process pubsub + leader election (unix socket + file lock under
 # tmp/), so SSE updates fan out to subscribers on every worker via one
 # elected broker — required for count > 1.
-Sidereal.use_file_system!(dir: 'tmp')
+Sidereal.config.use_file_system!(dir: 'tmp')
 
 # ...but keep commands in Sourced's SQLite store, on the 'db' component, and
 # run them on Sourced's runtime (+ the error bridge).
@@ -34,7 +34,7 @@ Sidereal.use_file_system!(dir: 'tmp')
 # This demo has no Sourced deciders/projectors — only Sidereal Commanders
 # (defined in app.rb), which the integration registers with Sourced when the
 # app boots, so there's nothing to Sourced.register here.
-Sidereal.use Sidereal::Integrations::Sourced, db: 'db'
+Sidereal.config.use Sidereal::Integrations::Sourced, db: 'db'
 
 # Poll every 0.5s so cross-process dispatches (e.g. `rake db:seed`) are picked
 # up quickly. SQLite has no LISTEN/NOTIFY, so appends from a process without

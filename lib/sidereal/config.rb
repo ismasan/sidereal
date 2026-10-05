@@ -55,6 +55,43 @@ module Sidereal
     # elector promotes. See DispatcherRunner.
     DispatcherProcess = T::Value[:all] | T::Value[:leader]
 
+    # A backend integration applies itself to a root via +#setup(config, **opts)+.
+    # See Root#use.
+    IntegrationInterface = T::Interface[:setup]
+
+    # The app's root component, {Sidereal.config}: a Sourced::Component, with
+    # helpers to apply integrations to it.
+    class Root < Sourced::Component
+      # Apply a backend integration, which mounts and implements components in
+      # this root.
+      #
+      #   Sidereal.config.use Sidereal::Integrations::FileSystem, dir: 'storage'
+      #   Sidereal.config.use Sidereal::Integrations::Sourced, db: 'db'
+      #
+      # Integrations that implement the same component replace each other's:
+      # the last one wins.
+      #
+      # @param integration [#setup] responds to +setup(config, **opts)+
+      # @return [self]
+      def use(integration, **opts)
+        IntegrationInterface.parse(integration).setup(self, **opts)
+        self
+      end
+
+      # Switch the store, pubsub, and elector to the filesystem / unix-socket
+      # implementations in one call: the set needed to run across multiple
+      # worker processes on a single machine. Files and the pubsub socket live
+      # under +dir+ (default ./storage, relative to the working directory).
+      # See {Integrations::FileSystem}.
+      #
+      # @param dir [String] base directory for store files, socket, and lock
+      # @return [self]
+      def use_file_system!(dir: 'storage')
+        require 'sidereal/integrations/file_system'
+        use(Integrations::FileSystem, dir:)
+      end
+    end
+
     # A fresh, open tree, with defaults for every component.
     # @return [Sourced::Component]
     def self.build

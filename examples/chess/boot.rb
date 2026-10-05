@@ -13,8 +13,8 @@ Dir[File.join(__dir__, 'config/components/*.rb')].sort.each { |f| require f }
 # ./storage), then Sourced's store and runtime, on the 'db' component: opened
 # in each worker when it starts, never while this file loads (SQLite
 # connections aren't fork-safe).
-Sidereal.use_file_system!
-Sidereal.use Sidereal::Integrations::Sourced, db: 'db'
+Sidereal.config.use_file_system!
+Sidereal.config.use Sidereal::Integrations::Sourced, db: 'db'
 
 # Demo retry policy: retry a failing command a few times before dead-lettering
 # (drives the amber retry toasts). The integration reports retries and

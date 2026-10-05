@@ -14,10 +14,6 @@ module Sidereal
   # Raised by a build where builds are forbidden: see {.lock!}
   class ForkError < Error; end
 
-  # A backend integration applies itself to {.config} via +#setup(config, **opts)+.
-  # See {.use}.
-  IntegrationInterface = Types::Interface[:setup]
-
   def self.message_method_name(prefix, name)
     "__handle_#{prefix}_#{name.split('::').map(&:downcase).join('_')}"
   end
@@ -41,13 +37,18 @@ module Sidereal
   #   end
   #   Sidereal.config.config!('sidereal.workers.count') { 10 }
   #
+  # Integrations mount and implement components in it (see {Config::Root#use}):
+  #
+  #   Sidereal.config.use_file_system!
+  #   Sidereal.config.use Sidereal::Integrations::Sourced, db: 'db'
+  #
   # Values are read once it's built: {Host#start} starts it (building it
   # first) in every process. CLIs, consoles and specs call
   # +Sidereal.config.build!+ before reading anything.
   #
-  # @return [Sourced::Component]
+  # @return [Config::Root]
   def self.config
-    @config ||= Sourced::Component.new.tap { |root| root.mount('sidereal', component) }
+    @config ||= Config::Root.new.tap { |root| root.mount('sidereal', component) }
   end
 
   # Drop {.config} and {.component}: the next access builds fresh, open
@@ -56,35 +57,6 @@ module Sidereal
   def self.reset_config!
     @config = nil
     @component = nil
-  end
-
-  # Apply a backend integration, which mounts and implements components in
-  # {.config}.
-  #
-  #   Sidereal.use Sidereal::Integrations::FileSystem, dir: 'storage'
-  #   Sidereal.use Sidereal::Integrations::Sourced, db: 'db'
-  #
-  # Integrations that implement the same component replace each other's: the
-  # last one wins.
-  #
-  # @param integration [#setup] responds to +setup(config, **opts)+
-  # @return [Sourced::Component] {.config}
-  def self.use(integration, **opts)
-    IntegrationInterface.parse(integration).setup(config, **opts)
-    config
-  end
-
-  # Switch the store, pubsub, and elector to the filesystem / unix-socket
-  # implementations in one call: the set needed to run across multiple
-  # worker processes on a single machine. Files and the pubsub socket live
-  # under +dir+ (default ./storage, relative to the working directory).
-  # See {Integrations::FileSystem}.
-  #
-  # @param dir [String] base directory for store files, socket, and lock
-  # @return [Sourced::Component] {.config}
-  def self.use_file_system!(dir: 'storage')
-    require 'sidereal/integrations/file_system'
-    use(Integrations::FileSystem, dir:)
   end
 
   # Make any build of {.config} in this process raise {ForkError}. The Falcon
@@ -216,7 +188,7 @@ module Sidereal
   # Labels of the subsystems whose state lives entirely within one process
   # (they carry the {SingleProcess} marker). These break cross-process fan-out
   # under a forking host, so the list drives {.check_topology!}. Empty once
-  # every subsystem is cross-process safe, ex. after {.use_file_system!}.
+  # every subsystem is cross-process safe, ex. after {Config::Root#use_file_system!}.
   #
   # @param config [Sourced::Component] a built root, see {.config}
   # @return [Array<String>] ex. +["pubsub", "elector"]+
@@ -232,7 +204,7 @@ module Sidereal
   # never propagate updates across workers.
   #
   # A no-op for a single worker or once every subsystem is cross-process safe
-  # (e.g. after {.use_file_system!}). Hosts that fork (the Falcon
+  # (e.g. after {Config::Root#use_file_system!}). Hosts that fork (the Falcon
   # environment) call this with their worker-process count; single-process
   # hosts needn't. Builds +config+ to see what was configured.
   #
@@ -262,8 +234,8 @@ module Sidereal
         - Every worker believes it is the leader, so background/scheduled work double-runs.
 
       Fix (pick one):
-        - For single-node, multi-process: call `Sidereal.use_file_system!` while the app loads, BEFORE any
-          other `Sidereal.use` — switches to the unix-socket pubsub + file-lock elector.
+        - For single-node, multi-process: call `Sidereal.config.use_file_system!` while the app loads, BEFORE any
+          other `Sidereal.config.use` — switches to the unix-socket pubsub + file-lock elector.
         - Or run a single worker process (e.g. `count 1` in falcon.rb).
     MSG
 

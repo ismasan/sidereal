@@ -8,7 +8,7 @@ require_relative 'money'
 
 # The filesystem store, unix-socket pubsub and file-lock elector, under
 # ./storage, so the app can run more than one worker process.
-Sidereal.use_file_system!
+Sidereal.config.use_file_system!
 
 # -- Messages --
 

@@ -403,7 +403,7 @@ RSpec.describe 'Sidereal::Commander on the Sourced runtime' do
   end
 end
 
-RSpec.describe 'Sidereal.use(Sidereal::Integrations::Sourced)' do
+RSpec.describe 'Sidereal.config.use(Sidereal::Integrations::Sourced)' do
   let(:config) { Sidereal.config }
   let(:db) { Sequel.sqlite }
 
@@ -424,7 +424,7 @@ RSpec.describe 'Sidereal.use(Sidereal::Integrations::Sourced)' do
     database = db
     config.declare('db', Sequel::Database)
     config.config!('db') { database }
-    Sidereal.use(Sidereal::Integrations::Sourced, db: 'db').tap do
+    config.use(Sidereal::Integrations::Sourced, db: 'db').tap do
       config.config!('sourced.logger') { Sourced::NULL_LOGGER }
     end
   end
