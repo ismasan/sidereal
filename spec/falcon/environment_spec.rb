@@ -45,31 +45,31 @@ RSpec.describe Sidereal::Falcon::Environment::Service do
     context 'when it preloads the app' do
       let(:preload) { ['boot.rb'] }
 
-      let(:boot) { "Sidereal.dependencies.register!('db') { PRELOAD_LOG << :built }\n" }
+      let(:boot) { "Sidereal.config.declare('db') { PRELOAD_LOG << :built }\n" }
 
       before do
         File.write(File.join(root, 'boot.rb'), boot)
         stub_const('PRELOAD_LOG', [])
       end
 
-      it "loads the app's registrations there, for every worker to share, and builds none" do
+      it "loads the app's components there, for every worker to share, and builds none" do
         service.start
 
-        expect(Sidereal.dependencies).to be_key('db')
+        expect(Sidereal.config).to be_declared('db')
         expect(PRELOAD_LOG).to be_empty
       end
 
       it 'refuses to build there' do
         service.start
 
-        expect { Sidereal.dependencies['db'] }.to raise_error(Sidereal::Dependencies::ForkError)
+        expect { Sidereal.config.build! }.to raise_error(Sidereal::ForkError)
       end
 
-      context 'and the app resolves a dependency while it loads' do
-        let(:boot) { super() + "Sidereal.dependencies['db']\n" }
+      context 'and the app builds the config while it loads' do
+        let(:boot) { super() + "Sidereal.config.build!\n" }
 
-        it 'fails to start instead of handing every worker the same value' do
-          expect { service.start }.to raise_error(Sidereal::Dependencies::ForkError, /Cannot build 'db'/)
+        it 'fails to start instead of handing every worker the same values' do
+          expect { service.start }.to raise_error(Sidereal::ForkError, /can't be built in process/)
           expect(PRELOAD_LOG).to be_empty
         end
       end
@@ -78,11 +78,11 @@ RSpec.describe Sidereal::Falcon::Environment::Service do
     context 'when each worker loads the app' do
       let(:preload) { [] }
 
-      it 'leaves the dependencies for the worker to register into and build' do
+      it 'leaves the config for the worker to declare into and build' do
         service.start
 
-        expect { Sidereal.dependencies.register!('db') { :db } }.not_to raise_error
-        expect(Sidereal.dependencies).not_to be_built
+        expect { Sidereal.config.declare('db') { :db } }.not_to raise_error
+        expect(Sidereal.config.boot_status).to eq(:open)
       end
     end
   end

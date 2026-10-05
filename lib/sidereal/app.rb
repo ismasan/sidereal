@@ -82,9 +82,10 @@ module Sidereal
         self
       end
 
-      # Inject dependencies where the app's handlers run: into the app itself,
-      # whose per-request instance runs the {.handle} blocks, and into its
-      # {.commander}, whose per-command instance runs the {.command} blocks.
+      # Inject components of {Sidereal.config} where the app's handlers run:
+      # into the app itself, whose per-request instance runs the {.handle}
+      # blocks, and into its {.commander}, whose per-command instance runs the
+      # {.command} blocks.
       #
       #   dep :db
       #   dep 'sourced.store' => 'events'
@@ -94,8 +95,10 @@ module Sidereal
       #   end
       #
       # Commanders registered with {.commands} declare their own. A subclass
-      # gets its own commander, so it declares again what its +command+
-      # blocks use; its +handle+ blocks inherit the parent's.
+      # inherits the parent's injections for its +handle+ blocks, but gets its
+      # own commander: it declares what its +command+ blocks use with
+      # +commander.dep+, since +dep+ would inject into the app a second time,
+      # which raises.
       #
       # @param specs (see Sidereal::Deps#dep)
       # @return [self]

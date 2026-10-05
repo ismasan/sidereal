@@ -5,25 +5,27 @@ require 'tmpdir'
 require 'sidereal/integrations/file_system'
 
 RSpec.describe Sidereal::Integrations::FileSystem do
-  let(:config) { Sidereal::Configuration.new }
+  let(:config) { Sidereal.config }
 
   describe '.setup' do
-    it 'wires the store/pubsub/elector to the filesystem + unix-socket impls' do
+    it 'implements the store/pubsub/elector with the filesystem + unix-socket impls' do
       Dir.mktmpdir do |dir|
         described_class.setup(config, dir: dir)
+        config.build!
 
-        expect(config.store).to be_a(Sidereal::Store::FileSystem)
-        expect(config.pubsub).to be_a(Sidereal::PubSub::Unix)
-        expect(config.elector).to be_a(Sidereal::Elector::FileSystem)
+        expect(config['sidereal.store']).to be_a(Sidereal::Store::FileSystem)
+        expect(config['sidereal.pubsub']).to be_a(Sidereal::PubSub::Unix)
+        expect(config['sidereal.elector']).to be_a(Sidereal::Elector::FileSystem)
       end
     end
 
     it 'places files, socket, and lock under dir' do
       Dir.mktmpdir do |dir|
         described_class.setup(config, dir: dir)
+        config.build!
 
         # Appending a command creates the store tree under <dir>/store.
-        config.store.append(Sidereal::Message.define('intg_fs.ping').new)
+        config['sidereal.store'].append(Sidereal::Message.define('intg_fs.ping').new)
 
         expect(Dir.exist?(File.join(dir, 'store'))).to be true
       end
@@ -42,10 +44,10 @@ RSpec.describe Sidereal::Integrations::FileSystem do
         .and_return(elector)
 
       described_class.setup(config)
-      config.dependencies.build!
+      config.build!
     end
 
-    it 'builds nothing until resolved' do
+    it 'builds nothing until the config is built' do
       expect(Sidereal::Store::FileSystem).not_to receive(:new)
       expect(Sidereal::PubSub::Unix).not_to receive(:new)
       expect(Sidereal::Elector::FileSystem).not_to receive(:new)
@@ -53,33 +55,39 @@ RSpec.describe Sidereal::Integrations::FileSystem do
       described_class.setup(config)
     end
 
-    it 'hands the pubsub whichever elector is registered, including a later override' do
+    it 'hands the pubsub whichever elector implements sidereal.elector, including a later one' do
       Dir.mktmpdir do |dir|
         described_class.setup(config, dir: dir)
         elector = Sidereal::Elector::AlwaysLeader.new
-        config.elector = elector
+        config.config!('sidereal.elector') { elector }
+        config.build!
 
-        expect(config.pubsub).to be_leader
-        expect(config.elector).to be(elector)
+        expect(config['sidereal.pubsub']).to be_leader
+        expect(config['sidereal.elector']).to be(elector)
+      end
+    end
+
+    it 'starts the elector and the pubsub with the config, elector first' do
+      Dir.mktmpdir do |dir|
+        described_class.setup(config, dir: dir)
+        order = config.prepare!.ordered_nodes.map(&:path)
+
+        expect(order.index('sidereal.elector')).to be < order.index('sidereal.pubsub')
+
+        Sync do |task|
+          config.start!(task)
+          expect(config['sidereal.elector']).to be_leader
+          expect(config['sidereal.pubsub']).to be_leader
+        ensure
+          config.teardown!
+          task.children.each(&:stop)
+        end
       end
     end
 
     it 'returns the config' do
       Dir.mktmpdir do |dir|
         expect(described_class.setup(config, dir: dir)).to be(config)
-      end
-    end
-  end
-
-  describe 'applied via Configuration#use' do
-    it 'wires the collaborators and returns self' do
-      Dir.mktmpdir do |dir|
-        result = config.use(described_class, dir: dir)
-
-        expect(result).to be(config)
-        expect(config.store).to be_a(Sidereal::Store::FileSystem)
-        expect(config.pubsub).to be_a(Sidereal::PubSub::Unix)
-        expect(config.elector).to be_a(Sidereal::Elector::FileSystem)
       end
     end
   end

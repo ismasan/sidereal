@@ -588,9 +588,12 @@ RSpec.describe 'Sidereal::App.dep' do
 
   before do
     saved = todos
-    Sidereal.dependencies.register!('todos') { saved }
+    Sidereal.config.declare('todos') { saved }
     allow(Sidereal).to receive(:store).and_return(store)
   end
+
+  # Injected values are read on instantiation, once the config is built
+  before { test_app && Sidereal.config.build! }
 
   let(:test_app) do
     Class.new(Sidereal::App) do
@@ -630,8 +633,7 @@ RSpec.describe 'Sidereal::App.dep' do
   end
 
   it "refuses a name the app already uses, such as #store" do
-    Sidereal.dependencies.register!('store') { :mine }
-
-    expect { Class.new(Sidereal::App) { dep :store } }.to raise_error(ArgumentError, /already has #store/)
+    expect { Class.new(Sidereal::App) { dep 'sidereal.store' } }
+      .to raise_error(Sourced::Component::InjectionError, /already defines #store/)
   end
 end

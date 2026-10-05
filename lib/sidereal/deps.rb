@@ -1,25 +1,27 @@
 # frozen_string_literal: true
 
 module Sidereal
-  # Class-level shorthand for injecting {Sidereal.dependencies} into a class's
-  # constructor.
+  # Class-level shorthand for injecting {Sidereal.config}'s components into a
+  # class's constructor.
   #
   #   class MyThing
   #     extend Sidereal::Deps
   #
-  #     dep :store                     # store: keyword, and a #store reader
+  #     dep :db                        # db: keyword, and a #db reader
   #     dep 'sourced.store' => 'st'    # aliased: st: and #st
   #   end
   #
-  # +dep(*specs)+ is +include Sidereal.dependencies.args(*specs)+; see
-  # {Dependencies#args} for how the keyword arguments and readers work.
-  # {Sidereal::Commander} extends it, so commanders can declare what their
-  # handlers use.
+  # +dep(*keys)+ is +include Sidereal.config.inject(*keys)+: keys are relative
+  # to the root, and values are read when an object is instantiated, so
+  # +Sidereal.config+ must be built by then. Any one can be passed explicitly
+  # instead (+MyThing.new(db: fake)+). Injecting a name the class already has
+  # a method for raises: alias it. {Sidereal::Commander} extends it, so
+  # commanders can declare what their handlers use.
   module Deps
-    # @param specs [Array<String, Symbol, Hash{String, Symbol => String, Symbol}>]
+    # @param keys [Array<String, Symbol, Hash{String, Symbol => String, Symbol}>]
     # @return [self]
-    def dep(*specs)
-      include Sidereal.dependencies.args(*specs)
+    def dep(*keys)
+      include Sidereal.config.inject(*keys)
     end
   end
 end

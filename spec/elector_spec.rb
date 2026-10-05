@@ -206,6 +206,7 @@ RSpec.describe Sidereal::Elector do
 
   describe 'Sidereal.elector default' do
     it 'defaults to AlwaysLeader' do
+      Sidereal.config.build!
       expect(Sidereal.elector).to be_a(Sidereal::Elector::AlwaysLeader)
     end
   end

@@ -33,13 +33,7 @@ module Sidereal
     # dispatcher instead of mutating the process-global one.
     #
     # @return [Channels]
-    def self.with_system_defaults
-      new.tap do |c|
-        bypass = ->(_msg) { DEFAULT_CHANNEL }
-        c.channel_name(System::NotifyRetry, &bypass)
-        c.channel_name(System::NotifyFailure, &bypass)
-      end
-    end
+    def self.with_system_defaults = new.restore_defaults!
 
     def initialize
       reset!
@@ -110,6 +104,18 @@ module Sidereal
       @catch_all = nil
       @locked = false
       self
+    end
+
+    # Clear all registrations and unlock, then install the system-message
+    # bypass routes again (see {.with_system_defaults}). {Sidereal.reload!}
+    # resets the process-global registry with it, in place, so the
+    # +sidereal.channels+ component keeps holding the same object.
+    # @return [self]
+    def restore_defaults!
+      reset!
+      bypass = ->(_msg) { DEFAULT_CHANNEL }
+      channel_name(System::NotifyRetry, &bypass)
+      channel_name(System::NotifyFailure, &bypass)
     end
   end
 end

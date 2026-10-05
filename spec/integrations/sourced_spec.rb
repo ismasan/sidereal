@@ -126,7 +126,11 @@ RSpec.describe 'Sidereal::Commander on the Sourced runtime' do
   let(:pubsub) { IntgFakePubSub.new }
 
   before do
-    Sidereal.config.pubsub = pubsub
+    Sidereal.config.config!('sidereal.pubsub') { pubsub }
+    # For 'dep in Sourced reactors'. Declared here: the config is built below,
+    # and locked from then on.
+    Sidereal.config.declare('naming') { ->(id) { "named-#{id}" } }
+    Sidereal.config.build!
     # setup! creates the tables and compiles the store's message codec, which
     # serializes payloads on #append.
     store.setup!
@@ -149,163 +153,9 @@ RSpec.describe 'Sidereal::Commander on the Sourced runtime' do
     expect(JSON.parse(row[:partition_by])).to eq(['__id'])
   end
 
-  describe 'config.use(Sidereal::Integrations::Sourced)' do
-    after { Sourced.reset! }
-
-    it 'wires the dispatcher and a store proxy over the current Sourced store' do
-      config = Sidereal::Configuration.new
-      config.use(Sidereal::Integrations::Sourced, store: Sequel.sqlite)
-
-      expect(config.dispatcher).to be(Sidereal::Integrations::Sourced::Dispatcher)
-
-      # config.store delegates #append to whatever Sourced.store is at call time,
-      # so a per-worker reconnect is picked up without re-pointing the config.
-      expect(config.store).to be(Sidereal::Integrations::Sourced::StoreProxy)
-      fake = double('sourced store')
-      allow(Sourced).to receive(:store).and_return(fake)
-      expect(fake).to receive(:append).with(:msg).and_return(:ok)
-      expect(config.store.append(:msg)).to eq(:ok)
-    end
-
-    it 'prepares the store at boot in every process, recompiling its codec for types defined after configure' do
-      # Sourced.configure compiles the store codec as it runs — in boot.rb,
-      # before app.rb defines the app's types — and the codec is a singleton
-      # whose compile! is a no-op afterwards. With dispatcher_process = :leader
-      # only the leader starts the dispatcher; every worker still appends.
-      config = Sidereal::Configuration.new
-      config.use(Sidereal::Integrations::Sourced, store: Sequel.sqlite)
-      expect(Sourced.store.message_codec).to be_compiled
-
-      late = Sidereal::Message.define("boot_spec.late_#{SecureRandom.hex(4)}") do
-        attribute :price, CodecMoney
-      end
-      msg = late.new(payload: { price: CodecMoney.new(cents: 250, currency: 'GBP') })
-      expect { config.store.append(msg) }.to raise_error(Sourced::Message::Codec::UnregisteredTypeError)
-
-      config.dependencies.build!
-
-      config.store.append(msg)
-      expect(Sourced.store.read_correlation_batch(msg.id).map(&:payload).map(&:price)).to eq([msg.payload.price])
-    end
-
-    it 'carries an app-registered encoder into Sourced\'s store' do
-      # CodecMoneyEncoder is registered on the global Plumb::Codec::JSON (see
-      # spec/support/codec_fixtures.rb), the way an app registers one. Sourced
-      # knows the type because it compiles against that same global.
-      config = Sidereal::Configuration.new
-      config.use(Sidereal::Integrations::Sourced, store: Sequel.sqlite)
-      Sourced.store.setup!
-
-      msg = CodecPriced.new(payload: { price: CodecMoney.new(cents: 250, currency: 'GBP') })
-      expect(Sourced.store.message_codec.encode(msg)['payload']).to eq('price' => '250 GBP')
-    end
-
-    it 'keeps the two serializers apart, over the same format' do
-      # Compiled explicitly: nothing compiles a codec on first use, and neither
-      # transport nor store has started here.
-      sourced_codec = Sourced::Store::MessageCodec.default.compile!
-      sidereal_codec = Sourced::Message::JSONCodec.default.compile!
-      expect(sourced_codec).not_to be(sidereal_codec)
-
-      msg = CodecPriced.new(payload: { price: CodecMoney.new(cents: 250, currency: 'GBP') })
-      # Same global encoders, so both encode the whole message the same way.
-      expect(sourced_codec.encode(msg)).to eq(sidereal_codec.encode(msg))
-      expect(sidereal_codec.encode(msg)).to include('type', 'id', 'created_at', 'payload' => { 'price' => '250 GBP' })
-    end
-
-    it 'pins the dispatcher to the elected leader, overridable afterwards' do
-      config = Sidereal::Configuration.new
-      config.use(Sidereal::Integrations::Sourced, store: Sequel.sqlite)
-      expect(config.dispatcher_process).to eq(:leader)
-
-      config.dispatcher_process = :all
-      expect(config.dispatcher_process).to eq(:all)
-    end
-
-    it 'configures Sourced with the pubsub notifier, which its store resolves on append' do
-      config = Sidereal::Configuration.new
-      config.use(Sidereal::Integrations::Sourced, store: Sequel.sqlite)
-
-      expect(Sourced.config.notifier).to be_a(Sidereal::Integrations::Sourced::Notifier)
-      expect(Sourced.store.notifier).to be(Sourced.config.notifier)
-    end
-
-    it 'keeps the notifier across Sourced.setup! (the per-worker replay)' do
-      Sidereal::Configuration.new.use(Sidereal::Integrations::Sourced, store: -> { Sequel.sqlite })
-      Sourced.setup!
-
-      expect(Sourced.config.notifier).to be_a(Sidereal::Integrations::Sourced::Notifier)
-      expect(Sourced.store.notifier).to be(Sourced.config.notifier)
-    end
-
-    it 'wires Sourced retry/fail reporting to Sidereal.exceptions' do
-      strategy = Sourced.config.error_strategy
-      expect(strategy).to receive(:on_retry).with(Sidereal.exceptions)
-      expect(strategy).to receive(:on_fail).with(Sidereal.exceptions)
-
-      Sidereal::Configuration.new.use(Sidereal::Integrations::Sourced, store: Sequel.sqlite)
-    end
-
-    it 'opens a callable store when the sourced dependency builds, never at use' do
-      calls = 0
-      db = Sequel.sqlite
-      config = Sidereal::Configuration.new
-      config.use(Sidereal::Integrations::Sourced, store: -> { calls += 1; db })
-      expect(calls).to eq(0)
-
-      config.dependencies['sourced']
-
-      expect(calls).to be_positive
-      expect(Sourced.store.db).to be(db)
-    end
-
-    it 'takes the store from a dependency named by store:, which sourced then depends on' do
-      db = Sequel.sqlite
-      config = Sidereal::Configuration.new
-      config.dependencies.register!('db') { db }
-      config.use(Sidereal::Integrations::Sourced, store: 'db')
-
-      expect(config.dependencies.inspect).to include('sourced[db]')
-      config.dependencies['sourced']
-
-      expect(Sourced.store.db).to be(db)
-    end
-  end
-
-  describe 'Sidereal::Integrations::Sourced::Dispatcher.start' do
-    it 'starts the Sourced runtime without re-running Sourced.setup!, which the sourced dependency already did once' do
-      # Sourced.setup! freezes the configuration, so a second call in the same
-      # process raises. Building the 'sourced' dependency is the one call per process.
-      task = double('task')
-      allow(Sidereal.registry).to receive(:commanders).and_return([])
-      expect(Sourced).not_to receive(:setup!)
-      expect(Sourced::Dispatcher).to receive(:start).with(task).and_return(:running)
-
-      expect(Sidereal::Integrations::Sourced::Dispatcher.start(task)).to eq(:running)
-    end
-
-    it 'boots and starts on the same frozen configuration: the dependencies, then the dispatcher' do
-      # The sequence Host#start drives in the leader process.
-      config = Sidereal::Configuration.new
-      config.use(Sidereal::Integrations::Sourced, store: Sequel.sqlite)
-      allow(Sidereal.registry).to receive(:commanders).and_return([])
-      task = double('task')
-      allow(Sourced::Dispatcher).to receive(:start).with(task).and_return(:running)
-
-      config.dependencies.build!
-      expect(Sourced.config).to be_frozen
-
-      expect { Sidereal::Integrations::Sourced::Dispatcher.start(task) }.not_to raise_error
-    end
-  end
-
   describe Sidereal::Integrations::Sourced::Notifier do
-    subject(:notifier) { described_class.new }
-
-    # The outer before installs a publish-only fake; this needs real
-    # subscriptions.
-    before { Sidereal.config.pubsub = Sidereal::PubSub::Memory.new }
-    after { Sourced.reset! }
+    let(:memory_pubsub) { Sidereal::PubSub::Memory.new }
+    subject(:notifier) { described_class.new(pubsub: memory_pubsub, exceptions: Sidereal.exceptions) }
 
     def with_listener(notifier)
       Sync do |task|
@@ -318,7 +168,7 @@ RSpec.describe 'Sidereal::Commander on the Sourced runtime' do
       end
     end
 
-    it 'forwards store announcements to its subscribers through Sidereal.pubsub' do
+    it 'forwards store announcements to its subscribers through the pubsub' do
       received = []
       notifier.subscribe(->(event, value) { received << [event, value] })
 
@@ -330,25 +180,35 @@ RSpec.describe 'Sidereal::Commander on the Sourced runtime' do
       expect(received).to eq([['messages_appended', 'a,b'], ['reactor_resumed', 'g']])
     end
 
-    it 'wakes a subscriber when a store built before it was configured appends' do
-      Sourced.config.notifier = notifier
+    it 'wakes a subscriber when its store appends' do
+      notified_store = Sourced::Store.new(db, notifier:)
       received = []
       notifier.subscribe(->(event, value) { received << [event, value] })
 
       with_listener(notifier) do
-        store.append(IntgDoThing.new(payload: { n: 1 }))
+        notified_store.append(IntgDoThing.new(payload: { n: 1 }))
       end
 
       expect(received).to eq([['messages_appended', 'intg.do_thing']])
+    end
+
+    it 'keeps forwarding to its subscribers when started again after stopping' do
+      received = []
+      notifier.subscribe(->(event, value) { received << [event, value] })
+      with_listener(notifier) {}
+
+      with_listener(notifier) { notifier.notify_new_messages(['x']) }
+
+      expect(received).to eq([['messages_appended', 'x']])
     end
 
     it 'reports a failed publish as fatal instead of raising into the append' do
       broken = Class.new(IntgFakePubSub) do
         def publish(*) = raise('socket gone')
       end.new
-      Sidereal.config.pubsub = broken
       fatals = []
       Sidereal.exceptions.on_fatal { |report| fatals << report }
+      notifier = described_class.new(pubsub: broken, exceptions: Sidereal.exceptions)
 
       expect { notifier.notify_new_messages(['x']) }.not_to raise_error
       expect(fatals.map { |r| r.exception.message }).to eq(['socket gone'])
@@ -387,8 +247,6 @@ RSpec.describe 'Sidereal::Commander on the Sourced runtime' do
 
   describe 'dep in Sourced reactors' do
     include Sourced::Testing::RSpec
-
-    before { Sidereal.dependencies.register!('naming') { ->(id) { "named-#{id}" } } }
 
     it "injects into a decider, for its command blocks" do
       stub_const('IntgDepWidget', Class.new(Sourced::Decider) do
@@ -542,5 +400,185 @@ RSpec.describe 'Sidereal::Commander on the Sourced runtime' do
       expect(entry[:channel]).to eq('enroll.s1.c1')
       expect(entry[:message].payload.to_h).to include(student_id: 's1', course_id: 'c1')
     end
+  end
+end
+
+RSpec.describe 'Sidereal.use(Sidereal::Integrations::Sourced)' do
+  let(:config) { Sidereal.config }
+  let(:db) { Sequel.sqlite }
+
+  # Sourced.config is process-global, and mounted into Sidereal.config, which
+  # the suite replaces before each example: a fresh one can be mounted again.
+  # So is the store's codec, which other examples have compiled already.
+  before do
+    Sourced.reset!
+    Sourced::Store::MessageCodec.reset!
+  end
+
+  after do
+    Sourced.reset!
+    Sequel::DATABASES.each(&:disconnect)
+  end
+
+  def use_sourced
+    database = db
+    config.declare('db', Sequel::Database)
+    config.config!('db') { database }
+    Sidereal.use(Sidereal::Integrations::Sourced, db: 'db').tap do
+      config.config!('sourced.logger') { Sourced::NULL_LOGGER }
+    end
+  end
+
+  it "mounts Sourced's configuration at sourced, and appends commands to its store" do
+    expect(use_sourced).to be(config)
+    config.build!
+
+    expect(config.node('sourced')).to be(Sourced.config)
+    expect(Sidereal.store).to be(Sourced.store)
+  end
+
+  it "keeps Sourced's messages in the component named by db:" do
+    use_sourced
+    config.build!
+
+    expect(Sourced.store.db).to be(db)
+  end
+
+  it 'announces appends through a Notifier over sidereal.pubsub' do
+    use_sourced
+    config.build!
+
+    expect(config['sourced.notifier']).to be_a(Sidereal::Integrations::Sourced::Notifier)
+    expect(Sourced.store.notifier).to be(config['sourced.notifier'])
+  end
+
+  it 'pins the dispatcher to the elected leader, overridable afterwards' do
+    use_sourced
+    config.config!('sidereal.runner.process') { :all }
+    config.build!
+
+    expect(config['sidereal.runner.process']).to eq(:all)
+  end
+
+  it "runs Sourced's dispatcher from Sidereal's runner, never from Sourced's own start" do
+    use_sourced
+    config.build!
+
+    expect(config['sidereal.runner.process']).to eq(:leader)
+    expect(config['sidereal.runner.targets']).to eq(['sourced.dispatcher'])
+    expect(config.node('sourced.dispatcher')).to be_deferred
+    expect(config.node('sidereal.dispatcher')).to be_deferred # Sidereal's own never starts
+  end
+
+  it "starts and stops Sourced's dispatcher as its process is promoted and demoted" do
+    elector = Class.new do
+      include Sidereal::Elector::Callbacks
+      define_method(:initialize) { @leader = false }
+      define_method(:leader?) { @leader }
+      define_method(:start) { |_task| self }
+      public :promote!, :demote!
+    end.new
+    use_sourced
+    config.config!('sidereal.elector') { elector }
+    config.config!('sourced.workers.count') { 1 }
+
+    Sync do |task|
+      config.start!(task)
+      dispatcher = config['sourced.dispatcher']
+      expect(dispatcher).not_to be_running
+
+      elector.promote!
+      expect(dispatcher).to be_running
+      elector.demote!
+      expect(dispatcher).not_to be_running
+      elector.promote!
+      expect(dispatcher).to be_running
+    ensure
+      config.teardown!
+    end
+
+    expect(config['sourced.dispatcher']).not_to be_running
+  end
+
+  it 'registers Sidereal commanders with Sourced as the config is prepared' do
+    Sidereal.register(IntgCommander)
+    use_sourced
+    config.build!
+
+    expect(Sourced.config).to be_declared(Sourced::Config.reactor_key(IntgCommander))
+    expect(Sourced.router.reactors).to include(IntgCommander)
+  end
+
+  it "reports Sourced's terminal failures to Sidereal.exceptions" do
+    reports = []
+    Sidereal.exceptions.on_failure { |report| reports << report }
+    use_sourced
+    config.build!
+
+    group = double('group', error_context: {}, fail: nil)
+    message = IntgDoThing.new(payload: { n: 1 })
+    Sourced.config['error_strategy'].call(RuntimeError.new('boom'), message, group)
+
+    expect(reports.map { |r| [r.exception.message, r.message] }).to eq([['boom', message]])
+  end
+
+  it "keeps the error strategy the app implements" do
+    use_sourced
+    config.config!('sourced.error_strategy') { Sourced::ErrorStrategy.new.retry(times: 3) }
+    config.build!
+
+    expect(Sourced.config['error_strategy'].max_retries).to eq(3)
+  end
+
+  it "compiles Sourced's store codec on prepare, for every type defined by then, before anything connects" do
+    use_sourced
+    late = Sidereal::Message.define("boot_spec.late_#{SecureRandom.hex(4)}") do
+      attribute :price, CodecMoney
+    end
+    msg = late.new(payload: { price: CodecMoney.new(cents: 250, currency: 'GBP') })
+
+    config.prepare!
+
+    expect(Sourced::Store::MessageCodec.default.encode(msg)['payload']).to eq('price' => '250 GBP')
+    expect(config.node('db').status).to eq(:prepared)
+  end
+
+  it "installs Sourced's store tables on start" do
+    use_sourced
+    config.config!('sourced.workers.count') { 0 }
+    msg = CodecPriced.new(payload: { price: CodecMoney.new(cents: 250, currency: 'GBP') })
+
+    Sync do |task|
+      config.start!(task)
+      Sidereal.store.append(msg)
+    ensure
+      config.teardown!
+    end
+
+    expect(Sourced.store.read_correlation_batch(msg.id).map(&:payload).map(&:price)).to eq([msg.payload.price])
+  end
+
+  it "carries an app-registered encoder into Sourced's store" do
+    # CodecMoneyEncoder is registered on the global Plumb::Codec::JSON (see
+    # spec/support/codec_fixtures.rb), the way an app registers one. Sourced
+    # knows the type because it compiles against that same global.
+    use_sourced
+    config.build!
+
+    msg = CodecPriced.new(payload: { price: CodecMoney.new(cents: 250, currency: 'GBP') })
+    expect(Sourced.store.message_codec.encode(msg)['payload']).to eq('price' => '250 GBP')
+  end
+
+  it 'keeps the two serializers apart, over the same format' do
+    # Compiled explicitly: nothing compiles a codec on first use, and neither
+    # transport nor store has started here.
+    sourced_codec = Sourced::Store::MessageCodec.default.compile!
+    sidereal_codec = Sourced::Message::JSONCodec.default.compile!
+    expect(sourced_codec).not_to be(sidereal_codec)
+
+    msg = CodecPriced.new(payload: { price: CodecMoney.new(cents: 250, currency: 'GBP') })
+    # Same global encoders, so both encode the whole message the same way.
+    expect(sourced_codec.encode(msg)).to eq(sidereal_codec.encode(msg))
+    expect(sidereal_codec.encode(msg)).to include('type', 'id', 'created_at', 'payload' => { 'price' => '250 GBP' })
   end
 end

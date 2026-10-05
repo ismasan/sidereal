@@ -22,57 +22,46 @@
 # +on_fatal+ subscribers). When Sourced is the dispatcher it owns retry/fail
 # orchestration, so this bridge is what surfaces failures in the UI.
 #
-# **One runtime per host.** The integration sets
-# +config.dispatcher_process = :leader+, so only the process the elector
-# promotes runs the Sourced runtime (commanders, deciders, projectors). SQLite
-# serializes writers, so N runtimes on N workers would queue on each other;
-# pinning the consuming side to one process lets the other workers serve pages
-# and queries in parallel. Every worker still appends commands through
-# {StoreProxy} — those writes are not serialized, the handler and projection
-# writes are. Set +c.dispatcher_process = :all+ after +use+ to fan out again.
+# **One runtime per host.** The integration sets +sidereal.runner.process+
+# to +:leader+, so only the process the elector promotes runs the Sourced
+# runtime (commanders, deciders, projectors). SQLite serializes writers, so N
+# runtimes on N workers would queue on each other; pinning the consuming side
+# to one process lets the other workers serve pages and queries in parallel.
+# Every worker still appends commands to Sourced's store — those writes are not
+# serialized, the handler and projection writes are. Implement
+# +sidereal.runner.process+ as +:all+ after +use+ to fan out again.
 #
 # **Cross-process wake-ups.** Sourced's store announces appends through a
 # notifier and its dispatcher listens on it, but the default notifier is
 # in-process — a follower's append would only reach the leader on the next
-# catch-up poll. The integration configures Sourced with {Notifier}, which
-# carries those announcements over {Sidereal.pubsub}, so with the unix-socket
-# pubsub an append on any worker wakes the leader's workers at once.
+# catch-up poll. The integration implements +sourced.notifier+ with
+# {Notifier}, which carries those announcements over +sidereal.pubsub+, so
+# with the unix-socket pubsub an append on any worker wakes the leader's
+# workers at once.
 #
-# Under the forking Falcon environment each worker loads boot.rb in its own
-# process, so this registration (and Sourced's own store) is established fresh
-# per worker. The integration also registers a +'sourced'+ singleton in
-# {Sidereal::Configuration#dependencies} whose block configures Sourced's
-# store (when +store:+ is given) and runs {Sourced.setup!}.
-# {Sidereal::Host#start} builds it (via {Sidereal::Dependencies#build!}) in
-# every process, leader or follower, before anything starts: it opens the
-# store's connection in the current process — never at load time, so it stays
-# fork-safe even if the app is preloaded in the parent — installs the store's
-# tables and recompiles its codec against every message type the app has
-# loaded, so a follower that only appends is as ready as the leader that
-# consumes.
+# **Components.** Sourced's configuration is mounted at +sourced+ in
+# {Sidereal.config}, and boots with it: preparing compiles its store's codec
+# (once before forking, if the app is preloaded and prepared there), and every
+# process builds and starts Sourced's components (its store installs its
+# tables on start, so a follower that only appends is as ready as the leader).
+# Only the leader starts its dispatcher. The app can implement any of them,
+# ex. +Sidereal.config.config!('sourced.workers.count') { 4 }+.
 #
-# Require this at load time (top-level in boot.rb), then apply it with Sidereal's
-# integration hook — one call wires the store + dispatcher together:
+# Require this at load time, then apply it with {Sidereal.use}. +db:+ names a
+# component of the app's that Sourced's store uses, built in each process when
+# it starts (so never shared across a fork):
 #
 #   require 'sidereal/integrations/sourced'
 #
-#   Sourced.configure { |c| c.store = Sequel.sqlite('db/app.db') }
-#   Sourced.register(SomeDecider)   # deciders/projectors: registered as usual
-#
-#   Sidereal.configure do |c|
-#     c.use_file_system!                     # pubsub + elector
-#     c.use Sidereal::Integrations::Sourced  # store + dispatcher + error bridge
+#   Sidereal.config.declare('db', Sequel::Database)
+#   Sidereal.config.component!('db') do
+#     build { Sequel.sqlite('db/app.db') }
+#     teardown(&:disconnect)
 #   end
 #
-# Or let the integration configure Sourced's store, from a dependency the app
-# registers (built per process, shareable with the app's own classes) or a
-# callable factory:
-#
-#   Sidereal.configure do |c|
-#     c.use_file_system!
-#     c.use Sidereal::Integrations::Sourced, store: 'db'
-#     # or: store: -> { Sequel.sqlite('db/app.db') }
-#   end
+#   Sidereal.use_file_system!                              # pubsub + elector
+#   Sidereal.use Sidereal::Integrations::Sourced, db: 'db' # store + dispatcher + error bridge
+#   Sourced.register(SomeDecider)                          # deciders/projectors: registered as usual
 
 require 'sourced'
 
@@ -95,7 +84,7 @@ module Sidereal
       # the store transaction commits, and (3) delete the handled command.
       def handle_claim(claim)
         claim.messages.map do |cmd|
-          result = handle(cmd, pubsub: Sidereal.config.pubsub)
+          result = handle(cmd, pubsub: Sidereal.pubsub)
           # build_for splits follow-ups by created_at: immediate :append vs
           # future :schedule (a .at/.in command carries a future created_at).
           signals = ::Sourced::Actions.build_for(result.commands, source: cmd)
@@ -115,13 +104,11 @@ module Sidereal
   end
 
   module Integrations
-    # Backend integration wiring Sidereal to Sourced (store + dispatcher). Apply
-    # it in one call via Sidereal's integration hook:
+    # Backend integration wiring Sidereal to Sourced (store + dispatcher).
+    # Apply it with {Sidereal.use}:
     #
-    #   Sidereal.configure do |c|
-    #     c.use_file_system!                     # pubsub + elector
-    #     c.use Sidereal::Integrations::Sourced  # store + dispatcher + error bridge
-    #   end
+    #   Sidereal.use_file_system!                              # pubsub + elector
+    #   Sidereal.use Sidereal::Integrations::Sourced, db: 'db' # store + dispatcher + error bridge
     #
     module Sourced
       # Publish each message to Sidereal's pubsub on its resolved channel. The
@@ -136,76 +123,71 @@ module Sidereal
         Sidereal.exceptions.report_fatal(exception: ex)
       end
 
-      # Sidereal only ever calls #append on the store. Delegating to
-      # +::Sourced.store+ (rather than capturing it once) means a per-process
-      # reconnect — {::Sourced.setup!} re-running the store's configure block
-      # after a fork — is picked up automatically, so a forked worker appends
-      # through its own live connection. The store is ready to append in every
-      # process because {Sourced.setup} registers +::Sourced.setup!+ as a boot
-      # hook; a process without a Host (a rake task calling
-      # +Sidereal.dispatch!+) calls +::Sourced.setup!+ itself, once.
-      module StoreProxy
-        module_function
-
-        def append(...) = ::Sourced.store.append(...)
-      end
-
-      # Wire Sidereal's store + dispatcher to Sourced, pin the dispatcher to
-      # the elected leader, route Sourced's append notifications over
-      # Sidereal's pubsub, and bridge Sourced's retry/failure reporting to
-      # Sidereal's exception registry. Called by {Sidereal::Configuration#use}.
+      # Mount Sourced in the app's root, and wire the two:
       #
-      # @param config [Sidereal::Configuration]
-      # @param store [String, Symbol, #call, Sequel::Database, nil] when given,
-      #   configures Sourced's store as the +'sourced'+ dependency is built, in
-      #   each process. A String or Symbol names a dependency whose value is the
-      #   store (e.g. the app's +'db'+), which +'sourced'+ then depends on. A
-      #   callable (e.g. +-> { Sequel.sqlite(path) }+) is called there. A
-      #   Sequel::Database is used as-is — it was opened wherever the caller
-      #   opened it, so not fork-safe under preload. When nil, the store the app
-      #   configured on Sourced is used.
-      # @return [Sidereal::Configuration]
-      def self.setup(config, store: nil)
-        store_key = store.to_s if store.is_a?(String) || store.is_a?(Symbol)
-        # A configure block, not a one-off assignment: Sourced.setup! replays
-        # these after a fork, and the store resolves the configured notifier on
-        # every append, so ordering against the app's own store block is moot.
-        ::Sourced.configure { |c| c.notifier = Notifier.new }
-        config.store              = StoreProxy
-        config.dispatcher         = Dispatcher
-        config.dispatcher_process = :leader
-        # Every process appends, only the leader consumes: prepare Sourced's
-        # store (connection, tables, codec) at boot everywhere, not just where
-        # the dispatcher starts. A singleton, so it runs once per process:
-        # +::Sourced.setup!+ rebuilds the store from the configure blocks and
-        # freezes the configuration afterwards. Resolving +'sourced'+ before
-        # boot (a CLI, a rake task) sets Sourced up there instead.
-        #
-        # The store's codec is then recompiled, because +::Sourced.configure+
-        # compiles it when it runs — in boot.rb, before the app has defined its
-        # message types — and the codec is a process-wide singleton whose
-        # +compile!+ is a no-op once compiled. At boot every type is loaded,
-        # and +recompile!+ is incremental (pairs are cached per message class),
-        # so it builds only what the early compile could not see.
-        config.dependencies.register!('sourced', Array(store_key)) do |*values|
-          source = store_key ? values.first : store
-          # A configure block, so Sourced.setup! below replays it. A Proc is
-          # a store factory; a store or Sequel::Database is used as-is.
-          # (Not respond_to?(:call): a Sequel::Database responds to #call —
-          # prepared-statement invocation.)
-          ::Sourced.configure { |c| c.store = source.is_a?(Proc) ? source.call : source } if source
-          ::Sourced.setup!
-          ::Sourced.store.message_codec.recompile!
-          ::Sourced
+      # - +sourced.db+ is the app's +db+ component, when given.
+      # - +sourced.notifier+ carries store announcements over +sidereal.pubsub+.
+      # - +sidereal.store+ is Sourced's store: Sidereal only appends to it.
+      # - +sourced.dispatcher+, which routes to commanders, deciders and every
+      #   other reactor, is deferred and is the runner's target
+      #   (+sidereal.runner.targets+): Sidereal's runner starts it on the elected
+      #   leader only (+sidereal.runner.process+ is +:leader+) and stops it
+      #   on demotion, rather than Sourced starting it in every process.
+      #   Sidereal's own dispatcher stays deferred, and never starts.
+      # - +sidereal.sourced.exceptions+ reports Sourced's retries and terminal failures
+      #   to {Sidereal.exceptions}. Sourced owns retry/fail orchestration here,
+      #   so this is what surfaces failures in the UI.
+      # - Sidereal's commanders are registered with Sourced as the tree is
+      #   prepared, once every app class has loaded.
+      #
+      # @param config [Sourced::Component] the app's root, see {Sidereal.config}
+      # @param db [String, Symbol, nil] the key of a component in +config+ whose
+      #   value is the Sequel::Database Sourced keeps its messages in. The app's
+      #   component owns the connection, and disconnects it if it implements a
+      #   teardown. When nil, Sourced's own +db+ is used.
+      # @return [Sourced::Component]
+      def self.setup(config, db: nil)
+        config.mount('sourced', ::Sourced)
+        config.alias('sourced.db', db.to_s) if db
+        config.config!('sourced.notifier', ['sidereal.pubsub', 'sidereal.exceptions']) do |pubsub, exceptions|
+          Notifier.new(pubsub:, exceptions:)
+        end
+        config.alias('sidereal.store', 'sourced.store')
+
+        # Deferred, so booting doesn't start it in every process: Sidereal's runner
+        # starts it by key on the leader, and stops it on demotion. It can start
+        # again after stopping, so a process can be promoted more than once.
+        config.defer('sourced.dispatcher')
+        config.config!('sidereal.runner.targets') { ['sourced.dispatcher'] }
+        config.config!('sidereal.runner.process') { :leader }
+
+        # Built before anything starts, so before Sourced's router freezes the
+        # strategy on start. Whatever strategy the app implements is kept.
+        # Declared in Sidereal's tree, which owns its keys, and implemented from
+        # the root, which can see Sourced's
+        config.node('sidereal').declare('sourced.exceptions', ::Sourced::Config::ErrorStrategyInterface)
+        config.config!('sidereal.sourced.exceptions', ['sourced.error_strategy', 'sidereal.exceptions']) do |strategy, exceptions|
+          strategy.on_retry(exceptions).on_fail(exceptions)
         end
 
-        # Report Sourced's retry / terminal-failure events to Sidereal's exception
-        # registry (report_retry / report_failure — the object-callback interface
-        # Sourced's error strategy accepts). Since Sourced owns retry/fail
-        # orchestration here, this is what surfaces failures in the UI.
-        ::Sourced.config.error_strategy.on_retry Sidereal.exceptions
-        ::Sourced.config.error_strategy.on_fail Sidereal.exceptions
+        # Commanders are declared under sourced.reactors, which Sourced's router
+        # collects when the tree is prepared: after that, the tree is locked.
+        # root.preparing is published just before, while it's still open.
+        config.notifier.subscribe('root.preparing') { register_commanders }
         config
+      end
+
+      # Register every Sidereal commander with Sourced, with its full command
+      # set (the app classes have loaded by the time the tree is prepared).
+      # Skips commanders the app registered itself, which have a +group_id+
+      # once registered.
+      # @return [void]
+      def self.register_commanders
+        Sidereal.registry.commanders.each do |commander|
+          next if commander.respond_to?(:group_id) && ::Sourced.config.declared?(::Sourced::Config.reactor_key(commander))
+
+          ::Sourced.register(commander)
+        end
       end
 
       # What {Notifier} puts on the wire: one Sourced store announcement.
@@ -216,8 +198,8 @@ module Sidereal
         attribute :value, Sidereal::Types::String
       end
 
-      # Sourced store notifier over {Sidereal.pubsub}. Implements the interface
-      # of +Sourced::InlineNotifier+ (+Sourced::Configuration::NotifierInterface+):
+      # Sourced store notifier over Sidereal's pubsub. Implements the interface
+      # of +Sourced::InlineNotifier+ (+Sourced::Config::NotifierInterface+):
       # the store calls +notify_new_messages+ / +notify_reactor_resumed+ after
       # each commit, and the Sourced dispatcher subscribes its queuer and runs
       # +start+ in a fiber of its own.
@@ -230,10 +212,17 @@ module Sidereal
       # +Sidereal.dispatch!+) the unix pubsub has no socket, so the frame is
       # dropped and Sourced's catch-up poll picks the messages up instead —
       # the poll remains the safety net either way.
+      #
+      # {#stop} and {#start} can alternate: Sourced's dispatcher stops and
+      # starts it with each demotion and promotion, and its subscribers stay.
       class Notifier
         CHANNEL = 'sidereal.sourced.store_notification'
 
-        def initialize
+        # @param pubsub [#publish, #subscribe] Sidereal's pubsub
+        # @param exceptions [#report_fatal] where publish failures are reported
+        def initialize(pubsub:, exceptions:)
+          @pubsub = pubsub
+          @exceptions = exceptions
           @subscribers = []
           @channel = nil
         end
@@ -260,12 +249,13 @@ module Sidereal
         # until {#stop}, like the Postgres listener Sourced models this on.
         # @return [void]
         def start
-          @channel = Sidereal.pubsub.subscribe(CHANNEL)
+          @channel = @pubsub.subscribe(CHANNEL)
           @channel.start do |msg, _ch|
             @subscribers.each { |s| s.call(msg.payload.event_name, msg.payload.value) }
           end
         end
 
+        # Stop forwarding, until {#start} runs again.
         # @return [void]
         def stop
           channel = @channel
@@ -279,31 +269,9 @@ module Sidereal
         # into the appending fiber: report it and let the catch-up poll cover
         # the lost wake-up.
         def publish(event_name, value)
-          Sidereal.pubsub.publish(CHANNEL, StoreNotification.new(payload: { event_name:, value: }))
+          @pubsub.publish(CHANNEL, StoreNotification.new(payload: { event_name:, value: }))
         rescue StandardError => ex
-          Sidereal.exceptions.report_fatal(exception: ex)
-        end
-      end
-
-      # Dispatcher factory for +config.dispatcher+. Registers every Sidereal
-      # commander with Sourced (once, with its full command set) and then starts
-      # Sourced's runtime, which routes to commanders, deciders and any reactor.
-      # Registering here (rather than hooking Sidereal.register) means all
-      # +command+ declarations are complete before registration.
-      module Dispatcher
-        # @param task [Async::Task]
-        # @return [Sourced::Dispatcher] the running dispatcher (Host keeps it to #stop)
-        def self.start(task)
-          # Sourced is already set up for this process: the +'sourced'+
-          # dependency that {Sourced.setup} registers ran +::Sourced.setup!+
-          # when the Host built the dependencies, before it started
-          # anything. It is not called again here — +::Sourced.setup!+ freezes
-          # the configuration, so it runs once per process. A dispatcher driven
-          # without a Host (tests, CLIs) resolves +'sourced'+ before this.
-          Sidereal.registry.commanders.each do |commander|
-            ::Sourced.register(commander) unless ::Sourced.router.reactors.include?(commander)
-          end
-          ::Sourced::Dispatcher.start(task)
+          @exceptions.report_fatal(exception: ex)
         end
       end
 

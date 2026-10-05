@@ -10,159 +10,101 @@ require 'sidereal/single_process'
 
 module Sidereal
   class Error < StandardError; end
-  # Your code goes here...
 
-  DispatcherInterface = Types::Interface[:start]
-  PubsubInterface = Types::Interface[:start, :subscribe, :publish]
-  ElectorInterface = Types::Interface[:start, :on_promote, :on_demote, :leader?]
-  # Which process runs the dispatcher: every process, or only the one the
-  # elector promotes. See Configuration#dispatcher_process.
-  DispatcherProcess = Types::Symbol.options(%i[all leader])
-  # Sidereal apps only append to stores
-  # It's up to dispatcher implementations how to use the store to claim commands
-  # Ex. Sourced's store has a more sophisticated claim mechanism than Sidereal::Store
-  StoreWriterInterface = Types::Interface[:append]
-  # A backend integration self-applies to a Configuration via #setup(config, **opts).
-  # See Configuration#use.
+  # Raised by a build where builds are forbidden: see {.lock!}
+  class ForkError < Error; end
+
+  # A backend integration applies itself to {.config} via +#setup(config, **opts)+.
+  # See {.use}.
   IntegrationInterface = Types::Interface[:setup]
 
   def self.message_method_name(prefix, name)
     "__handle_#{prefix}_#{name.split('::').map(&:downcase).join('_')}"
   end
 
-  class Configuration
-    attr_accessor :workers
-    # The container the store, pubsub and elector live in, as +'sidereal.store'+,
-    # +'sidereal.pubsub'+ and +'sidereal.elector'+, next to whatever the app and
-    # integrations register. {Sidereal.dependencies} is this container.
-    #
-    # @return [Dependencies]
-    attr_reader :dependencies
-    attr_reader :dispatcher, :dispatcher_process
-
-    # @param dependencies [Dependencies] the container to register the default
-    #   store, pubsub and elector into
-    def initialize(workers: 25, dependencies: Dependencies.new)
-      @workers = workers
-      @dependencies = dependencies
-      @dispatcher = Sidereal::Dispatcher
-      @dispatcher_process = :all
-      dependencies.register!('sidereal.store') { Store::Memory.instance }
-      dependencies.register!('sidereal.pubsub') { PubSub::Memory.instance }
-      dependencies.register!('sidereal.elector') { Elector::AlwaysLeader.new }
-    end
-
-    def store = @dependencies['sidereal.store']
-    def pubsub = @dependencies['sidereal.pubsub']
-    def elector = @dependencies['sidereal.elector']
-
-    # Replace +'sidereal.store'+ with an instance built elsewhere. To build it
-    # from other dependencies, register the key with +override: true+ instead.
-    def store=(s)
-      s = StoreWriterInterface.parse(s)
-      @dependencies.register!('sidereal.store', override: true) { s }
-    end
-
-    def pubsub=(p)
-      p = PubsubInterface.parse(p)
-      @dependencies.register!('sidereal.pubsub', override: true) { p }
-    end
-
-    def dispatcher=(d)
-      @dispatcher = DispatcherInterface.parse(d)
-    end
-
-    def elector=(e)
-      e = ElectorInterface.parse(e)
-      @dependencies.register!('sidereal.elector', override: true) { e }
-    end
-
-    # Which process runs the configured {#dispatcher}:
-    #
-    # - +:all+ (default) — every process starts one at boot.
-    # - +:leader+ — only the process the {#elector} promotes starts one; it is
-    #   stopped if that process is demoted, and the next leader starts its own.
-    #   Web requests keep appending to the store from every process; only the
-    #   consuming side is pinned. Useful when the backend serializes writers
-    #   (e.g. Sourced on SQLite), so reads scale across processes while handler
-    #   and projection writes come from one.
-    #
-    # With the default {Elector::AlwaysLeader} every process is leader, so the
-    # two modes coincide; the distinction needs an elector that crosses
-    # processes, such as the one {#use_file_system!} installs.
-    #
-    # @param mode [Symbol] +:all+ or +:leader+
-    def dispatcher_process=(mode)
-      @dispatcher_process = DispatcherProcess.parse(mode)
-    end
-
-    # Switch the store, pubsub, and elector to the filesystem / unix-socket
-    # implementations in one call — the set needed to run across multiple
-    # worker processes on a single machine. Files and the pubsub socket
-    # live under +dir+ (default ./storage, relative to the working
-    # directory — i.e. the app root when launched with `falcon host` from
-    # there).
-    #
-    # Override any individual collaborator afterward:
-    #
-    #   c.use_file_system!
-    #   c.store = Sourced.config.store   # keep the filesystem pubsub + elector
-    #
-    # @param dir [String] base directory for store files, socket, and lock
-    # @return [self]
-    def use_file_system!(dir: 'storage')
-      require 'sidereal/integrations/file_system'
-      use(Integrations::FileSystem, dir:)
-    end
-
-    # Apply a backend integration in one call. The integration's +#setup+ wires
-    # whatever collaborators it provides (e.g. a store + dispatcher pair, plus any
-    # bridging). Like {#use_file_system!} it returns +self+ and can be called in or
-    # out of a {Sidereal.configure} block.
-    #
-    #   c.use Sidereal::Integrations::Sourced                  # reads Sourced.config.store
-    #   c.use Sidereal::Integrations::Sourced, store: sequel_db # configures Sourced too
-    #
-    # @param integration [#setup] responds to +setup(config, **opts)+
-    # @return [self]
-    def use(integration, **opts)
-      IntegrationInterface.parse(integration).setup(self, **opts)
-      self
-    end
-
-    # Labels of the configured subsystems whose state lives entirely within one
-    # process (they carry the {SingleProcess} marker). These break cross-process
-    # fan-out under a forking host, so the list drives the multi-process startup
-    # warning ({Sidereal.warn_unsafe_topology}). Empty once every subsystem is
-    # cross-process safe — e.g. after {#use_file_system!}.
-    #
-    # @return [Array<String>] e.g. +["pubsub", "elector"]+
-    def single_process_subsystems
-      { 'store' => store, 'pubsub' => pubsub, 'elector' => elector }
-        .select { |_, impl| impl.is_a?(SingleProcess) }
-        .keys
-    end
+  # Sidereal's own components (see {Config}): the store, pubsub, elector,
+  # dispatcher and the rest. Mounted at +sidereal+ in {.config}.
+  #
+  # @return [Sourced::Component]
+  def self.component
+    @component ||= Config.build
   end
 
+  # The app's root component: Sidereal's components under +sidereal+ (see
+  # {Config}), whatever integrations mount (ex. Sourced, under +sourced+) and
+  # the app's own components, ex. a +db+ its classes inject with +dep :db+.
+  #
+  #   Sidereal.config.declare('db', Sequel::Database)
+  #   Sidereal.config.component!('db') do
+  #     build { Sequel.sqlite('app.db') }
+  #     teardown(&:disconnect)
+  #   end
+  #   Sidereal.config.config!('sidereal.workers.count') { 10 }
+  #
+  # Values are read once it's built: {Host#start} starts it (building it
+  # first) in every process. CLIs, consoles and specs call
+  # +Sidereal.config.build!+ before reading anything.
+  #
+  # @return [Sourced::Component]
   def self.config
-    @config ||= Configuration.new
+    @config ||= Sourced::Component.new.tap { |root| root.mount('sidereal', component) }
   end
 
-  # Drop {.config}, and with it {.dependencies}: the next access builds fresh
-  # defaults. For specs, which need each example to start from unwired services;
-  # {.reload!} deliberately keeps both.
+  # Drop {.config} and {.component}: the next access builds fresh, open
+  # defaults. For specs, which start each example from unwired components;
+  # {.reload!} deliberately keeps them.
   def self.reset_config!
     @config = nil
+    @component = nil
   end
 
-  # Yield the process-global {.config} to a block. Apps call this once at
-  # load time (top-level in boot.rb) to point Sidereal at a store,
-  # dispatcher, etc. Under the forking Falcon environment each worker
-  # loads boot.rb in its own process, so the block runs fresh per worker
-  # and fork-unsafe collaborators (DB connections) are established anew —
-  # no replay machinery needed.
-  def self.configure(&)
-    yield config
+  # Apply a backend integration, which mounts and implements components in
+  # {.config}.
+  #
+  #   Sidereal.use Sidereal::Integrations::FileSystem, dir: 'storage'
+  #   Sidereal.use Sidereal::Integrations::Sourced, db: 'db'
+  #
+  # Integrations that implement the same component replace each other's: the
+  # last one wins.
+  #
+  # @param integration [#setup] responds to +setup(config, **opts)+
+  # @return [Sourced::Component] {.config}
+  def self.use(integration, **opts)
+    IntegrationInterface.parse(integration).setup(config, **opts)
+    config
+  end
+
+  # Switch the store, pubsub, and elector to the filesystem / unix-socket
+  # implementations in one call: the set needed to run across multiple
+  # worker processes on a single machine. Files and the pubsub socket live
+  # under +dir+ (default ./storage, relative to the working directory).
+  # See {Integrations::FileSystem}.
+  #
+  # @param dir [String] base directory for store files, socket, and lock
+  # @return [Sourced::Component] {.config}
+  def self.use_file_system!(dir: 'storage')
+    require 'sidereal/integrations/file_system'
+    use(Integrations::FileSystem, dir:)
+  end
+
+  # Make any build of {.config} in this process raise {ForkError}. The Falcon
+  # service calls it in its controller before preloading the app: the app's
+  # code and component declarations are shared with the workers it forks, but
+  # nothing may be built there (a connection would be shared across
+  # processes). Each worker builds its own when its host starts.
+  #
+  # Not the lock {.config} takes when it's prepared: declaring and implementing
+  # components still work, only building raises.
+  #
+  # @param pid [Integer] the process where builds are forbidden
+  # @return [void]
+  def self.lock!(pid = Process.pid)
+    config.notifier.subscribe('root.building') do
+      next unless Process.pid == pid
+
+      raise ForkError, "Sidereal.config can't be built in process #{pid}: it forks the processes that build it. " \
+                       'Read components when a process starts, not while the app loads.'
+    end
   end
 
   def self.registry
@@ -175,17 +117,17 @@ module Sidereal
 
   # Drop every process-global that application classes register into as they
   # load — the commander registry, the channel-name resolvers, the exception
-  # subscribers, and the compiled message codec. Each is rebuilt empty (or with
+  # subscribers, and the compiled message codec. Each is emptied (or reset to
   # its defaults), ready to be filled again by the next generation of classes.
   #
   # Call it after (re)loading app classes: tests do so between examples, and it
   # is the hook a development-mode class reloader would use, so a redefined
   # commander or message type doesn't leave the previous one registered.
   #
-  # {.config} and {.dependencies} are deliberately untouched. They hold
-  # deployment wiring — an open store, a connected pubsub, an elected leader, a
-  # database connection — none of which is derived from app classes, and all of
-  # which would be expensive and disruptive to rebuild every time code changes.
+  # {.config} is deliberately untouched. It holds deployment wiring — an open
+  # store, a connected pubsub, an elected leader, a database connection — none
+  # of which is derived from app classes, and all of which would be expensive
+  # and disruptive to rebuild every time code changes.
   #
   # @return [self]
   def self.reload!
@@ -195,14 +137,6 @@ module Sidereal
     reset_message_codec!
     self
   end
-
-  # Process-global dependency container, {.config}'s: Sidereal's own store,
-  # pubsub and elector, and whatever apps and integrations register at load
-  # time. {Host#start} builds it. Deployment wiring, so {.reload!} leaves it
-  # alone.
-  #
-  # @return [Dependencies]
-  def self.dependencies = config.dependencies
 
   def self.scheduler
     @scheduler ||= Scheduler.new
@@ -222,8 +156,10 @@ module Sidereal
     @channels ||= Channels.with_system_defaults
   end
 
+  # Reset {.channels} to its defaults, in place: the +sidereal.channels+
+  # component, once built, holds the same object.
   def self.reset_channels!
-    @channels = nil
+    @channels&.restore_defaults!
   end
 
   # Install a channel-name registry. For hosts and tests that need resolution to
@@ -243,8 +179,10 @@ module Sidereal
     @exceptions ||= Exceptions.with_default_publisher
   end
 
+  # Reset {.exceptions} to its defaults, in place: the +sidereal.exceptions+
+  # component, once built, holds the same object.
   def self.reset_exceptions!
-    @exceptions = nil
+    @exceptions&.restore_defaults!
   end
 
   # Process-global serializer for Sidereal's own transports ({Store::FileSystem},
@@ -271,10 +209,20 @@ module Sidereal
     end
   end
 
-  def self.pubsub = config.pubsub
-  def self.store = config.store
-  def self.dispatcher = config.dispatcher
-  def self.elector = config.elector
+  def self.pubsub = config['sidereal.pubsub']
+  def self.store = config['sidereal.store']
+  def self.elector = config['sidereal.elector']
+
+  # Labels of the subsystems whose state lives entirely within one process
+  # (they carry the {SingleProcess} marker). These break cross-process fan-out
+  # under a forking host, so the list drives {.check_topology!}. Empty once
+  # every subsystem is cross-process safe, ex. after {.use_file_system!}.
+  #
+  # @param config [Sourced::Component] a built root, see {.config}
+  # @return [Array<String>] ex. +["pubsub", "elector"]+
+  def self.single_process_subsystems(config = self.config)
+    %w[store pubsub elector].select { |key| config["sidereal.#{key}"].is_a?(SingleProcess) }
+  end
 
   # Fail fast at startup when in-process-only subsystems are configured in a
   # multi-process (forked-worker) deployment, where their in-memory state isn't
@@ -284,18 +232,20 @@ module Sidereal
   # never propagate updates across workers.
   #
   # A no-op for a single worker or once every subsystem is cross-process safe
-  # (e.g. after {Configuration#use_file_system!}). Hosts that fork (the Falcon
+  # (e.g. after {.use_file_system!}). Hosts that fork (the Falcon
   # environment) call this with their worker-process count; single-process
-  # hosts needn't.
+  # hosts needn't. Builds +config+ to see what was configured.
   #
   # @param process_count [Integer] number of forked worker processes
-  # @param config [Configuration] the configuration to inspect (defaults to the
+  #
+  # @param config [Sourced::Component] the root to inspect (defaults to the
   #   process-global {.config}; injected in tests)
   # @return [void] returns only when the topology is safe; otherwise exits
   def self.check_topology!(process_count, config: self.config)
     return if process_count.to_i <= 1
 
-    subsystems = config.single_process_subsystems
+    config.build!
+    subsystems = single_process_subsystems(config)
     return if subsystems.empty?
 
     verb = subsystems.one? ? 'is' : 'are'
@@ -312,31 +262,21 @@ module Sidereal
         - Every worker believes it is the leader, so background/scheduled work double-runs.
 
       Fix (pick one):
-        - For single-node, multi-process: call `config.use_file_system!` in your `Sidereal.configure` block, BEFORE any
-          `use <backend>` — switches to the unix-socket pubsub + file-lock elector.
+        - For single-node, multi-process: call `Sidereal.use_file_system!` while the app loads, BEFORE any
+          other `Sidereal.use` — switches to the unix-socket pubsub + file-lock elector.
         - Or run a single worker process (e.g. `count 1` in falcon.rb).
     MSG
 
     exit(1)
   end
 
-  # Build a {Host} wired to the process-global collaborators from
-  # {.config} (plus the {.channels} / {.exceptions} registries). Call
-  # after all app classes have loaded, so the registries are fully
-  # populated before {Host#start} freezes them.
+  # Build a {Host} that boots {.config}. Call after all app classes have
+  # loaded, so the registries are fully populated before the host's start
+  # locks them.
   #
   # @return [Host]
   def self.new_host
-    Host.new(
-      channels:,
-      exceptions:,
-      elector:,
-      pubsub:,
-      dispatcher:,
-      scheduler:,
-      dispatcher_process: config.dispatcher_process,
-      dependencies:
-    )
+    Host.new(config:)
   end
 
   # Build (if needed) and append a command to the configured {.store} from
@@ -363,7 +303,11 @@ module Sidereal
   #   enqueueing.
   #   @param message [Sidereal::Message] a fully-built message
   #
+  # Appends to {.store}, so {.config} must be built: a CLI or rake task calls
+  # +Sidereal.config.build!+ first.
+  #
   # @return [true] from {Sidereal::Store#append}
+  # @raise [Sourced::Component::NotBuiltError] if {.config} isn't built
   # @raise [NoMatchingPatternError] if +args+ doesn't match any shape above
   # @raise [Plumb::ParseError] if the payload fails validation
   #
@@ -400,7 +344,8 @@ require_relative 'sidereal/registry'
 require_relative 'sidereal/dispatcher'
 require_relative 'sidereal/elector'
 require_relative 'sidereal/scheduler'
-require_relative 'sidereal/dependencies'
+require_relative 'sidereal/config'
+require_relative 'sidereal/dispatcher_runner'
 require_relative 'sidereal/deps'
 require_relative 'sidereal/host'
 require_relative 'sidereal/app'

@@ -3,18 +3,13 @@
 require 'async'
 
 module Sidereal
+  # Sidereal's default dispatcher: +worker_count+ fibers claiming commands from
+  # the store and handling them with their registered commanders. The
+  # +sidereal.dispatcher+ component builds one (see {Config}), and the runner
+  # starts and stops it, possibly more than once (see {DispatcherRunner}).
   class Dispatcher
-    def self.start(task)
-      new(
-        worker_count: Sidereal.config.workers,
-        store: Sidereal.store,
-        registry: Sidereal.registry,
-        pubsub: Sidereal.pubsub
-      ).start(task)
-    end
-
     def initialize(
-      worker_count: Sidereal.config.workers,
+      worker_count: 25,
       store: Sidereal.store,
       registry: Sidereal.registry,
       pubsub: Sidereal.pubsub,
@@ -30,6 +25,9 @@ module Sidereal
       @workers = []
     end
 
+    # Start the store, then the worker fibers. Can be called again after {#stop}.
+    # @param task [Async::Task] parent of the worker fibers
+    # @return [self]
     def start(task)
       @store.start(task)
 
