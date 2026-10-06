@@ -41,10 +41,11 @@ RSpec.describe Sidereal::CLI::System do
 
       out = sid('system', 'graph')
 
-      expect(out).to include('url', 'conn', 'needs', 'String')
+      expect(out).to include('Component', 'Type', 'State', 'Needs')
       # A dependency is listed before the component that needs it.
       expect(out.index("\nurl")).to be < out.index("\nconn")
-      expect(out).to match(/conn.*\n\s+needs\s+url/)
+      # ...and appears in that component's own row.
+      expect(out).to match(/^conn\s+String\s+built\s+url$/)
     end
 
     it 'counts the components and names the lifecycle state' do
@@ -68,6 +69,29 @@ RSpec.describe Sidereal::CLI::System do
       expect(sid('system', 'graph')).to match(/now.*dynamic/)
     end
 
+    # The key names the component, so it is never shortened; the type gives up
+    # room instead, so a long edge list still has a column to wrap into.
+    it 'wraps a long edge list into the last column, aligned under its header' do
+      app!(<<~'RUBY')
+        %w[alpha bravo charlie delta echo].each do |name|
+          Sidereal.config.declare("dependency.#{name}", String) { name }
+        end
+        Sidereal.config.declare('assembly', String)
+        Sidereal.config.config!('assembly', %w[dependency.alpha dependency.bravo dependency.charlie
+                                               dependency.delta dependency.echo]) { |*parts| parts.join }
+      RUBY
+
+      lines = sid('system', 'graph').lines
+      header = lines.find { |line| line.start_with?('Component') }
+      row = lines.index { |line| line.start_with?('assembly ') }
+      continuation = lines[row + 1]
+
+      # More edges than fit, so they carry on underneath...
+      expect(continuation).to match(/^\s+dependency\./)
+      # ...starting in the same column the header does.
+      expect(continuation.index('dependency.')).to eq(header.index('Needs'))
+    end
+
     it 'shows what depends on each component with --dependents' do
       app!(<<~'RUBY')
         Sidereal.config.declare('url', String) { 'postgres://' }
@@ -77,8 +101,9 @@ RSpec.describe Sidereal::CLI::System do
 
       out = sid('system', 'graph', '--dependents')
 
-      expect(out).to match(/url.*\n\s+used by\s+conn/)
-      expect(out).not_to include('needs')
+      expect(out).to include('Used by')
+      expect(out).not_to include('Needs')
+      expect(out).to match(/^url\s+String\s+built\s+conn$/)
     end
 
     # Building raises on a configuration like this, so the command reports the
@@ -92,7 +117,7 @@ RSpec.describe Sidereal::CLI::System do
 
       out = sid('system', 'graph')
 
-      expect(out).to include('orphan', 'unimplemented')
+      expect(out).to match(/^orphan\s+String\s+not implemented$/)
       expect(out).to include('UnimplementedComponentError')
       expect(out).to include('ok')
     end
