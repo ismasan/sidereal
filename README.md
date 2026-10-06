@@ -765,6 +765,7 @@ bin/sid --help
 | `bin/sid sourced groups stop NAME` | Stops a consumer group, so its reactor claims no more work |
 | `bin/sid sourced groups start NAME` | Starts a stopped or failed consumer group again |
 | `bin/sid sourced groups reset NAME` | Resets a consumer group, so its reactor reads everything again |
+| `bin/sid sourced messages list` | Lists the most recent messages in the store, with `--tail` to follow |
 | `bin/sid system graph` | Prints the app's components and how they depend on each other |
 | `bin/sid system tree` | Prints the app's components as a tree, and who implemented each |
 | `bin/sid console` | Starts an IRB session with the app loaded |
@@ -896,6 +897,19 @@ It won't reset a group that handles its messages exclusively and deletes them as
 All three go through the app's Sourced router rather than its store, so the reactor's `on_stop`, `on_start` and `on_reset` run as they would in the app.
 
 A group that isn't running says why underneath the table — the exception if it failed, or the `--message` if someone stopped it — and a *Retry at* column appears only while one is waiting to retry. Groups are registered when the app **starts**, not when the CLI builds it, so a store whose app has never run reports none.
+
+`bin/sid sourced messages list` prints the log, newest hundred last, one message per line — position, time, type and payload:
+
+```
+     7  2026-10-07 00:08:25  s.todos.add    {"title":"Coffee"}
+     8  2026-10-07 00:08:28  s.todos.added  {"title":"Coffee"}
+```
+
+`--tail` keeps it running, polling once a second for whatever arrives next, and `--limit` changes the page size. **Only the messages go to stdout** — the "Tailing from position N" notice and anything else goes to stderr — so either mode pipes cleanly:
+
+```bash
+bin/sid sourced messages list --tail | grep todos.added
+```
 
 Once installed, `bin/sid sourced topology` describes the app — see [Sourced topology](#sourced-topology). That command comes from the integration, so it appears only once the app has configured it; `sourced install` is built in and available before that.
 
