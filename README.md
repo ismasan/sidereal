@@ -66,7 +66,8 @@ my_app/
   boot.rb                     loads and configures the app
   config.ru                   runs App
   config/components/          the connections and services the app's classes use
-                              (db.rb once `bin/sid db install` has run)
+                              (db.rb and sourced.rb once their installs have run)
+  db/migrations/              database migrations, with --db or --sourced
   falcon.rb                   Falcon settings: HOST, PORT and COUNT (worker processes)
   bin/dev                     development server that reloads on code changes
   bin/sid                     the sid command line, with this app loaded
@@ -757,6 +758,9 @@ bin/sid --help
 | `bin/sid db migrations add NAME` | Creates a timestamped migration |
 | `bin/sid db migrations run` | Applies every migration that hasn't run |
 | `bin/sid db migrations rollback` | Rolls back the migration that ran last |
+| `bin/sid sourced install` | Sets up the Sourced integration, and a database for it |
+| `bin/sid sourced migration` | Writes the migration for Sourced's tables |
+| `bin/sid sourced topology` | Shows how the app's commands, events and read models connect |
 | `bin/sid console` | Starts an IRB session with the app loaded |
 
 `NAME` is a command's class name (`Greetings::SayHello`) or its type (`my_app.greetings.say_hello`).
@@ -789,6 +793,8 @@ So a command exists exactly when the app configures the integration that provide
 An app can register commands of its own the same way, from `boot.rb` or a file under `config/components/`.
 
 ### Database
+
+The migrations in `db/migrations/` are the database's definition: committed, and the way any checkout builds one, since `storage/` is not committed.
 
 `bin/sid db install` is the one thing that sets a database up, and nothing else does: `sid new --db` runs it in the new app, `bin/sid sourced install` runs it because Sourced keeps its messages in the app's database, and an app that started without one adds it later by running the same command. So there is only ever one `db` component to know about, wherever it came from.
 
@@ -846,6 +852,16 @@ Sidereal.config.use Sidereal::Integrations::Sourced, db: 'db'
 ```
 
 The generated comments show what to re-implement: where to `Sourced.register` deciders and projectors, the worker count, the error strategy behind the retry toasts, and `sidereal.runner.process` to run a Sourced runtime in every worker rather than only the leader.
+
+Finally it writes the migration for Sourced's own tables into `db/migrations/` and applies it, so the app is ready to boot. Sourced's store expects its tables to be there rather than creating them, so they are a migration's job like any other table:
+
+```bash
+bin/sid db migrations run
+```
+
+A checkout of the app gets its database the same way, since `db/migrations/` is committed and `storage/` isn't — or by copying a database over, to keep the data. Starting without the tables stops the host with `Sourced::Store::NotInstalledError`, naming what's missing.
+
+`bin/sid sourced migration` writes that file on its own, for an app that needs it again — after changing `sourced.store.table_prefix`, say. It renders the migration from Sourced's template through the app's own store, so a configured prefix is honoured, and it leaves an existing one alone unless you pass `--force`. `sourced install` runs it in a separate process, because the gem it needs has only just been bundled.
 
 `boot.rb` says nothing about Sourced — the `require` lives in the generated component file too, so installing Sourced later works exactly like generating with it. Its order is load-bearing in two ways: `config/components/` loads **after** `Sidereal.config.use_file_system!`, because both implement `sidereal.store` and the last implementation of a key wins (the other way round a Sourced app would append its commands to files while Sourced's runtime watched its own tables); and `LOADER.eager_load` comes **after** the components, so that the `require` in `config/components/sourced.rb` has happened before Zeitwerk loads a `system/` class that subclasses `Sourced::Decider`.
 

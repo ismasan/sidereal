@@ -142,6 +142,21 @@ RSpec.describe Sidereal::Falcon::Environment::Service do
       expect(service.terminations).to eq([1])
     end
 
+    # console truncates an attached exception's message at its first "(", so a
+    # boot failure names it in the message too — otherwise
+    # `Sourced tables (prefix "sourced") are not installed: ...` logs as
+    # `Sourced tables`, and a stopped host says nothing useful.
+    it 'names the error in the message, not only as an attachment' do
+      error = RuntimeError.new('tables (prefix "sourced") are not installed: run your migrations')
+      allow(evaluator).to receive(:make_server).and_raise(error)
+
+      expect(Console).to receive(:error) do |_subject, message, **_meta|
+        expect(message).to include('RuntimeError', 'run your migrations')
+      end
+
+      service.run(instance, evaluator, listener)
+    end
+
     # Async stops a task by raising Async::Cancel in it (an Exception, not a
     # SignalException): an interrupt that lands while the host is still booting
     # is a shutdown, and must reach the orderly #stop path, not boot_failed!.

@@ -6,10 +6,17 @@ A [Sidereal](https://github.com/ismasan/sidereal) app.
 
 ```sh
 bundle install
+<% if database? -%>
+bin/sid db migrations run
+<% end -%>
 bin/dev
 ```
 
 Then open <http://localhost:<%= port %>>. `PORT`, `HOST` and `COUNT` (worker processes) can be set in the environment.
+<% if database? -%>
+
+The migrations in `db/migrations/` are committed and `storage/` isn't, so `bin/sid db migrations run` is how a checkout gets its database — copy one over instead if you'd rather keep the data.
+<% end -%>
 
 `bin/dev` runs `bundle exec falcon host` and reloads the app whenever a Ruby file changes. Reloading needs a file watcher: [watchexec](https://github.com/watchexec/watchexec) (`brew install watchexec`) or fswatch. Without one, the server still runs. In production, run `bundle exec falcon host`.
 <% if rspec? -%>
@@ -19,6 +26,22 @@ Then open <http://localhost:<%= port %>>. `PORT`, `HOST` and `COUNT` (worker pro
 ```sh
 bundle exec rspec
 ```
+<% end -%>
+
+<% if database? -%>
+## Database
+
+The `db` component in `config/components/db.rb` is a SQLite database under `storage/`, which classes reach with `dep :db`.
+
+```sh
+bin/sid db migrations add create_things   # writes db/migrations/<timestamp>_create_things.rb
+bin/sid db migrations run
+bin/sid db migrations rollback            # just the one that ran last
+```
+<% if sourced? -%>
+
+Sourced keeps the app's commands and events in the same database, in tables its own migration creates — `bin/sid sourced install` wrote it. `bin/sid sourced topology` shows how the app's commands, events and read models connect.
+<% end -%>
 <% end -%>
 
 ## Layout
@@ -32,7 +55,10 @@ bundle exec rspec
 | `web/ui/` | Pages and the layout, in the `UI` namespace |
 | `web/ui/components/` | Components used by pages, in `UI::Components` |
 | `web/public/` | Static files |
-| `storage/` | Runtime data<% if sourced? %>, including the Sourced SQLite database<% end %>. Not committed. |
+<% if database? -%>
+| `db/migrations/` | Database migrations, run with `bin/sid db migrations run`. Add one with `bin/sid db migrations add <name>` |
+<% end -%>
+| `storage/` | Runtime data<% if database? %>, including the SQLite database<% end %>. Not committed. |
 | `falcon.rb` | Falcon server settings |
 | `bin/dev` | Development server that reloads on code changes |
 | `bin/sid` | Sidereal's command line with this app loaded. `bin/sid --help` lists its commands, e.g. `bin/sid console` |

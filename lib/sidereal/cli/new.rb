@@ -16,6 +16,10 @@ module Sidereal
         def rspec? = rspec
         def sourced? = sourced
         def db? = db
+        # Whether the app ends up with a database — `--db` installs one, and so
+        # does `--sourced`, since Sourced keeps its messages there. Not the same
+        # question as which install command `new` runs.
+        def database? = db || sourced
         def port = PORT
         def sidereal_gem
           if sidereal_path
