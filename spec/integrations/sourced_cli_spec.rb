@@ -349,13 +349,13 @@ RSpec.describe Sidereal::Integrations::Sourced::CLI::Groups::Reset do
 end
 
 RSpec.describe Sidereal::Integrations::Sourced::CLI::Messages::List do
-  Positioned = Struct.new(:position, :type, :created_at, :payload)
+  Positioned = Struct.new(:position, :id, :type, :created_at, :payload)
   Payload = Struct.new(:to_h)
 
   let(:store) { instance_double(Sourced::Store) }
 
   def message(position, type, **payload)
-    Positioned.new(position, type, Time.new(2026, 4, 1, 9, 0, 0), Payload.new(payload))
+    Positioned.new(position, "id-#{position}", type, Time.new(2026, 4, 1, 9, 0, 0), Payload.new(payload))
   end
 
   def result(messages, last_position: messages.map(&:position).max.to_i)
@@ -380,14 +380,14 @@ RSpec.describe Sidereal::Integrations::Sourced::CLI::Messages::List do
 
     out = list
 
-    # position, date, time, type, payload
-    expect(out.lines.map { |line| line.split[3] }).to eq(%w[a b])
+    # position, id, date, time, type, payload
+    expect(out.lines.map { |line| line.split[4] }).to eq(%w[a b])
   end
 
-  it 'shows position, time, type and payload on one line' do
+  it 'shows position, id, time, type and payload on one line' do
     allow(store).to receive(:read_all).and_return(result([message(7, 'todos.add', title: 'Milk')]))
 
-    expect(list).to eq("     7  2026-04-01 09:00:00  todos.add                 {\"title\":\"Milk\"}\n")
+    expect(list).to eq("     7  id-7  2026-04-01 09:00:00  todos.add                 {\"title\":\"Milk\"}\n")
   end
 
   it 'takes a limit' do
