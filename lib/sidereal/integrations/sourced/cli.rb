@@ -6,9 +6,10 @@ require 'sidereal/cli'
 module Sidereal
   module Integrations
     module Sourced
-      # `sid sourced`: commands for apps that use Sourced. Registered by
-      # {Sidereal::Integrations::Sourced.setup}, so they exist for an app that
-      # configures the integration. This file defines the command classes and
+      # The `sid sourced` commands that need Sourced loaded, registered into
+      # {Sidereal::CLI::Sourced} by {Sidereal::Integrations::Sourced.setup} —
+      # so they exist for an app that configures the integration, beside the
+      # `install` that sets it up in one that hasn't. This file defines the command classes and
       # nothing else — it doesn't load Sourced, which the commands do for
       # themselves through {Sidereal::CLI.boot_app!}.
       module CLI
@@ -176,21 +177,6 @@ module Sidereal
               terminal.puts if prefix.empty? && !first
               first = false
               terminal.print_line prefix, STYLES.fetch(kind, :reset), kind, :reset, " #{text}"
-            end
-          end
-        end
-
-        # `sid sourced`
-        class Namespace < Sidereal::CLI::Command
-          self.description = "Inspect the app's Sourced setup"
-
-          nested :command, { 'topology' => Topology }
-
-          def call
-            if @command
-              @command.call
-            else
-              print_usage
             end
           end
         end
