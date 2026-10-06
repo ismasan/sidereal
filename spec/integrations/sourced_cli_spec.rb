@@ -228,6 +228,54 @@ RSpec.describe Sidereal::Integrations::Sourced::CLI::Groups::Stop do
   end
 end
 
+RSpec.describe Sidereal::Integrations::Sourced::CLI::Groups::Start do
+  let(:store) { instance_double(Sourced::Store, stats: Sourced::Stats.new(max_position: 9, groups:)) }
+  let(:groups) { [{ group_id: 'Todos', status: 'stopped', partition_count: 1, oldest_processed: 1,
+                    newest_processed: 4, retry_at: nil, error_context: { message: 'draining' } }] }
+
+  def start(*arguments)
+    allow(Sidereal::CLI).to receive(:boot_app!)
+    allow(Sidereal.config).to receive(:[]).with('sourced.store').and_return(store)
+
+    out = StringIO.new
+    described_class.new(arguments, name: 'start', output: out).call
+    out.string
+  end
+
+  it 'starts a stopped group' do
+    expect(store).to receive(:start_consumer_group).with('Todos')
+
+    expect(start('Todos')).to include('started', 'Todos')
+  end
+
+  # The case that matters: a group that stopped on an error.
+  it 'starts a failed group' do
+    groups.first[:status] = 'failed'
+    expect(store).to receive(:start_consumer_group).with('Todos')
+
+    expect(start('Todos')).to include('started')
+  end
+
+  it 'leaves a running group alone' do
+    groups.first[:status] = 'active'
+    expect(store).not_to receive(:start_consumer_group)
+
+    expect(start('Todos')).to include('already running')
+  end
+
+  it "turns the store's unknown-group error into a command-line error" do
+    allow(store).to receive(:start_consumer_group)
+      .and_raise(Sourced::Store::UnknownConsumerGroupError.new('Todoz', ['Todos']))
+
+    expect { start('Todoz') }
+      .to raise_error(Sidereal::CLI::Error, /No consumer group "Todoz".*registered groups: Todos/m)
+  end
+
+  it 'needs a group to start' do
+    expect { start }.to raise_error(Sidereal::CLI::Error, %r{groups start Todos})
+  end
+end
+
 RSpec.describe Sidereal::Integrations::Sourced, '.setup' do
   # Sourced.config is process-global and gets mounted into Sidereal.config,
   # which the suite replaces before each example: a fresh one can be mounted.
