@@ -168,6 +168,30 @@ RSpec.describe Sidereal::CLI::New do
     end
   end
 
+  describe 'README' do
+    it 'tells a plain app to bundle and run' do
+      readme = read(generate, 'README.md')
+
+      expect(readme).not_to include('db migrations run')
+      expect(readme).not_to include('## Database')
+    end
+
+    # storage/ is gitignored and db/migrations/ is not, so a clone rebuilds its
+    # database from the migrations — and with Sourced it can't boot without them.
+    it 'tells an app with a database to migrate first' do
+      %w[--db --sourced].each do |option|
+        readme = read(generate(option.delete_prefix('--'), option), 'README.md')
+
+        expect(readme).to include('bin/sid db migrations run', 'db/migrations/` are committed')
+        expect(readme).to include('| `db/migrations/` |', '## Database')
+      end
+    end
+
+    it 'points a Sourced app at its topology' do
+      expect(read(generate('app', '--sourced'), 'README.md')).to include('bin/sid sourced topology')
+    end
+  end
+
   describe 'boot.rb' do
     # Load-bearing: both `use_file_system!` and the `use` in a generated
     # config/components/sourced.rb implement `sidereal.store`, and the last

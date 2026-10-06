@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require 'fileutils'
 require 'json'
 require 'sidereal/cli'
 
@@ -139,6 +140,52 @@ module Sidereal
               node.id.to_s
             end
           end
+        end
+
+        # `sid sourced migration`
+        #
+        # Sourced renders the migration from its own template, so this needs
+        # the gem loaded — which is why `sourced install` runs it in a separate
+        # process, after bundling, rather than doing it inline.
+        class Migration < Sidereal::CLI::Command
+          self.description = "Write the migration for Sourced's tables into db/migrations"
+
+          options do
+            option '--force', 'Write another one even if the app already has it'
+          end
+
+          NAME = 'create_sourced_tables'
+
+          def call
+            Sidereal::CLI.boot_app!
+
+            # Sourced's own writer neither creates the directory nor refuses to
+            # overwrite, and a second copy of this migration would be a stray
+            # file that does nothing.
+            existing = Dir[File.join(directory, "*_#{NAME}.rb")].sort.last
+            if existing && !@options[:force]
+              terminal.print_line :key, '  skip    ', :reset, "#{relative(existing)} (already there)"
+              return
+            end
+
+            FileUtils.mkdir_p(directory)
+            # The app's own store, so a table prefix it configured is used.
+            path = ::Sourced.store.copy_migration_to do
+              File.join(directory, "#{Time.now.utc.strftime(Sidereal::CLI::DB::TIMESTAMP)}_#{NAME}.rb")
+            end
+
+            terminal.print_line :key, '  create  ', :reset, relative(path)
+            terminal.puts
+            terminal.puts 'Apply it with:'
+            terminal.puts
+            terminal.print_line :key, '  bin/sid db migrations run'
+          end
+
+          private
+
+          def directory = File.join(Sidereal::CLI.app_root, Sidereal::CLI::DB::MIGRATIONS_DIR)
+
+          def relative(path) = path.delete_prefix("#{Sidereal::CLI.app_root}/")
         end
 
         # `sid sourced topology`
