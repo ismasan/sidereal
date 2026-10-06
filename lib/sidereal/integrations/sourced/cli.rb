@@ -276,17 +276,24 @@ module Sidereal
                                           '`bin/sid sourced groups list` shows them.'
             end
 
+            # The lifecycle goes through the router, not the store: it resolves
+            # the reactor, and calls its on_stop/on_start/on_reset afterwards,
+            # which the store knows nothing about.
+            def router = Sidereal.config['sourced.router']
+
+            # Only for stats — the router doesn't keep any.
             def store = Sidereal.config['sourced.store']
 
             def status_of(name)
               store.stats.groups.find { |group| group[:group_id].to_s == name }&.fetch(:status).to_s
             end
 
-            # The store names the groups it knows for an id it doesn't, so this
-            # only has to keep that out of a backtrace.
+            # Two ways to be unknown, and both name what is known: the router
+            # has no such reactor, or it has one the store has never seen
+            # because the app hasn't run. This only keeps them out of a backtrace.
             def on_known_group
               yield
-            rescue ::Sourced::Store::UnknownConsumerGroupError => e
+            rescue ::Sourced::Router::UnregisteredReactorError, ::Sourced::Store::UnknownConsumerGroupError => e
               raise Sidereal::CLI::Error, e.message
             end
           end
@@ -311,7 +318,7 @@ module Sidereal
               Sidereal::CLI.boot_app!
               return terminal.puts("#{name} is already stopped.") if status_of(name) == 'stopped'
 
-              on_known_group { store.stop_consumer_group(name, @options[:message]) }
+              on_known_group { router.stop_consumer_group(name, @options[:message]) }
 
               terminal.print_line :key, '  stopped  ', :reset, name
               terminal.puts
@@ -336,7 +343,7 @@ module Sidereal
               Sidereal::CLI.boot_app!
               return terminal.puts("#{name} is already running.") if status_of(name) == 'active'
 
-              on_known_group { store.start_consumer_group(name) }
+              on_known_group { router.start_consumer_group(name) }
 
               terminal.print_line :key, '  started  ', :reset, name
               terminal.puts
@@ -345,9 +352,69 @@ module Sidereal
             end
           end
 
+          # `sid sourced groups reset <group>`
+          #
+          # Drops the group's offsets so its reactor reads the whole store
+          # again — rebuilding whatever it derives. Nothing is lost, since the
+          # messages are still there, but the work is redone, so it asks first.
+          class Reset < Sidereal::CLI::Command
+            include Action
+
+            self.description = 'Reset a consumer group, so its reactor processes everything again'
+
+            one :group_name, 'The group to reset, as `groups list` shows it'
+
+            options do
+              option '--yes', "Don't ask for confirmation"
+            end
+
+            def call
+              name = group_named!('reset')
+              Sidereal::CLI.boot_app!
+              refuse_exclusive(name)
+              return terminal.puts('Not reset.') unless confirmed?(name)
+
+              on_known_group { router.reset_consumer_group(name) }
+
+              terminal.print_line :key, '  reset  ', :reset, name
+              terminal.puts
+              terminal.puts 'It reads the store from the beginning next time the app runs.'
+            end
+
+            private
+
+            # Sourced skips a reset for an exclusive group, but that guard lives
+            # in the store and reads the groups registered in *its* process —
+            # filled when the app starts, not when the CLI builds it, so it
+            # never fires here even through the router. Ask the reactor instead,
+            # or the offsets would go and only orphan its partitions.
+            def refuse_exclusive(name)
+              reactor = router.reactors.find { |candidate| candidate.group_id.to_s == name }
+              return unless reactor.respond_to?(:exclusive?) && reactor.exclusive?
+
+              raise Sidereal::CLI::Error,
+                    "#{name} handles its messages exclusively and deletes them as it acks them, so there " \
+                    'is nothing to replay. Resetting it would only orphan the partitions it holds.'
+            end
+
+            def confirmed?(name)
+              return true if @options[:yes]
+
+              unless $stdin.tty?
+                raise Sidereal::CLI::Error,
+                      "Resetting #{name} makes its reactor redo every message. Pass --yes to confirm."
+              end
+
+              terminal.puts "#{name} will read the whole store again, rebuilding whatever it derives."
+              output.print 'Reset it? [y/N] '
+              output.flush
+              $stdin.gets.to_s.strip.casecmp?('y')
+            end
+          end
+
           self.description = "Inspect the app's consumer groups"
 
-          nested :command, { 'list' => List, 'start' => Start, 'stop' => Stop }
+          nested :command, { 'list' => List, 'reset' => Reset, 'start' => Start, 'stop' => Stop }
 
           def call
             @command ? @command.call : print_usage

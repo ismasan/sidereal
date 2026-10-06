@@ -185,9 +185,12 @@ RSpec.describe Sidereal::Integrations::Sourced::CLI::Groups::Stop do
   let(:groups) { [{ group_id: 'Todos', status: 'active', partition_count: 1, oldest_processed: 1,
                     newest_processed: 9, retry_at: nil, error_context: {} }] }
 
+  let(:router) { instance_double(Sourced::Router) }
+
   def stop(*arguments)
     allow(Sidereal::CLI).to receive(:boot_app!)
     allow(Sidereal.config).to receive(:[]).with('sourced.store').and_return(store)
+    allow(Sidereal.config).to receive(:[]).with('sourced.router').and_return(router)
 
     out = StringIO.new
     described_class.new(arguments, name: 'stop', output: out).call
@@ -195,13 +198,13 @@ RSpec.describe Sidereal::Integrations::Sourced::CLI::Groups::Stop do
   end
 
   it 'stops the named group' do
-    expect(store).to receive(:stop_consumer_group).with('Todos', nil)
+    expect(router).to receive(:stop_consumer_group).with('Todos', nil)
 
     expect(stop('Todos')).to include('stopped', 'Todos')
   end
 
   it 'keeps the reason with it' do
-    expect(store).to receive(:stop_consumer_group).with('Todos', 'draining')
+    expect(router).to receive(:stop_consumer_group).with('Todos', 'draining')
 
     stop('Todos', '--message', 'draining')
   end
@@ -209,16 +212,16 @@ RSpec.describe Sidereal::Integrations::Sourced::CLI::Groups::Stop do
   # The store knows which groups exist and names them; this only has to keep
   # that out of a backtrace, since Application.call prints a CLI::Error.
   it "turns the store's unknown-group error into a command-line error" do
-    allow(store).to receive(:stop_consumer_group)
-      .and_raise(Sourced::Store::UnknownConsumerGroupError.new('Todoz', ['Todos']))
+    allow(router).to receive(:stop_consumer_group)
+      .and_raise(Sourced::Router::UnregisteredReactorError.new('Todoz', []))
 
     expect { stop('Todoz') }
-      .to raise_error(Sidereal::CLI::Error, /No consumer group "Todoz".*registered groups: Todos/m)
+      .to raise_error(Sidereal::CLI::Error, /group_id "Todoz" is not registered with this router/)
   end
 
   it 'leaves an already-stopped group alone' do
     groups.first[:status] = 'stopped'
-    expect(store).not_to receive(:stop_consumer_group)
+    expect(router).not_to receive(:stop_consumer_group)
 
     expect(stop('Todos')).to include('already stopped')
   end
@@ -233,9 +236,12 @@ RSpec.describe Sidereal::Integrations::Sourced::CLI::Groups::Start do
   let(:groups) { [{ group_id: 'Todos', status: 'stopped', partition_count: 1, oldest_processed: 1,
                     newest_processed: 4, retry_at: nil, error_context: { message: 'draining' } }] }
 
+  let(:router) { instance_double(Sourced::Router) }
+
   def start(*arguments)
     allow(Sidereal::CLI).to receive(:boot_app!)
     allow(Sidereal.config).to receive(:[]).with('sourced.store').and_return(store)
+    allow(Sidereal.config).to receive(:[]).with('sourced.router').and_return(router)
 
     out = StringIO.new
     described_class.new(arguments, name: 'start', output: out).call
@@ -243,7 +249,7 @@ RSpec.describe Sidereal::Integrations::Sourced::CLI::Groups::Start do
   end
 
   it 'starts a stopped group' do
-    expect(store).to receive(:start_consumer_group).with('Todos')
+    expect(router).to receive(:start_consumer_group).with('Todos')
 
     expect(start('Todos')).to include('started', 'Todos')
   end
@@ -251,28 +257,94 @@ RSpec.describe Sidereal::Integrations::Sourced::CLI::Groups::Start do
   # The case that matters: a group that stopped on an error.
   it 'starts a failed group' do
     groups.first[:status] = 'failed'
-    expect(store).to receive(:start_consumer_group).with('Todos')
+    expect(router).to receive(:start_consumer_group).with('Todos')
 
     expect(start('Todos')).to include('started')
   end
 
   it 'leaves a running group alone' do
     groups.first[:status] = 'active'
-    expect(store).not_to receive(:start_consumer_group)
+    expect(router).not_to receive(:start_consumer_group)
 
     expect(start('Todos')).to include('already running')
   end
 
   it "turns the store's unknown-group error into a command-line error" do
-    allow(store).to receive(:start_consumer_group)
-      .and_raise(Sourced::Store::UnknownConsumerGroupError.new('Todoz', ['Todos']))
+    allow(router).to receive(:start_consumer_group)
+      .and_raise(Sourced::Router::UnregisteredReactorError.new('Todoz', []))
 
     expect { start('Todoz') }
-      .to raise_error(Sidereal::CLI::Error, /No consumer group "Todoz".*registered groups: Todos/m)
+      .to raise_error(Sidereal::CLI::Error, /group_id "Todoz" is not registered with this router/)
   end
 
   it 'needs a group to start' do
     expect { start }.to raise_error(Sidereal::CLI::Error, %r{groups start Todos})
+  end
+end
+
+RSpec.describe Sidereal::Integrations::Sourced::CLI::Groups::Reset do
+  let(:store) { instance_double(Sourced::Store, stats: Sourced::Stats.new(max_position: 9, groups: [])) }
+  let(:reactor) { double('reactor', group_id: 'Widgets', exclusive?: false) }
+  let(:router) { double('router', reactors: [reactor]) }
+
+  def reset(*arguments, tty: false, answer: "n\n")
+    allow(Sidereal::CLI).to receive(:boot_app!)
+    allow(Sidereal.config).to receive(:[]).with('sourced.store').and_return(store)
+    allow(Sidereal.config).to receive(:[]).with('sourced.router').and_return(router)
+    allow($stdin).to receive(:tty?).and_return(tty)
+    allow($stdin).to receive(:gets).and_return(answer)
+
+    out = StringIO.new
+    described_class.new(arguments, name: 'reset', output: out).call
+    out.string
+  end
+
+  it 'resets the group when confirmed' do
+    expect(router).to receive(:reset_consumer_group).with('Widgets')
+
+    expect(reset('Widgets', '--yes')).to include('reset', 'Widgets')
+  end
+
+  # Sourced skips a reset for an exclusive group, but decides that from the
+  # groups registered in its own process — which a CLI never does.
+  it 'refuses a group that deletes its messages as it acks them' do
+    allow(reactor).to receive(:exclusive?).and_return(true)
+    expect(router).not_to receive(:reset_consumer_group)
+
+    expect { reset('Widgets', '--yes') }
+      .to raise_error(Sidereal::CLI::Error, /exclusively.*nothing to replay/m)
+  end
+
+  it 'asks first, and does nothing when the answer is no' do
+    expect(router).not_to receive(:reset_consumer_group)
+
+    out = reset('Widgets', tty: true, answer: "n\n")
+
+    expect(out).to include('read the whole store again', 'Reset it? [y/N]', 'Not reset.')
+  end
+
+  it 'goes ahead when the answer is yes' do
+    expect(router).to receive(:reset_consumer_group).with('Widgets')
+
+    expect(reset('Widgets', tty: true, answer: "y\n")).to include('reset')
+  end
+
+  # Never silently destructive in a script or a pipe.
+  it 'refuses to guess when there is nobody to ask' do
+    expect(router).not_to receive(:reset_consumer_group)
+
+    expect { reset('Widgets') }.to raise_error(Sidereal::CLI::Error, /Pass --yes to confirm/)
+  end
+
+  it "turns the store's unknown-group error into a command-line error" do
+    allow(router).to receive(:reset_consumer_group)
+      .and_raise(Sourced::Store::UnknownConsumerGroupError.new('Nope', ['Widgets']))
+
+    expect { reset('Nope', '--yes') }.to raise_error(Sidereal::CLI::Error, /No consumer group "Nope"/)
+  end
+
+  it 'needs a group to reset' do
+    expect { reset }.to raise_error(Sidereal::CLI::Error, %r{groups reset Todos})
   end
 end
 
