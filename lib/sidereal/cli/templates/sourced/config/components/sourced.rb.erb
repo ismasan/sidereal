@@ -28,5 +28,7 @@ require 'sidereal/integrations/sourced'
 #   Sidereal.config.config!('sidereal.runner.process') { :all }
 #
 # boot.rb loads this after `use_file_system!`, which matters: both implement
-# `sidereal.store` and the last one wins.
+# `sidereal.store` and the last one wins. It also loads it before Zeitwerk
+# eager loads the app, so the require above is what lets a class in system/
+# subclass Sourced::Decider.
 Sidereal.config.use Sidereal::Integrations::Sourced, db: 'db'
