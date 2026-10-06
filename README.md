@@ -876,19 +876,17 @@ Once installed, `bin/sid sourced topology` describes the app — see [Sourced to
 ```
 Sidereal.config  37 components, built
 
-sidereal.elector                        Interface[start, on_promote, on_demote, lea…
-sidereal.pubsub                         Interface[start, subscribe, publish]
-  needs    sidereal.elector
-db.filepath                             Sidereal::Types::String
-db                                      Sequel::Database
-  needs    db.filepath
-sourced.db                              Sequel::Database                             alias
-  needs    db
-sidereal.dispatcher                     Interface[start, stop]                       deferred
-  needs    sidereal.store, sidereal.pubsub, sidereal.channels, sidereal.exceptions, …
+Component                     Type                            State            Needs
+sidereal.elector              Interface[start, on_promote, …  built
+sidereal.pubsub               Interface[start, subscribe, p…  built            sidereal.elector
+db.filepath                   Sidereal::Types::String         built
+db                            Sequel::Database                built            db.filepath
+sourced.db                    Sequel::Database                built, alias     db
+sidereal.dispatcher           Interface[start, stop]          built, deferred  sidereal.store, sidereal.pubsub,
+                                                                               sidereal.channels, sidereal.exceptions
 ```
 
-Keys are coloured by status, and a component is marked when it's [deferred](#custom-backends) or when its mode isn't the default singleton (`alias`, `dynamic`). `--dependents` turns the edges around, showing what depends on each component rather than what it needs.
+The *State* column carries the lifecycle status, the mode when it isn't the default singleton (`alias`, `dynamic`), and whether the component is [deferred](#custom-backends). Edges wrap into the last column, which sizes itself to the terminal — a component's key is never shortened, so the type column gives up room first. `--dependents` turns the edges around, showing what depends on each component rather than what it needs.
 
 A component tree is a DAG rather than a tree, so edges are listed per component instead of being nested — a component with two dependents would otherwise have to appear twice.
 
