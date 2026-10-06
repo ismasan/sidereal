@@ -114,13 +114,13 @@ end
 
 RSpec.describe Sidereal::CLI, '.load_app' do
   after do
-    %w[console commands skills sourced].each { |name| Sidereal::CLI::Application.registry.delete(name) }
+    %w[console commands skills sourced].each { |name| Sidereal::CLI.registry.delete(name) }
   end
 
   it 'registers the sourced commands when the bundle includes sourced' do
     Sidereal::CLI.load_app(Dir.pwd)
 
-    expect(Sidereal::CLI::Application.registry['sourced']).to eq(Sidereal::Integrations::Sourced::CLI::Namespace)
+    expect(Sidereal::CLI.registry['sourced']).to eq(Sidereal::Integrations::Sourced::CLI::Namespace)
   end
 
   it 'leaves them out otherwise' do
@@ -128,6 +128,6 @@ RSpec.describe Sidereal::CLI, '.load_app' do
 
     Sidereal::CLI.load_app(Dir.pwd)
 
-    expect(Sidereal::CLI::Application.registry).not_to have_key('sourced')
+    expect(Sidereal::CLI.registry).not_to have_key('sourced')
   end
 end

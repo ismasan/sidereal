@@ -57,7 +57,7 @@ RSpec.describe Sidereal::CLI::New do
       bin/sid
       boot.rb
       config.ru
-      config/dependencies/example.rb
+      config/components/example.rb
       falcon.rb
       storage/.keep
       system/greetings.rb
@@ -147,35 +147,41 @@ RSpec.describe Sidereal::CLI::New do
   end
 
   describe 'boot.rb' do
-    it 'loads config/dependencies after configuring Sidereal, so files there can override' do
+    it 'loads config/components before configuring Sidereal, so the configuration can name them' do
       boot = read(generate, 'boot.rb')
 
-      expect(boot).to include("Dir[File.join(__dir__, 'config/dependencies/**/*.rb')].sort.each { |file| require file }")
-      expect(boot.index('config/dependencies/**')).to be > boot.index('Sidereal.configure')
+      expect(boot).to include("Dir[File.join(__dir__, 'config/components/**/*.rb')].sort.each { |file| require file }")
+      expect(boot.index('config/components/**')).to be < boot.index('Sidereal.config.use_file_system!')
     end
 
-    it 'comes with an example dependency file, all commented out' do
-      example = read(generate('app', '--sourced'), 'config/dependencies/example.rb')
+    it 'comes with an example component file, all commented out' do
+      example = read(generate('app', '--sourced'), 'config/components/example.rb')
       code = example.lines.reject { |line| line.strip.empty? || line.start_with?('#') }
 
       expect(code).to eq([])
-      expect(example).to include("register!('mailer')", "override: true", 'dep :mailer', "store: 'db'")
-      expect(read(generate('plain'), 'config/dependencies/example.rb')).not_to include('Sourced')
+      expect(example).to include("declare('mailer'", "component!('mailer')", "config!('sidereal.workers.count')", 'dep :mailer')
+      expect(read(generate('plain'), 'config/components/example.rb')).not_to include('Sourced')
     end
 
     it 'uses the file system backend' do
       boot = read(generate, 'boot.rb')
 
-      expect(boot).to include('config.use_file_system!')
+      expect(boot).to include('Sidereal.config.use_file_system!')
       expect(boot).not_to include('Integrations::Sourced')
     end
 
-    it 'adds the Sourced integration with --sourced' do
-      boot = read(generate('app', '--sourced'), 'boot.rb')
+    it 'adds the Sourced integration with --sourced, on a db component' do
+      root = generate('app', '--sourced')
 
-      expect(boot).to include("require 'sidereal/integrations/sourced'")
-      expect(boot).to include('config.use Sidereal::Integrations::Sourced')
-      expect(boot).to include("storage/app.db")
+      expect(read(root, 'boot.rb')).to include(
+        "require 'sidereal/integrations/sourced'",
+        "Sidereal.config.use Sidereal::Integrations::Sourced, db: 'db'"
+      )
+      expect(read(root, 'config/components/db.rb')).to include("Sidereal.config.declare('db', Sequel::Database)", 'storage/app.db')
+    end
+
+    it 'leaves out the db component without --sourced' do
+      expect(files(generate)).not_to include('config/components/db.rb')
     end
   end
 
@@ -251,14 +257,15 @@ RSpec.describe Sidereal::CLI::New do
       expect(out).to include("App\nUI::WelcomePage\n#{File.realpath(root)}\n")
     end
 
-    it 'loads dependencies from config/dependencies, nested too' do
+    it 'loads components from config/components, nested too, and builds them' do
       root = generate
-      FileUtils.mkdir_p(File.join(root, 'config/dependencies/services'))
-      File.write(File.join(root, 'config/dependencies/services/greeter.rb'), <<~RUBY)
-        Sidereal.dependencies.register!('greeter') { 'hello from greeter' }
+      FileUtils.mkdir_p(File.join(root, 'config/components/services'))
+      File.write(File.join(root, 'config/components/services/greeter.rb'), <<~RUBY)
+        Sidereal.config.declare('greeter', String)
+        Sidereal.config.config!('greeter') { 'hello from greeter' }
       RUBY
 
-      out, status = bin_sid(root, 'console', stdin_data: "puts Sidereal.dependencies['greeter']\n")
+      out, status = bin_sid(root, 'console', stdin_data: "puts Sidereal.config['greeter']\n")
 
       expect(status).to be_success, out
       expect(out).to include('hello from greeter')

@@ -1,0 +1,48 @@
+# frozen_string_literal: true
+
+# boot.rb loads every file in config/components/. Each one declares components
+# — the connections, clients and other services the app's classes use — and
+# says how to build them. Nothing is built while this file loads: each process
+# builds what it needs when it starts, and tears it down when it stops, so a
+# connection is never shared across a fork. Uncomment and adapt, or delete
+# this file.
+#
+# Put requires at the top of the file, outside the blocks.
+#
+#   require 'net/http'
+
+# A component: its key, the type its value must satisfy, and how to build and
+# release it. One value per process, built once, before it serves anything.
+# `config!`, with only a build step, is the short form.
+#
+#   Sidereal.config.declare('mailer', Mailer)
+#   Sidereal.config.component!('mailer') do
+#     build { Mailer.new(api_key: ENV.fetch('MAILER_API_KEY')) }
+#     teardown { |mailer| mailer.close }
+#   end
+
+# One built from others: list their keys, and the block gets their values in
+# that order. Declarations can come in any order, in any file — they are built
+# in dependency order.
+#
+#   Sidereal.config.declare('notifier', Notifier)
+#   Sidereal.config.config!('notifier', ['mailer']) { |mailer| Notifier.new(mailer) }
+
+# A plain value, with no lifecycle of its own — including one of Sidereal's,
+# such as how many worker fibers handle commands. The last implementation of a
+# key wins, so a file here can replace one implemented in boot.rb.
+#
+#   Sidereal.config.config!('sidereal.workers.count') { 10 }
+
+# Classes ask for components by key with `dep`, and get a reader for each.
+# In web/app.rb, the readers work in `command` and `handle` blocks:
+#
+#   class App < Sidereal::App
+#     dep :mailer
+#
+#     command SendWelcome do |cmd|
+#       mailer.deliver(to: cmd.payload.email)
+#     end
+#   end
+#
+# Sidereal::Commander subclasses<% if sourced? %>, and Sourced deciders and projectors,<% end %> take `dep` too.
