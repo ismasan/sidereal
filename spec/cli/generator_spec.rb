@@ -29,6 +29,16 @@ RSpec.describe Sidereal::CLI::Generator do
     expect(File.read(File.join(@target, 'greeting.txt'))).to eq("Hello, World!\n")
   end
 
+  it 'writes no file for an erb template that renders to nothing' do
+    template('conditional.rb.erb', "<% if false -%>\nnothing\n<% end -%>\n")
+    template('empty.keep', '')
+
+    paths = Sidereal::CLI::Generator.new(@source, @target, context).generate
+
+    expect(paths).to eq(['empty.keep'])
+    expect(File.exist?(File.join(@target, 'conditional.rb'))).to be(false)
+  end
+
   it 'copies other files as they are' do
     template('public/app.css', 'body { content: "<%= name %>"; }')
 

@@ -26,7 +26,7 @@ bundle exec rspec
 | Path | What's in it |
 | --- | --- |
 | `boot.rb` | Loads and configures the app |
-| `config/dependencies/` | Connections, clients and other services the app's classes use, registered with `Sidereal.dependencies`. `boot.rb` loads every file here. See `example.rb` |
+| `config/components/` | Components: the connections, clients and other services the app's classes use, declared with `Sidereal.config`. `boot.rb` loads every file here. See `example.rb` |
 | `system/` | Backend code that doesn't know about the web: messages, commanders, Sourced deciders and reactors |
 | `web/app.rb` | `App`, the web app: commands it accepts, their handlers, and pages |
 | `web/ui/` | Pages and the layout, in the `UI` namespace |

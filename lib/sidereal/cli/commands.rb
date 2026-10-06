@@ -63,11 +63,13 @@ module Sidereal
         klass.subclasses.flat_map { |app| [app, *app_classes(app)] }
       end
 
-      # Read without Sourced.router, which would set up the store just to ask.
+      # Every reactor registered with Sourced, from its router, which
+      # {CLI.boot_app!} has built. Empty for an app that doesn't use Sourced:
+      # the key exists only once the integration has mounted it.
       def self.sourced_reactors
-        return [] unless defined?(::Sourced) && ::Sourced.respond_to?(:config)
+        return [] unless Sidereal.config.declared?('sourced.router')
 
-        ::Sourced.config.router&.reactors || []
+        Sidereal.config['sourced.router'].reactors
       end
       private_class_method :app_classes, :sourced_reactors
 

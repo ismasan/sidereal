@@ -104,8 +104,11 @@ module Sidereal
       def load_boot_in_spec_helper(root)
         path = File.join(root, 'spec', 'spec_helper.rb')
         File.write(path, <<~RUBY + File.read(path))
-          # Load the app (Zeitwerk, Sidereal configuration) before every spec.
+          # Load the app (Zeitwerk, Sidereal's configuration) before every spec,
+          # and build its components, so classes can read the ones they inject.
+          # Building starts nothing: no pubsub, no workers.
           require_relative '../boot'
+          Sidereal.config.build!
 
         RUBY
       end
