@@ -431,6 +431,138 @@ RSpec.describe Sidereal::Integrations::Sourced::CLI::Messages::List do
   end
 end
 
+RSpec.describe Sidereal::Integrations::Sourced::CLI::Messages::Correlation do
+  Correlated = Struct.new(:position, :id, :causation_id, :correlation_id, :type, :created_at, :payload)
+
+  let(:store) { instance_double(Sourced::Store) }
+
+  # Sourced records the first command as its own cause, which `cause:` omitted
+  # reproduces.
+  def msg(position, id, type, cause: nil)
+    Correlated.new(position, id, cause || id, 'c1', type, Time.new(2026, 4, 1, 9, 0, 0), Payload.new({}))
+  end
+
+  def correlation(id = 'a', batch: [])
+    allow(Sidereal::CLI).to receive(:boot_app!)
+    allow(Sidereal.config).to receive(:[]).with('sourced.store').and_return(store)
+    allow(store).to receive(:read_correlation_batch).and_return(batch)
+
+    out = StringIO.new
+    described_class.new([id].compact, name: 'correlation', output: out).call
+    out.string
+  end
+
+  # The header, then a line per message.
+  def drawing(output) = output.lines.map(&:rstrip).reject(&:empty?).drop(1)
+
+  it 'nests each message under the one that caused it' do
+    lines = drawing(correlation(batch: [
+                                  msg(1, 'a', 'add'),
+                                  msg(2, 'b', 'added', cause: 'a'),
+                                  msg(3, 'c', 'notified', cause: 'b')
+                                ]))
+
+    expect(lines[0]).to start_with('add')
+    expect(lines[1]).to start_with('└── added')
+    expect(lines[2]).to start_with('    └── notified')
+  end
+
+  it 'branches when one message caused several' do
+    lines = drawing(correlation(batch: [
+                                  msg(1, 'a', 'add'),
+                                  msg(2, 'b', 'notify', cause: 'a'),
+                                  msg(3, 'c', 'audit', cause: 'a')
+                                ]))
+
+    expect(lines[1]).to start_with('├── notify')
+    expect(lines[2]).to start_with('└── audit')
+  end
+
+  it 'names the correlation and counts the messages' do
+    expect(correlation(batch: [msg(1, 'a', 'add')]).lines.first).to include('Correlation c1', '1 message')
+  end
+
+  # The first command is its own cause, so a naive "has a cause" test would
+  # leave the whole tree rootless.
+  it 'roots a message that causes itself' do
+    output = correlation(batch: [msg(1, 'a', 'add')])
+
+    expect(output).not_to include('Unreachable')
+    expect(drawing(output)[0]).to start_with('add')
+  end
+
+  # The everyday case: a commander deletes each command as it acks it, so the
+  # events it produced outlive their cause.
+  it 'roots a message whose cause is no longer in the store' do
+    output = correlation('b', batch: [msg(2, 'b', 'added', cause: 'deleted')])
+
+    expect(output).not_to include('Unreachable')
+    expect(drawing(output)[0]).to start_with('added')
+  end
+
+  it 'still prints messages a causation loop makes unreachable' do
+    output = correlation(batch: [msg(1, 'a', 'x', cause: 'b'), msg(2, 'b', 'y', cause: 'a')])
+
+    expect(output).to include('Unreachable')
+    expect(output).to include('x'), include('y')
+  end
+
+  # Real Sourced types, because what colours a line is what the message is.
+  SpecSignIn = Sourced::Command.define('spec.correlation.sign_in') do
+    attribute :name, String
+  end
+  SpecSigned = Sourced::Event.define('spec.correlation.signed') do
+    attribute :name, String
+  end
+  SpecPlain = Sidereal::Message.define('spec.correlation.plain') do
+    attribute :name, String
+  end
+
+  # Console only emits colour to a tty, so the styling can only be read off
+  # output that claims to be one.
+  def on_tty(id, batch:)
+    allow(Sidereal::CLI).to receive(:boot_app!)
+    allow(Sidereal.config).to receive(:[]).with('sourced.store').and_return(store)
+    allow(store).to receive(:read_correlation_batch).and_return(batch)
+
+    out = StringIO.new
+    allow(out).to receive(:tty?).and_return(true)
+    described_class.new([id], name: 'correlation', output: out).call
+    out.string
+  end
+
+  def positioned(message, position) = Sourced::PositionedMessage.new(message, position)
+
+  it 'colours commands blue and events yellow, as Event Modeling does' do
+    command = SpecSignIn.parse(payload: { name: 'Ada' })
+    event = command.correlate(SpecSigned.parse(payload: { name: 'Ada' }))
+
+    output = on_tty(command.id, batch: [positioned(command, 1), positioned(event, 2)])
+
+    expect(output).to include("38;5;33m#{command.type}")
+    expect(output).to include("38;5;220m#{event.type}")
+  end
+
+  # A Sidereal::Message is neither, so colouring it either way would be a lie.
+  it 'leaves a message of no known kind uncoloured' do
+    plain = SpecPlain.parse(payload: { name: 'Ada' })
+
+    output = on_tty(plain.id, batch: [positioned(plain, 1)])
+
+    expect(output).to include(plain.type)
+    expect(output).not_to include('38;5;33m', '38;5;220m')
+  end
+
+  it 'says so when the store has no such message' do
+    expect { correlation('nope', batch: []) }
+      .to raise_error(Sidereal::CLI::Error, /No message nope in the store/)
+  end
+
+  it 'needs a message to trace' do
+    expect { correlation(nil) }.to raise_error(Sidereal::CLI::Error, %r{messages correlation <id>})
+  end
+end
+
 RSpec.describe Sidereal::Integrations::Sourced, '.setup' do
   # Sourced.config is process-global and gets mounted into Sidereal.config,
   # which the suite replaces before each example: a fresh one can be mounted.
