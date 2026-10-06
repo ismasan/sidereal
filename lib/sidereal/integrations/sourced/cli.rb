@@ -423,12 +423,24 @@ module Sidereal
 
         # `sid sourced messages`
         class Messages < Sidereal::CLI::Command
+          # What the two renderings both have to say about a message.
+          module Payloads
+            def payload_of(message)
+              payload = message.payload
+              return '' unless payload.respond_to?(:to_h)
+
+              JSON.generate(payload.to_h)
+            end
+          end
+
           # `sid sourced messages list [--tail]`
           #
           # The log, one message per line. Only the messages go to stdout —
           # everything else is stderr — so `| grep` and `> file` get just the
           # log, in either mode.
           class List < Sidereal::CLI::Command
+            include Payloads
+
             self.description = 'List the most recent messages in the store'
 
             options do
@@ -496,18 +508,125 @@ module Sidereal
                 payload_of(message)
               ].join('  ')
             end
+          end
 
-            def payload_of(message)
-              payload = message.payload
-              return '' unless payload.respond_to?(:to_h)
+          # `sid sourced messages correlation <id>`
+          #
+          # One workflow: every message sharing a correlation_id, nested by
+          # what caused what. Drawn like `sid system tree`, whose styles it
+          # shares.
+          class Correlation < Sidereal::CLI::Command
+            include Payloads
+            include Sidereal::CLI::System::Rendering
 
-              JSON.generate(payload.to_h)
+            self.description = 'Print the causal tree of the messages sharing one correlation'
+
+            one :message_id, 'Any message in the chain, by the id `messages list` prints'
+
+            # Event Modeling's colours: commands blue, events yellow. Both are
+            # 256-colour codes rather than Console's eight names — `style`
+            # passes an attribute it doesn't recognise straight through as an
+            # SGR number. It still answers nil on a terminal without colour,
+            # so piped output stays plain.
+            # Bold as well, so a type still reads as the node's name and the
+            # colour only adds what kind of message it is.
+            COMMAND_COLOUR = [nil, nil, :bold, 38, 5, 33].freeze
+            EVENT_COLOUR = [nil, nil, :bold, 38, 5, 220].freeze
+
+            def call
+              unless @message_id
+                raise Sidereal::CLI::Error,
+                      'Name a message, e.g. `bin/sid sourced messages correlation <id>`. ' \
+                      '`bin/sid sourced messages list` prints their ids.'
+              end
+
+              Sidereal::CLI.boot_app!
+              messages = Sidereal.config['sourced.store'].read_correlation_batch(@message_id)
+              raise Sidereal::CLI::Error, "No message #{@message_id} in the store." if messages.empty?
+
+              define_styles!
+              print_header(messages)
+              print_tree(messages)
+            end
+
+            private
+
+            def define_styles!
+              super
+              terminal[:command] = styled(*COMMAND_COLOUR)
+              terminal[:event] = styled(*EVENT_COLOUR)
+            end
+
+            # A message Sourced knows the kind of is coloured by it. Anything
+            # else — a plain Sidereal::Message, which is neither — keeps the
+            # default, rather than being miscoloured as one or the other.
+            def type_style(message)
+              return :command if message.is_a?(::Sourced::Command)
+              return :event if message.is_a?(::Sourced::Event)
+
+              :name
+            end
+
+            def print_header(messages)
+              terminal.print_line :title, "Correlation #{messages.first.correlation_id}", :reset,
+                                  "  #{messages.size} #{messages.size == 1 ? 'message' : 'messages'}"
+              terminal.puts
+            end
+
+            def print_tree(messages)
+              @children = messages.group_by(&:causation_id)
+              @seen = {}
+              present = messages.to_h { |message| [message.id, true] }
+
+              messages.select { |message| root?(message, present) }
+                      .each { |root| render(root, '', '') }
+
+              # Only a causation cycle reaches this, and dropping messages
+              # without a word would be worse than drawing them flat.
+              orphans = messages.reject { |message| @seen[message.id] }
+              return if orphans.empty?
+
+              terminal.puts
+              terminal.print_line :bad, 'Unreachable — the causation chain loops:'
+              orphans.each { |message| render(message, '', '') }
+            end
+
+            # A message caused by another one in the batch hangs off it, and
+            # anything else starts a tree of its own. Three ways to be a root,
+            # and the chain that opens this very command is all three in turn:
+            # the first command causes itself, so it is nobody's child; and a
+            # commander deletes each command as it acks it, so the events it
+            # produced outlive their cause and would otherwise have nothing to
+            # hang from.
+            def root?(message, present)
+              cause = message.causation_id
+              cause.nil? || cause == message.id || !present[cause]
+            end
+
+            def render(message, prefix, indent)
+              @seen[message.id] = true
+              print_message(message, prefix)
+
+              children = (@children[message.id] || []).reject { |child| @seen[child.id] }
+              children.each_with_index do |child, i|
+                last = i == children.size - 1
+                render(child, "#{indent}#{last ? '└── ' : '├── '}", indent + (last ? '    ' : '│   '))
+              end
+            end
+
+            def print_message(message, prefix)
+              terminal.print_line(
+                :muted, prefix,
+                type_style(message), message.type,
+                :muted, "  ##{message.position}  #{message.created_at.strftime('%H:%M:%S')}  #{message.id}",
+                :type, "  #{payload_of(message)}"
+              )
             end
           end
 
           self.description = "Inspect the messages in the app's store"
 
-          nested :command, { 'list' => List }
+          nested :command, { 'list' => List, 'correlation' => Correlation }
 
           def call
             @command ? @command.call : print_usage
