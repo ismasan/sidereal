@@ -64,41 +64,58 @@ module Sidereal
         registry[name] = command_class
       end
 
-      # Called by an app's bin/sid: remembers the app's root and registers
-      # the commands that only make sense inside an app, including those of
-      # integrations the app's bundle includes (`sourced` for Sourced). The
-      # app itself is loaded by the commands that need it ({.boot_app!}), so
-      # `bin/sid --help` stays fast.
+      # Called by an app's bin/sid: remembers the app's root, registers the
+      # commands that only make sense inside an app, then loads the app —
+      # changing into its root first, since paths like ./storage are relative
+      # to it.
+      #
+      # Loading the app is what gives its integrations their turn: each one's
+      # +setup+ runs as +boot.rb+ calls {Sidereal::Config::Root#use}, which is
+      # where it registers its own commands and skills. That has to happen
+      # before the command line is parsed, since Samovar resolves a command's
+      # name then — before any command runs. Loading declares and implements
+      # components but builds nothing, so nothing is connected to yet; a
+      # command that needs component values calls {.boot_app!}.
+      #
+      # An app that fails to load is remembered rather than raised, so `--help`
+      # and the commands that don't need the app still work — which is when the
+      # command line is most wanted. {.boot_app!} re-raises for the rest.
       #
       # @param root [String] the app's root directory
+      # @return [void]
       def load_app(root)
         @app_root = File.expand_path(root)
         register 'console', AppConsole
         register 'commands', Commands
         register 'skills', SkillsCommand
 
-        # Integrations add their own commands, for apps that bundle them.
-        if Gem.loaded_specs.key?('sourced')
-          require 'sidereal/integrations/sourced/cli'
-          Integrations::Sourced::CLI.install
+        Dir.chdir(@app_root)
+        @app_load_error = nil
+        begin
+          require File.join(@app_root, 'boot')
+        rescue ::Exception => e # rubocop:disable Lint/RescueException -- re-raised by boot_app!
+          @app_load_error = e
+          warn "sid: #{@app_root} failed to load: #{e.class}: #{e.message}"
+          warn 'sid: only the commands that do not need the app are available.'
         end
       end
 
-      # Load the app as a server worker has it: change into its root, since
-      # paths like ./storage are relative to it, require its boot.rb, then
-      # build its components ({Sidereal.config}), so a command can read any of
-      # them. Building opens connections but starts nothing: no pubsub, no
-      # workers, no dispatcher.
+      # Build the app's components ({Sidereal.config}), so a command can read
+      # any of them. Call it from a command that needs component values, after
+      # it has parsed its own arguments — building opens connections (a
+      # database, a socket), so `--help` and a bad command line never pay it.
       #
-      # @param build [Boolean] false to load the app's code only, without
-      #   connecting to anything
+      # Starts nothing: no pubsub, no workers, no dispatcher, and no component's
+      # +start+ hook. A command that needs a started component asks for it by
+      # key with +Sidereal.config.start_component!+.
+      #
       # @raise [Error] outside an app
-      def boot_app!(build: true)
+      # @raise [Exception] whatever {.load_app} caught loading the app
+      def boot_app!
         raise Error, 'Run this command from inside a Sidereal app, with bin/sid' unless app_root
+        raise @app_load_error if @app_load_error
 
-        Dir.chdir(app_root)
-        require File.join(app_root, 'boot')
-        Sidereal.config.build! if build
+        Sidereal.config.build!
       end
     end
 

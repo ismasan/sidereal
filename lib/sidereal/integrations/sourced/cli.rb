@@ -7,17 +7,11 @@ module Sidereal
   module Integrations
     module Sourced
       # `sid sourced`: commands for apps that use Sourced. Registered by
-      # {Sidereal::CLI.load_app} when the app's bundle includes the sourced
-      # gem. Sourced itself is loaded with the app, by the commands that need it.
+      # {Sidereal::Integrations::Sourced.setup}, so they exist for an app that
+      # configures the integration. This file defines the command classes and
+      # nothing else — it doesn't load Sourced, which the commands do for
+      # themselves through {Sidereal::CLI.boot_app!}.
       module CLI
-        # Add the `sourced` namespace to the `sid` command line. Called by
-        # {Sidereal::CLI.load_app} once it has required this file.
-        #
-        # @return [void]
-        def self.install
-          Sidereal::CLI.register 'sourced', Namespace
-        end
-
         # The causality tree of a Sourced topology ({::Sourced::Topology.build}):
         # commands and the events they produce, the read models and automations
         # that consume those events, and the commands automations dispatch.

@@ -114,7 +114,7 @@ RSpec.describe Sidereal::CLI do
 
       text = run('--help')
 
-      expect(text).to include('One of: info, new, plugin.')
+      expect(text).to match(/One of: .*\bplugin\b/)
       expect(text).to include('A test plugin')
     end
 

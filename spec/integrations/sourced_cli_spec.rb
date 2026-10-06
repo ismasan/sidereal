@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require 'tmpdir'
+require 'sidereal/integrations/sourced'
 require 'sidereal/integrations/sourced/cli'
 
 RSpec.describe Sidereal::Integrations::Sourced::CLI::TopologyTree do
@@ -112,22 +114,86 @@ RSpec.describe Sidereal::Integrations::Sourced::CLI::TopologyTree do
   end
 end
 
-RSpec.describe Sidereal::CLI, '.load_app' do
-  after do
-    %w[console commands skills sourced].each { |name| Sidereal::CLI.registry.delete(name) }
+RSpec.describe Sidereal::Integrations::Sourced, '.setup' do
+  # Sourced.config is process-global and gets mounted into Sidereal.config,
+  # which the suite replaces before each example: a fresh one can be mounted.
+  before do
+    Sourced.reset!
+    Sourced::Store::MessageCodec.reset!
+    # Both registries outlive an example, and a previous one may have filled them.
+    Sidereal::CLI.registry.delete('sourced')
+    Sidereal.skills.delete('sidereal-sourced')
   end
 
-  it 'registers the sourced commands when the bundle includes sourced' do
-    Sidereal::CLI.load_app(Dir.pwd)
+  after { Sourced.reset! }
+
+  it 'registers `sid sourced` on the command line' do
+    Sidereal.config.use described_class
 
     expect(Sidereal::CLI.registry['sourced']).to eq(Sidereal::Integrations::Sourced::CLI::Namespace)
   end
 
-  it 'leaves them out otherwise' do
-    allow(Gem).to receive(:loaded_specs).and_return({})
+  it 'registers the sidereal-sourced skill' do
+    Sidereal.config.use described_class
 
-    Sidereal::CLI.load_app(Dir.pwd)
+    skill = File.read(File.join(Sidereal.skills['sidereal-sourced'], 'SKILL.md'))
+    expect(skill).to include('name: sidereal-sourced', 'bin/sid sourced topology')
+  end
 
+  it 'registers neither until the app configures the integration' do
     expect(Sidereal::CLI.registry).not_to have_key('sourced')
+    expect(Sidereal.skills['sidereal-sourced']).to be_nil
+  end
+end
+
+RSpec.describe Sidereal::CLI, '.load_app' do
+  around do |example|
+    pwd = Dir.pwd
+    Dir.mktmpdir('sid-load-app') do |dir|
+      @dir = dir
+      example.run
+    end
+  ensure
+    Dir.chdir(pwd)
+  end
+
+  after { %w[console commands skills].each { |name| Sidereal::CLI.registry.delete(name) } }
+
+  # A unique directory per example, so `require` doesn't skip the second boot.rb.
+  def boot!(body)
+    File.write(File.join(@dir, 'boot.rb'), body)
+    Sidereal::CLI.load_app(@dir)
+  end
+
+  it "registers the commands that need an app, and loads the app's boot.rb" do
+    boot!("SidLoadAppMarker = :loaded\n")
+
+    expect(Sidereal::CLI.registry).to include(
+      'console' => Sidereal::CLI::AppConsole,
+      'commands' => Sidereal::CLI::Commands,
+      'skills' => Sidereal::CLI::SkillsCommand
+    )
+    expect(SidLoadAppMarker).to eq(:loaded)
+    expect(Sidereal::CLI.app_root).to eq(File.expand_path(@dir))
+  end
+
+  it 'builds nothing, so nothing is connected to yet' do
+    boot!("Sidereal.config.declare('spec.thing', Object)\nSidereal.config.config!('spec.thing') { raise 'built!' }\n")
+
+    expect(Sidereal.config.boot_status).to eq(:open)
+  end
+
+  describe 'an app that fails to load' do
+    it 'warns and keeps the commands that do not need the app' do
+      expect { boot!("raise 'boom'\n") }.to output(/failed to load.*boom/m).to_stderr
+
+      expect(Sidereal::CLI.registry).to include('console', 'commands', 'skills')
+    end
+
+    it 're-raises from boot_app!, so a command that needs the app still fails loudly' do
+      expect { boot!("raise 'boom'\n") }.to output.to_stderr
+
+      expect { Sidereal::CLI.boot_app! }.to raise_error(RuntimeError, 'boom')
+    end
   end
 end
