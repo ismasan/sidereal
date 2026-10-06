@@ -763,6 +763,7 @@ bin/sid --help
 | `bin/sid sourced topology` | Shows how the app's commands, events and read models connect |
 | `bin/sid sourced groups list` | Lists the consumer groups, with status, partitions and position |
 | `bin/sid sourced groups stop NAME` | Stops a consumer group, so its reactor claims no more work |
+| `bin/sid sourced groups start NAME` | Starts a stopped or failed consumer group again |
 | `bin/sid system graph` | Prints the app's components and how they depend on each other |
 | `bin/sid system tree` | Prints the app's components as a tree, and who implemented each |
 | `bin/sid console` | Starts an IRB session with the app loaded |
@@ -878,7 +879,14 @@ Group           Status  Partitions  Position  Lag
 App::Commander  active  3           40        2
 ```
 
-`bin/sid sourced groups stop App::Commander --message 'draining for deploy'` takes one out of service: a stopped group is skipped when work is claimed, so its reactor stops consuming while the rest of the app carries on serving. Commands keep arriving in the store and are picked up when it runs again — `Sidereal.config['sourced.store'].start_consumer_group('App::Commander')` from `bin/sid console`.
+A group can be taken out of service and put back:
+
+```bash
+bin/sid sourced groups stop App::Commander --message 'draining for deploy'
+bin/sid sourced groups start App::Commander
+```
+
+A stopped group is skipped when work is claimed, so its reactor stops consuming while the rest of the app carries on serving. Messages keep arriving in the store meanwhile; starting the group again picks up from where it left off, including everything that arrived while it was stopped. `start` also clears the error that stopped a failed group, which is the usual reason to reach for it.
 
 A group that isn't running says why underneath the table — the exception if it failed, or the `--message` if someone stopped it — and a *Retry at* column appears only while one is waiting to retry. Groups are registered when the app **starts**, not when the CLI builds it, so a store whose app has never run reports none.
 

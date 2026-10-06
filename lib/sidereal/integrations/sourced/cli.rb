@@ -261,11 +261,45 @@ module Sidereal
           #
           # A stopped group is skipped when work is claimed, so its reactor
           # stops consuming while the rest of the app carries on.
+          # What `start` and `stop` both need. Each keeps its own readable
+          # `call` — this is only the plumbing they share.
+          module Action
+            # Not `name`: Samovar::Command#name is the command's own name, so
+            # `one :name` would always be set, to "stop" or "start".
+            def group_named!(verb)
+              return @group_name if @group_name
+
+              # Fully qualified: a bare Error here resolves out to
+              # Sidereal::Error, which Application.call doesn't rescue — the
+              # message would reach the user as a backtrace.
+              raise Sidereal::CLI::Error, "Name a group, e.g. `bin/sid sourced groups #{verb} Todos`. " \
+                                          '`bin/sid sourced groups list` shows them.'
+            end
+
+            def store = Sidereal.config['sourced.store']
+
+            def status_of(name)
+              store.stats.groups.find { |group| group[:group_id].to_s == name }&.fetch(:status).to_s
+            end
+
+            # The store names the groups it knows for an id it doesn't, so this
+            # only has to keep that out of a backtrace.
+            def on_known_group
+              yield
+            rescue ::Sourced::Store::UnknownConsumerGroupError => e
+              raise Sidereal::CLI::Error, e.message
+            end
+          end
+
+          # `sid sourced groups stop <group>`
+          #
+          # A stopped group is skipped when work is claimed, so its reactor
+          # stops consuming while the rest of the app carries on.
           class Stop < Sidereal::CLI::Command
+            include Action
+
             self.description = 'Stop a consumer group, so its reactor claims no more work'
 
-            # Not `name`: Samovar::Command#name is the command's own name, so
-            # `one :name` would always be set, to "stop".
             one :group_name, 'The group to stop, as `groups list` shows it'
 
             options do
@@ -273,37 +307,47 @@ module Sidereal
             end
 
             def call
-              unless @group_name
-                # Fully qualified: a bare Error here resolves out to
-                # Sidereal::Error, which Application.call doesn't rescue — the
-                # message would reach the user as a backtrace.
-                raise Sidereal::CLI::Error, 'Name a group, e.g. `bin/sid sourced groups stop Todos`. ' \
-                                            '`bin/sid sourced groups list` shows them.'
-              end
-
+              name = group_named!('stop')
               Sidereal::CLI.boot_app!
-              store = Sidereal.config['sourced.store']
-              group = store.stats.groups.find { |candidate| candidate[:group_id].to_s == @group_name }
-              return terminal.puts("#{@group_name} is already stopped.") if group&.fetch(:status).to_s == 'stopped'
+              return terminal.puts("#{name} is already stopped.") if status_of(name) == 'stopped'
 
-              # The store knows which groups exist, and says so for a name it
-              # doesn't recognise — this only has to keep that out of a backtrace.
-              begin
-                store.stop_consumer_group(@group_name, @options[:message])
-              rescue ::Sourced::Store::UnknownConsumerGroupError => e
-                raise Sidereal::CLI::Error, e.message
-              end
+              on_known_group { store.stop_consumer_group(name, @options[:message]) }
 
-              terminal.print_line :key, '  stopped  ', :reset, @group_name
+              terminal.print_line :key, '  stopped  ', :reset, name
               terminal.puts
-              terminal.puts 'It claims no more work. Start it again from `bin/sid console`: ' \
-                            "Sidereal.config['sourced.store'].start_consumer_group(#{@group_name.inspect})"
+              terminal.puts "It claims no more work until `bin/sid sourced groups start #{name}`. " \
+                            'Messages keep arriving in the store meanwhile.'
+            end
+          end
+
+          # `sid sourced groups start <group>`
+          #
+          # Puts a stopped or failed group back to work, from where it left
+          # off. Starting a failed one clears the error that stopped it.
+          class Start < Sidereal::CLI::Command
+            include Action
+
+            self.description = 'Start a stopped or failed consumer group again'
+
+            one :group_name, 'The group to start, as `groups list` shows it'
+
+            def call
+              name = group_named!('start')
+              Sidereal::CLI.boot_app!
+              return terminal.puts("#{name} is already running.") if status_of(name) == 'active'
+
+              on_known_group { store.start_consumer_group(name) }
+
+              terminal.print_line :key, '  started  ', :reset, name
+              terminal.puts
+              terminal.puts 'It claims work again, from where it left off, and anything that arrived ' \
+                            'while it was stopped. A failed group has its error cleared.'
             end
           end
 
           self.description = "Inspect the app's consumer groups"
 
-          nested :command, { 'list' => List, 'stop' => Stop }
+          nested :command, { 'list' => List, 'start' => Start, 'stop' => Stop }
 
           def call
             @command ? @command.call : print_usage
