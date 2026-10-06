@@ -30,6 +30,7 @@ PATH
       plumb (~> 0.4)
       rack (~> 3)
       rack-session
+      samovar
       sourced-component (~> 0.1)
       sourced-message (>= 0.4.0)
       tsort

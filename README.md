@@ -64,6 +64,7 @@ The app's name comes before the options: `sid new my_app --rspec`.
 my_app/
   boot.rb                     loads and configures the app
   config.ru                   runs App
+  config/components/          the connections and services the app's classes use
   falcon.rb                   Falcon settings: HOST, PORT and COUNT (worker processes)
   bin/dev                     development server that reloads on code changes
   bin/sid                     the sid command line, with this app loaded
@@ -894,7 +895,7 @@ Sidereal.skills.add('my-integration', File.expand_path('skills/my-integration', 
 bin/sid console
 ```
 
-Starts IRB with the app loaded and configured, from the app's root directory. For example, `Sidereal.dispatch!(Greetings::SayHello, name: 'Ada')` sends a command from Ruby.
+Starts IRB with the app loaded, from the app's root directory, with its components built (`Sidereal.config.build!`) — so `Sidereal.store` and anything the app declared is readable. Nothing is started: no pubsub, no workers. For example, `Sidereal.dispatch!(Greetings::SayHello, name: 'Ada')` appends a command to the store from Ruby, for the running app's workers to pick up.
 
 ## Working with time
 
