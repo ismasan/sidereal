@@ -114,6 +114,58 @@ RSpec.describe Sidereal::Integrations::Sourced::CLI::TopologyTree do
   end
 end
 
+RSpec.describe Sidereal::Integrations::Sourced::CLI::Groups::List do
+  # The command reads one thing — the store's stats — so it is driven against
+  # those rather than a booted app, the way the topology specs drive the tree.
+  def list(groups, max_position: 42)
+    stats = Sourced::Stats.new(max_position:, groups:)
+    allow(Sidereal::CLI).to receive(:boot_app!)
+    allow(Sidereal.config).to receive(:[]).with('sourced.store').and_return(instance_double(Sourced::Store, stats:))
+
+    out = StringIO.new
+    described_class.new([], name: 'list', output: out).call
+    out.string
+  end
+
+  def group(id, status: 'active', partitions: 1, newest: 42, retry_at: nil, error: {})
+    { group_id: id, status:, partition_count: partitions, oldest_processed: 1,
+      newest_processed: newest, retry_at:, error_context: error }
+  end
+
+  it 'lists each group with its status, partitions and how far behind it is' do
+    out = list([group('Todos', partitions: 3, newest: 40)])
+
+    expect(out).to include('Group', 'Status', 'Partitions', 'Position', 'Lag')
+    expect(out).to match(/^Todos\s+active\s+3\s+40\s+2$/)
+  end
+
+  it 'counts the groups and says where the store is' do
+    expect(list([group('A'), group('B')])).to start_with("2 groups, store at position 42")
+    expect(list([group('A')])).to start_with('1 group, ')
+  end
+
+  it 'says so when no group has been registered yet' do
+    expect(list([])).to include('No consumer groups yet')
+  end
+
+  # The table can't carry why a group stopped, so it goes underneath.
+  it 'names the error behind a failed group' do
+    out = list([group('Broken', status: 'failed',
+                      error: { exception_class: 'RuntimeError', exception_message: 'boom' })])
+
+    expect(out).to match(/^Broken\s+failed/)
+    expect(out).to include('Broken: RuntimeError: boom')
+  end
+
+  it 'leaves the retry column out until a group is waiting to retry' do
+    expect(list([group('A')])).not_to include('Retry at')
+
+    out = list([group('A', retry_at: Time.new(2026, 4, 1, 12, 30, 0))])
+
+    expect(out).to include('Retry at', '2026-04-01 12:30:00')
+  end
+end
+
 RSpec.describe Sidereal::Integrations::Sourced, '.setup' do
   # Sourced.config is process-global and gets mounted into Sidereal.config,
   # which the suite replaces before each example: a fresh one can be mounted.
@@ -121,6 +173,7 @@ RSpec.describe Sidereal::Integrations::Sourced, '.setup' do
     Sourced.reset!
     Sourced::Store::MessageCodec.reset!
     # Both registries outlive an example, and a previous one may have filled them.
+    Sidereal::CLI::Sourced::COMMANDS.delete('groups')
     Sidereal::CLI::Sourced::COMMANDS.delete('migration')
     Sidereal::CLI::Sourced::COMMANDS.delete('topology')
     Sidereal.skills.delete('sidereal-sourced')
@@ -132,7 +185,8 @@ RSpec.describe Sidereal::Integrations::Sourced, '.setup' do
     Sidereal.config.use described_class
 
     expect(Sidereal::CLI::Sourced::COMMANDS)
-      .to include('migration' => Sidereal::Integrations::Sourced::CLI::Migration,
+      .to include('groups' => Sidereal::Integrations::Sourced::CLI::Groups,
+                  'migration' => Sidereal::Integrations::Sourced::CLI::Migration,
                   'topology' => Sidereal::Integrations::Sourced::CLI::Topology,
                   'install' => Sidereal::CLI::Sourced::Install)
   end
@@ -145,6 +199,7 @@ RSpec.describe Sidereal::Integrations::Sourced, '.setup' do
   end
 
   it 'registers neither until the app configures the integration' do
+    expect(Sidereal::CLI::Sourced::COMMANDS).not_to have_key('groups')
     expect(Sidereal::CLI::Sourced::COMMANDS).not_to have_key('migration')
     expect(Sidereal::CLI::Sourced::COMMANDS).not_to have_key('topology')
     expect(Sidereal.skills['sidereal-sourced']).to be_nil
