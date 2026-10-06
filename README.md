@@ -764,6 +764,7 @@ bin/sid --help
 | `bin/sid sourced groups list` | Lists the consumer groups, with status, partitions and position |
 | `bin/sid sourced groups stop NAME` | Stops a consumer group, so its reactor claims no more work |
 | `bin/sid sourced groups start NAME` | Starts a stopped or failed consumer group again |
+| `bin/sid sourced groups reset NAME` | Resets a consumer group, so its reactor reads everything again |
 | `bin/sid system graph` | Prints the app's components and how they depend on each other |
 | `bin/sid system tree` | Prints the app's components as a tree, and who implemented each |
 | `bin/sid console` | Starts an IRB session with the app loaded |
@@ -887,6 +888,12 @@ bin/sid sourced groups start App::Commander
 ```
 
 A stopped group is skipped when work is claimed, so its reactor stops consuming while the rest of the app carries on serving. Messages keep arriving in the store meanwhile; starting the group again picks up from where it left off, including everything that arrived while it was stopped. `start` also clears the error that stopped a failed group, which is the usual reason to reach for it.
+
+`bin/sid sourced groups reset NAME` drops a group's offsets so its reactor reads the whole store again — how a read model is rebuilt after its projector changes. Nothing is lost, since the messages are still there, but the work is redone, so it asks before going ahead; `--yes` answers for a script, and it refuses outright rather than guess when there's nobody to ask.
+
+It won't reset a group that handles its messages exclusively and deletes them as it acks them, such as a Sidereal commander: there is nothing to replay, and dropping the offsets would only orphan the partitions it holds. Sourced skips that case too, but decides it from the groups registered in the running process — which a command line never has — so the check is made against the reactor itself.
+
+All three go through the app's Sourced router rather than its store, so the reactor's `on_stop`, `on_start` and `on_reset` run as they would in the app.
 
 A group that isn't running says why underneath the table — the exception if it failed, or the `--message` if someone stopped it — and a *Retry at* column appears only while one is waiting to retry. Groups are registered when the app **starts**, not when the CLI builds it, so a store whose app has never run reports none.
 
