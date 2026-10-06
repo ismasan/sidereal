@@ -4,9 +4,6 @@
 
 require 'sidereal'
 require 'zeitwerk'
-<% if sourced? -%>
-require 'sidereal/integrations/sourced'
-<% end -%>
 
 # Zeitwerk loads classes by file name, so no require statements are needed.
 #
@@ -24,10 +21,6 @@ LOADER.push_dir(File.expand_path('web', __dir__))
 # Static files, served by config.ru. Not code.
 LOADER.ignore(File.expand_path('web/public', __dir__))
 LOADER.setup
-# Load everything up front. Message classes register their types as they
-# load, and every process must know every type before it can decode messages
-# coming from other processes.
-LOADER.eager_load
 
 # File-backed command store, pubsub and leader election under ./storage.
 # Updates reach browsers connected to any worker, so COUNT > 1 works.
@@ -40,3 +33,12 @@ Sidereal.config.use_file_system!
 # is built while this file loads: each process builds its own when it starts.
 # See config/components/example.rb.
 Dir[File.join(__dir__, 'config/components/**/*.rb')].sort.each { |file| require file }
+
+# Load every class up front, after the components: a file above may require a
+# library the classes are written against — `bin/sid sourced install` writes
+# one that requires Sourced, which system/ classes then subclass — and it can
+# refer to a class of its own (`Sourced.register(Todos)`), which LOADER.setup
+# has already made autoloadable. Loading them all now matters because message
+# classes register their types as they load, and every process must know every
+# type before it can decode messages from another.
+LOADER.eager_load

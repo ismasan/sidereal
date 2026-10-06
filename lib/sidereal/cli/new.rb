@@ -79,19 +79,34 @@ module Sidereal
         # Each install is its own command, run in the app, so an app gets the
         # same one whenever it asks. `sourced install` installs the database
         # itself, since Sourced keeps its messages there.
-        run_in!(root, 'bin/sid', 'db', 'install') if context.db?
-        run_in!(root, 'bin/sid', 'sourced', 'install') if context.sourced?
+        run_sid!(root, context, 'db', 'install') if context.db?
+        run_sid!(root, context, 'sourced', 'install') if context.sourced?
         if context.rspec?
           run_in!(root, 'bundle', 'exec', 'rspec', '--init')
           load_boot_in_spec_helper(root)
         end
         # The skills of Sidereal and the integrations the app requires.
-        run_in!(root, 'bin/sid', 'skills', 'update') unless @options[:no_skills]
+        run_sid!(root, context, 'skills', 'update') unless @options[:no_skills]
 
         instructions(context, bundled: true)
       end
 
       private
+
+      # The app's own bin/sid, which runs with the app's gems — so it needs a
+      # Sidereal that has the command line. Until the gem is released that
+      # means a checkout, and the bare LoadError from the binstub says nothing
+      # about why.
+      def run_sid!(root, context, *command)
+        run_in!(root, 'bin/sid', *command)
+      rescue Error => e
+        raise e if context.sidereal_path
+
+        raise Error, "#{e.message}\n\n" \
+                     "bin/sid runs with the app's gems, and its Gemfile takes Sidereal from " \
+                     "#{SIDEREAL_GITHUB} on GitHub. If that version has no bin/sid yet, generate " \
+                     'the app against a local checkout instead: --sidereal-path <path>.'
+      end
 
       def load_boot_in_spec_helper(root)
         path = File.join(root, 'spec', 'spec_helper.rb')
