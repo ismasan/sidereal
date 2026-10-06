@@ -762,6 +762,7 @@ bin/sid --help
 | `bin/sid sourced migration` | Writes the migration for Sourced's tables |
 | `bin/sid sourced topology` | Shows how the app's commands, events and read models connect |
 | `bin/sid system graph` | Prints the app's components and how they depend on each other |
+| `bin/sid system tree` | Prints the app's components as a tree, and who implemented each |
 | `bin/sid console` | Starts an IRB session with the app loaded |
 
 `NAME` is a command's class name (`Greetings::SayHello`) or its type (`my_app.greetings.say_hello`).
@@ -906,6 +907,26 @@ bin/sid system graph --mermaid > graph.mmd
 ```
 
 Edges point from each dependency to its dependents, nodes are shaped by mode and styled by status, and a configuration problem goes to stderr so the redirect stays clean.
+
+`bin/sid system tree` answers a different question — not what depends on what, but how the components **nest**, which are mounted, and who implemented each:
+
+```
+Sidereal.config  37 components, built
+
+(root)
+├── sidereal [mounted]
+│   ├── elector Interface[start, on_promote, on_demote, lea… (singleton, built) implemented by (root)
+│   ├── store Interface[append] (alias, built) implemented by (root)
+│   ├── workers
+│   │   └── count Integer[0..] (singleton, built)
+│   └── dispatcher Interface[start, stop] (singleton, built, deferred)
+├── db Sequel::Database (singleton, built)
+│   └── filepath Sidereal::Types::String (singleton, built)
+└── sourced [mounted]
+    └── db Sequel::Database (alias, built) implemented by (root)
+```
+
+`[mounted]` marks a library's own tree — Sourced's, under `sourced` — and *implemented by* marks a component the app implemented over the library that declared it, which is how `use` wires the two together. It takes `--mermaid` too, as a top-down flowchart.
 
 ### Listing commands
 
