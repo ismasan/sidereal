@@ -1,7 +1,13 @@
 # frozen_string_literal: true
 
 require_relative 'boot'
+require_relative 'messages'
 require 'yaml'
+
+# Tasks read components, which are built when a process starts. Building
+# doesn't start anything (no pubsub, no workers), but it compiles the store's
+# codec, so every message type the tasks append must be loaded by now.
+Sidereal.config.build!
 
 FIXTURES_PATH = ENV.fetch('FIXTURES', 'config/fixtures.yml')
 
@@ -11,6 +17,7 @@ namespace :db do
   # server first — a running host would carry on from whatever it has claimed.
   desc 'Wipe the Sourced store and the chat message log'
   task :reset do
+    Sourced.store.setup!
     Sourced.store.clear!
     File.delete(MESSAGES_FILE) if File.exist?(MESSAGES_FILE)
     puts "Store cleared (#{DB_PATH}) and #{MESSAGES_FILE} deleted."
@@ -23,12 +30,8 @@ namespace :db do
   # Override the file with FIXTURES=path/to/other.yml
   desc "Dispatch the conversation in #{FIXTURES_PATH} as chat messages"
   task :seed do
-    require_relative 'messages'
-    # Once per process, after the message types above are loaded: opens the
-    # store and compiles its codec against every type (boot.rb compiled it
-    # before messages.rb existed to it).
-    Sourced.setup!
-    Sourced.store.message_codec.recompile!
+    # Creates the store's tables if needed: the server does on start.
+    Sourced.store.setup!
 
     entries = YAML.load_file(FIXTURES_PATH)
 

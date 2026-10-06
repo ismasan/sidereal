@@ -3,81 +3,83 @@
 require 'spec_helper'
 
 # Unit coverage for the boot-orchestration layer. {Sidereal::Host} is the
-# thing {Sidereal::Falcon::Environment::Service} drives at startup: it locks
-# the channels/exceptions registries, then starts elector → pubsub →
-# dispatcher → scheduler, and on shutdown stops the *running* dispatcher
-# instance it captured from +dispatcher.start+.
+# thing {Sidereal::Falcon::Environment::Service} drives at startup: it starts
+# Sidereal.config, whose components lock the channels/exceptions registries,
+# then start elector → pubsub → dispatcher → scheduler, and on shutdown it
+# stops the dispatcher before tearing the rest down.
 #
-# Collaborators are injected as fakes that record their lifecycle calls into
-# a shared +events+ log, so ordering and the start/stop wiring can be asserted
-# directly. The channels/exceptions registries are the real objects — we
-# assert their public +#locked?+ predicate rather than spying, which also
-# catches "locked the wrong registry" bugs.
+# Sidereal's components are implemented with fakes that record their lifecycle
+# calls into a shared +events+ log, so ordering can be asserted directly. The
+# channels/exceptions registries are the real objects — we assert their public
+# +#locked?+ predicate rather than spying.
 RSpec.describe Sidereal::Host do
-  # Opaque sentinel — Host only threads it through to each subsystem's #start.
+  # Opaque sentinel — Host only threads it through to each component's start.
   let(:task) { Object.new }
 
-  # Ordered log of lifecycle calls across all fake collaborators.
+  # Ordered log of lifecycle calls across all fakes.
   let(:events) { [] }
 
-  # Real registries: start unlocked, expose #locked?.
-  let(:channels) { Sidereal::Channels.with_system_defaults }
-  let(:exceptions) { Sidereal::Exceptions.new }
+  let(:config) { Sidereal.config }
 
-  # Fake startable subsystem (mirrors elector/pubsub/scheduler): records
-  # #start(task) and returns self, like the real singletons do.
-  def fake_startable(label)
+  # Fake startable component (mirrors elector/pubsub/scheduler): records
+  # #start(task) and returns self, like the real ones do.
+  def fake_startable(label, **methods)
     log = events
     Class.new do
       define_method(:start) do |t|
         log << [label, :start, t]
         self
       end
+      methods.each { |name, value| define_method(name) { |*| value } }
     end.new
   end
 
-  let(:elector)   { fake_startable(:elector) }
-  let(:pubsub)    { fake_startable(:pubsub) }
-  let(:scheduler) { fake_startable(:scheduler) }
-
-  # The running dispatcher instance — the object #start hands back and the
-  # only thing Host#stop should ever stop.
-  let(:running_dispatcher) do
-    log = events
-    Class.new do
-      define_method(:stop) { log << [:running_dispatcher, :stop] }
-    end.new
-  end
-
-  # The `dispatcher` field is a *factory* (the real one is the Dispatcher
-  # class) whose #start returns a distinct running instance. It also snapshots
-  # the registries' lock-state at the moment it is started, so we can assert
-  # both registries are already locked before the dispatcher begins consuming.
+  # A dispatcher that snapshots the registries' lock-state when it starts, so
+  # we can assert both registries are locked before it begins consuming.
   let(:dispatcher) do
     log = events
-    running = running_dispatcher
-    chans = channels
-    excs = exceptions
     Class.new do
       define_method(:start) do |t|
         log << [:dispatcher, :start, t,
-                { channels_locked: chans.locked?, exceptions_locked: excs.locked? }]
-        running
+                { channels_locked: Sidereal.channels.locked?, exceptions_locked: Sidereal.exceptions.locked? }]
+        self
       end
+      define_method(:stop) { log << %i[dispatcher stop] }
     end.new
   end
 
-  subject(:host) do
-    Sidereal::Host.new(
-      channels:, exceptions:, elector:, pubsub:, dispatcher:, scheduler:
-    )
+  before do
+    elector = Sidereal::Elector::AlwaysLeader.new
+    log = events
+    config.component!('sidereal.elector') do
+      build { elector }
+      start { |_, t| log << [:elector, :start, t] }
+    end
+    pubsub = fake_startable(:pubsub, subscribe: nil, publish: nil)
+    config.component!('sidereal.pubsub', ['sidereal.elector']) do
+      build { |_| pubsub }
+      start { |p, t| p.start(t) }
+    end
+    dispatcher = self.dispatcher
+    config.component!('sidereal.dispatcher') do
+      build { dispatcher }
+      start { |d, t| d.start(t) }
+      stop(&:stop)
+    end
+    scheduler = fake_startable(:scheduler)
+    config.component!('sidereal.scheduler', ['sidereal.runner']) do
+      build { |_| scheduler }
+      start { |s, t| s.start(t) }
+    end
   end
+
+  subject(:host) { described_class.new(config:) }
 
   describe '#start' do
     it 'locks both the channels and exceptions registries' do
       expect { host.start(task) }
-        .to change(channels, :locked?).from(false).to(true)
-        .and change(exceptions, :locked?).from(false).to(true)
+        .to change(Sidereal.channels, :locked?).from(false).to(true)
+        .and change(Sidereal.exceptions, :locked?).from(false).to(true)
     end
 
     it 'starts elector, pubsub, dispatcher and scheduler in order, threading the task to each' do
@@ -100,165 +102,63 @@ RSpec.describe Sidereal::Host do
     end
   end
 
-  describe 'dependencies' do
-    let(:dependencies) do
+  describe "the app's components" do
+    before do
       log = events
-      Sidereal::Dependencies.new.tap do |deps|
-        deps.register!('db') { log << [:dependency, :build] }.teardown { log << [:dependency, :teardown] }
+      config.declare('db')
+      config.component!('db') do
+        build { log << %i[db build] }
+        teardown { |_| log << %i[db teardown] }
       end
     end
 
-    subject(:host) do
-      Sidereal::Host.new(channels:, exceptions:, elector:, pubsub:, dispatcher:, scheduler:, dependencies:)
-    end
-
-    it 'builds them first, in registration order, before every subsystem' do
-      dependencies.register!('setup') { events << [:dependency, :setup] }
-
+    it 'are built before anything starts' do
       host.start(task)
 
-      expect(events.first(2)).to eq([[:dependency, :build], [:dependency, :setup]])
-      expect(events.drop(2).map(&:first)).to eq(%i[elector pubsub dispatcher scheduler])
+      expect(events.first).to eq(%i[db build])
+      expect(events.drop(1).map(&:first)).to eq(%i[elector pubsub dispatcher scheduler])
     end
 
-    it 'builds them while the registries are still open, so they can register subscribers' do
-      dependencies.register!('apm') { exceptions.on_failure { |_report| } }
+    it 'are built while the registries are still open, so they can register subscribers' do
+      config.declare('apm')
+      config.config!('apm') { Sidereal.exceptions.on_failure { |_report| } }
 
       expect { host.start(task) }.not_to raise_error
-      expect(exceptions).to be_locked
+      expect(Sidereal.exceptions).to be_locked
     end
 
-    it 'fails the boot when one raises: nothing starts' do
-      dependencies.register!('flaky') { raise 'no database' }
+    it 'fail the boot when one raises: nothing starts' do
+      config.declare('flaky')
+      config.config!('flaky') { raise 'no database' }
 
       expect { host.start(task) }.to raise_error(RuntimeError, 'no database')
-      expect(events).to eq([[:dependency, :build]])
-      expect(channels).not_to be_locked
+      expect(events.map(&:first)).not_to include(:elector, :dispatcher)
+      expect(Sidereal.channels).not_to be_locked
     end
 
-    it 'fails the boot when they do not resolve: nothing starts' do
-      dependencies.register!('sourced.store', ['missing']) { :store }
+    it 'fail the boot when they depend on undeclared components: nothing is built' do
+      config.declare('store')
+      config.config!('store', ['missing']) { |_| :store }
 
-      expect { host.start(task) }.to raise_error(Sidereal::Dependencies::UnknownDependencyError)
+      expect { host.start(task) }.to raise_error(Sourced::Component::MissingDependencyError)
       expect(events).to be_empty
-      expect(channels).not_to be_locked
     end
 
-    it 'tears them down from #stop, after the running dispatcher' do
+    it 'are torn down from #stop, after the dispatcher stops' do
       host.start(task)
       host.stop
 
-      expect(events.last(2)).to eq([[:running_dispatcher, :stop], [:dependency, :teardown]])
-    end
-  end
-
-  describe 'dispatcher_process: :leader' do
-    # Elector that starts as follower and lets the spec drive transitions
-    # through the same promote!/demote! the real electors call.
-    let(:elector) do
-      log = events
-      Class.new do
-        include Sidereal::Elector::Callbacks
-        define_method(:initialize) { @leader = false }
-        define_method(:leader?) { @leader }
-        define_method(:start) do |t|
-          log << [:elector, :start, t]
-          self
-        end
-        public :promote!, :demote!
-      end.new
-    end
-
-    subject(:host) do
-      Sidereal::Host.new(
-        channels:, exceptions:, elector:, pubsub:, dispatcher:, scheduler:,
-        dispatcher_process: :leader
-      )
-    end
-
-    def dispatcher_starts = events.count { |e| e[0] == :dispatcher && e[1] == :start }
-    def dispatcher_stops = events.count { |e| e == [:running_dispatcher, :stop] }
-
-    it 'does not start the dispatcher on a follower, and still starts the rest in order' do
-      host.start(task)
-
-      starts = events.select { |e| e[1] == :start }
-      expect(starts.map(&:first)).to eq(%i[elector pubsub scheduler])
-      expect(dispatcher_starts).to eq(0)
-    end
-
-    it 'starts the dispatcher once on promotion, with the registries already locked' do
-      host.start(task)
-      elector.promote!
-      elector.promote! # same state: the elector does not re-fire
-
-      expect(dispatcher_starts).to eq(1)
-      dispatch_start = events.find { |e| e[0] == :dispatcher && e[1] == :start }
-      expect(dispatch_start[2]).to be(task)
-      expect(dispatch_start.last).to eq(channels_locked: true, exceptions_locked: true)
-    end
-
-    it 'stops the running dispatcher on demotion and starts a fresh one on re-promotion' do
-      host.start(task)
-      elector.promote!
-      elector.demote!
-      expect(dispatcher_stops).to eq(1)
-
-      elector.promote!
-      expect(dispatcher_starts).to eq(2)
-    end
-
-    it 'stops the running dispatcher from #stop, once' do
-      host.start(task)
-      elector.promote!
-
-      host.stop
-      host.stop
-      expect(dispatcher_stops).to eq(1)
-    end
-
-    it 'stops nothing from #stop while a follower' do
-      host.start(task)
-      host.stop
-      expect(dispatcher_stops).to eq(0)
-    end
-
-    it 'behaves like :all under an elector that is leader from construction' do
-      always = Class.new do
-        include Sidereal::Elector::Callbacks
-        define_method(:initialize) { @leader = true }
-        define_method(:leader?) { @leader }
-        define_method(:start) { |_t| self }
-      end.new
-
-      leader_host = Sidereal::Host.new(
-        channels:, exceptions:, elector: always, pubsub:, dispatcher:, scheduler:,
-        dispatcher_process: :leader
-      )
-      leader_host.start(task)
-
-      starts = events.select { |e| e[1] == :start }
-      expect(starts.map(&:first)).to eq(%i[pubsub dispatcher scheduler])
-    end
-
-    it 'rejects an unknown mode at construction' do
-      expect do
-        Sidereal::Host.new(
-          channels:, exceptions:, elector:, pubsub:, dispatcher:, scheduler:,
-          dispatcher_process: :some
-        )
-      end.to raise_error(Plumb::ParseError)
+      expect(events.index(%i[dispatcher stop])).to be < events.index(%i[db teardown])
     end
   end
 
   describe '#stop' do
-    it 'stops the running dispatcher instance returned by #start (not the factory or scheduler)' do
+    it 'stops the dispatcher once' do
       host.start(task)
+      host.stop
+      host.stop
 
-      # The scheduler/dispatcher-factory fakes don't define #stop, so a
-      # mis-wired capture (stopping the scheduler, or the class) would raise.
-      expect { host.stop }.not_to raise_error
-      expect(events).to include([:running_dispatcher, :stop])
+      expect(events.count(%i[dispatcher stop])).to eq(1)
     end
 
     it 'is a safe no-op when #start was never called' do

@@ -9,8 +9,8 @@ module Sidereal
   # reaches subscribers connected to another, and every process believes it is
   # the leader.
   #
-  # {Sidereal.warn_unsafe_topology} uses this marker to warn loudly at startup
-  # when any such subsystem is configured alongside a multi-process deployment.
+  # {Sidereal.check_topology!} uses this marker to refuse to boot when any such
+  # subsystem is configured alongside a multi-process deployment.
   # Cross-process-safe implementations (the Unix-socket pubsub, the FileSystem
   # elector/store, a DB-backed Sourced store) deliberately do NOT include it.
   module SingleProcess

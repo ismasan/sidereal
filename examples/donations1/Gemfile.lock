@@ -9,6 +9,7 @@ PATH
       plumb (~> 0.4)
       rack (~> 3)
       rack-session
+      sourced-component (~> 0.1)
       sourced-message (>= 0.4.0)
       tsort
 
@@ -138,6 +139,10 @@ GEM
     samovar (2.4.1)
       console (~> 1.0)
       mapping (~> 1.0)
+    sourced-component (0.1.0)
+      plumb (~> 0.4)
+      sourced-message
+      tsort (~> 0.2)
     sourced-message (0.4.0)
       fugit
       plumb (>= 0.4)
@@ -193,7 +198,7 @@ CHECKSUMS
   metrics (0.15.0) sha256=61ded5bac95118e995b1bc9ed4a5f19bc9814928a312a85b200abbdac9039072
   openssl (4.0.1) sha256=e27974136b7b02894a1bce46c5397ee889afafe704a839446b54dc81cb9c5f7d
   phlex (2.4.1) sha256=e596717fbfe38b5271840266758779ebe75092e02629f0c170287e6290a70b12
-  plumb (0.4.0)
+  plumb (0.4.0) sha256=10c256a6f98363fd535ebe812123f3555e0a557035435f3b9b43cd5fb3d87f72
   pp (0.6.3) sha256=2951d514450b93ccfeb1df7d021cae0da16e0a7f95ee1e2273719669d0ab9df6
   prettyprint (0.2.0) sha256=2bc9e15581a94742064a3cc8b0fb9d45aae3d03a1baa6ef80922627a0766f193
   prism (1.9.0) sha256=7b530c6a9f92c24300014919c9dcbc055bf4cdf51ec30aed099b06cd6674ef85
@@ -213,7 +218,8 @@ CHECKSUMS
   reline (0.6.3) sha256=1198b04973565b36ec0f11542ab3f5cfeeec34823f4e54cebde90968092b1835
   samovar (2.4.1) sha256=c3b91dd0580771e3bc600621c1111f29542529dcffafaac3b6bf068b3f309e80
   sidereal (0.1.0)
-  sourced-message (0.4.0)
+  sourced-component (0.1.0) sha256=c3cf9c1add21c900b52549be9a71034eb926e90369c002932fa1c3e6afdc5e8d
+  sourced-message (0.4.0) sha256=39d44d647b36253ebf8a2cdb6232c3b8e402f400982a7f9ed2af5aba423b9831
   string-format (0.2.0) sha256=bc981c14116b061f12134549f32fa2d61a17b5a35dd6fd36596c21722a789af6
   stringio (3.2.0) sha256=c37cb2e58b4ffbd33fe5cd948c05934af997b36e0b6ca6fdf43afa234cf222e1
   traces (0.18.2) sha256=80f1649cb4daace1d7174b81f3b3b7427af0b93047759ba349960cb8f315e214

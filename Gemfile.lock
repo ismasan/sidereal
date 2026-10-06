@@ -8,13 +8,14 @@ GIT
 
 GIT
   remote: https://github.com/ismasan/sourced.git
-  revision: 2e12d5cc932e809155771d9b6ddb97d1fdd20e0e
+  revision: c62daf95438f0b295b342095c32b8f06c8fea798
   branch: ccc
   specs:
     sourced (0.0.1)
       async
       plumb (= 0.4.0)
       sequel
+      sourced-component (~> 0.1)
       sourced-message (>= 0.4)
       sqlite3
 
@@ -29,6 +30,7 @@ PATH
       plumb (~> 0.4)
       rack (~> 3)
       rack-session
+      sourced-component (~> 0.1)
       sourced-message (>= 0.4.0)
       tsort
 
@@ -182,6 +184,10 @@ GEM
       console (~> 1.0)
     sequel (5.108.0)
       bigdecimal
+    sourced-component (0.1.0)
+      plumb (~> 0.4)
+      sourced-message
+      tsort (~> 0.2)
     sourced-message (0.4.0)
       fugit
       plumb (>= 0.4)
@@ -276,6 +282,7 @@ CHECKSUMS
   sequel (5.108.0) sha256=ae5996d1196775427916a2fa36e02f99762ead9affb8ea9b1aec2c0b16bdb3a3
   sidereal (0.1.0)
   sourced (0.0.1)
+  sourced-component (0.1.0) sha256=c3cf9c1add21c900b52549be9a71034eb926e90369c002932fa1c3e6afdc5e8d
   sourced-message (0.4.0) sha256=39d44d647b36253ebf8a2cdb6232c3b8e402f400982a7f9ed2af5aba423b9831
   sqlite3 (2.9.6-arm64-darwin) sha256=849b5d7f795e60fe25076d62c72dd722beb45b3850b516ad978d60ee848ec15b
   sqlite3 (2.9.6-x86_64-linux-gnu) sha256=613188ce02f614126ddbc38c5e217ccffd6306d0dcd9adca9764547aa890a634

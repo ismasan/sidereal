@@ -8,20 +8,19 @@
 # (default ./storage, relative to the working directory — i.e. the app root when
 # launched with `falcon host` from there).
 #
-# Applied via Sidereal's integration hook (or the {Sidereal::Configuration#use_file_system!}
-# shorthand, which requires this file and delegates here):
+# Applied with {Sidereal::Config::Root#use} (or the
+# {Sidereal::Config::Root#use_file_system!} shorthand, which requires this file
+# and delegates here):
 #
-#   Sidereal.configure do |c|
-#     c.use Sidereal::Integrations::FileSystem            # dir: 'storage'
-#     c.use Sidereal::Integrations::FileSystem, dir: 'tmp'
-#   end
+#   Sidereal.config.use Sidereal::Integrations::FileSystem             # dir: 'storage'
+#   Sidereal.config.use Sidereal::Integrations::FileSystem, dir: 'tmp'
 #
-# Each is registered in {Sidereal::Configuration#dependencies} and built when
-# first resolved (at the latest by {Sidereal::Host#start}), so override any
-# individual collaborator afterward:
+# It implements +sidereal.store+, +sidereal.elector+ and +sidereal.pubsub+,
+# each built when the process starts, so re-implement any of them afterwards
+# to keep the others:
 #
-#   c.use_file_system!
-#   c.store = Sourced.config.store   # keep the filesystem pubsub + elector
+#   Sidereal.config.use_file_system!
+#   Sidereal.config.use Sidereal::Integrations::Sourced, db: 'db' # Sourced's store
 
 require 'sidereal/store/file_system'
 require 'sidereal/pubsub/unix'
@@ -30,24 +29,24 @@ require 'sidereal/elector/file_system'
 module Sidereal
   module Integrations
     # Backend integration wiring Sidereal's store + pubsub + elector to the
-    # filesystem / unix-socket implementations. Called by
-    # {Sidereal::Configuration#use}.
+    # filesystem / unix-socket implementations. Called by {Sidereal::Config::Root#use}.
     module FileSystem
-      # @param config [Sidereal::Configuration]
+      # @param config [Sourced::Component] the app's root, see {Sidereal.config}
       # @param dir [String] base directory for store files, socket, and lock
-      # @return [Sidereal::Configuration]
+      # @return [Sourced::Component]
       def self.setup(config, dir: 'storage')
-        deps = config.dependencies
-        deps.register!('sidereal.store', override: true) do
+        config.config!('sidereal.store') do
           Store::FileSystem.new(root: File.join(dir, 'store'))
         end
-        deps.register!('sidereal.elector', override: true) do
-          Elector::FileSystem.new(lock_path: File.join(dir, 'leader.lock'))
+        config.component!('sidereal.elector') do
+          build { Elector::FileSystem.new(lock_path: File.join(dir, 'leader.lock')) }
+          start { |elector, task| elector.start(task) }
         end
-        # The broker role follows whichever elector is registered when the
-        # pubsub is built, including one that replaces this one.
-        deps.register!('sidereal.pubsub', ['sidereal.elector'], override: true) do |elector|
-          PubSub::Unix.new(socket_path: File.join(dir, 'pubsub.sock'), elector:)
+        # The broker role follows whichever elector implements sidereal.elector
+        # when the pubsub is built, including one that replaces this one.
+        config.component!('sidereal.pubsub', ['sidereal.elector']) do
+          build { |elector| PubSub::Unix.new(socket_path: File.join(dir, 'pubsub.sock'), elector:) }
+          start { |pubsub, task| pubsub.start(task) }
         end
         config
       end

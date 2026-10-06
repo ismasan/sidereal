@@ -1,19 +1,14 @@
 # frozen_string_literal: true
 
 require 'sidereal'
-require 'sidereal/store/file_system'
-require 'sidereal/pubsub/unix'
-require 'sidereal/elector/file_system'
 require 'pstore'
 require 'securerandom'
 # Teaches both codecs the Money type, before any message declares one.
 require_relative 'money'
 
-Sidereal.configure do |c|
-  c.elector = Sidereal::Elector::FileSystem.new(lock_path: 'storage/sidereal-leader.lock')
-  c.store = Sidereal::Store::FileSystem.new(root: 'storage/store')
-  c.pubsub = Sidereal::PubSub::Unix.new(socket_path: 'storage/sidereal-pubsub.sock')
-end
+# The filesystem store, unix-socket pubsub and file-lock elector, under
+# ./storage, so the app can run more than one worker process.
+Sidereal.config.use_file_system!
 
 # -- Messages --
 

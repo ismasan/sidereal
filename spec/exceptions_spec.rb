@@ -189,8 +189,9 @@ RSpec.describe Sidereal::Exceptions do
     # registries and config runs inside every `around`, so anything installed
     # there would be dropped before the example ran.
     before do
-      Sidereal.config.pubsub = pubsub
+      Sidereal.config.config!('sidereal.pubsub') { pubsub }
       Sidereal.channels = channels
+      Sidereal.config.build!
     end
 
     def collect_published(channel_name)

@@ -4,45 +4,57 @@ require 'spec_helper'
 
 RSpec.describe Sidereal::Deps do
   before do
-    Sidereal.dependencies.register!('store') { :store }
-    Sidereal.dependencies.register!('sourced.store') { :sourced_store }
+    Sidereal.config.declare('db') { :db }
+    Sidereal.config.config!('sidereal.store') { double('store', append: nil) }
   end
 
   let(:klass) { Class.new { extend Sidereal::Deps } }
 
-  it 'injects a dependency as a keyword argument with a reader' do
-    klass.dep :store
+  it 'injects a component as a keyword argument with a reader, read when instantiated' do
+    klass.dep :db
+    Sidereal.config.build!
 
-    expect(klass.new.store).to eq(:store)
-    expect(klass.new(store: :other).store).to eq(:other)
+    expect(klass.new.db).to eq(:db)
+    expect(klass.new(db: :other).db).to eq(:other)
   end
 
-  it 'aliases with a hash' do
-    klass.dep 'sourced.store' => 'st'
+  it 'reads keys relative to Sidereal.config, and aliases with a hash' do
+    klass.dep 'sidereal.store' => 'commands'
+    Sidereal.config.build!
 
-    expect(klass.new.st).to eq(:sourced_store)
+    expect(klass.new.commands).to be(Sidereal.store)
   end
 
   it 'takes several at once, and adds up across calls' do
-    klass.dep :store
-    klass.dep 'sourced.store' => 'st'
+    klass.dep :db
+    klass.dep 'sidereal.store' => 'commands'
+    Sidereal.config.build!
 
     instance = klass.new
-    expect([instance.store, instance.st]).to eq(%i[store sourced_store])
+    expect([instance.db, instance.commands]).to eq([:db, Sidereal.store])
   end
 
-  it 'is the same as including the module Sidereal.dependencies.args returns' do
-    klass.dep :store, 'sourced.store' => 'st'
+  it 'is the same as including the module Sidereal.config.inject returns' do
+    klass.dep :db, 'sidereal.store' => 'commands'
 
-    injection = klass.ancestors.find { |mod| mod.is_a?(Sidereal::Dependencies::Injection) }
-    expect(injection.names).to eq(store: 'store', st: 'sourced.store')
+    injector = klass.ancestors.find { |mod| mod.is_a?(Sourced::Component::Injector) }
+    expect(injector.names).to eq('db' => :db, 'sidereal.store' => :commands)
   end
 
-  it 'records what the class injects, so build! checks it' do
-    klass.dep :missing
+  it 'raises on undeclared components' do
+    expect { klass.dep :missing }.to raise_error(Sourced::Component::UndeclaredComponentError, /missing/)
+  end
 
-    expect { Sidereal.dependencies.build! }
-      .to raise_error(Sidereal::Dependencies::UnknownDependencyError, /injects 'missing'/)
+  it 'raises when instantiated before Sidereal.config is built' do
+    klass.dep :db
+
+    expect { klass.new }.to raise_error(Sourced::Component::NotBuiltError)
+  end
+
+  it "refuses to replace the class's own methods: alias instead" do
+    klass.define_method(:db) { :own }
+
+    expect { klass.dep :db }.to raise_error(Sourced::Component::InjectionError, /already defines #db/)
   end
 
   describe 'on a Sidereal::Commander' do
@@ -52,12 +64,13 @@ RSpec.describe Sidereal::Deps do
       end
     end
 
-    it "makes the dependency available in the commander's handlers" do
+    it "makes the component available in the commander's handlers" do
       saved = []
-      Sidereal.dependencies.register!('todos') { saved }
+      Sidereal.config.declare('todos') { saved }
       commander = Class.new(Sidereal::Commander)
       commander.dep :todos
       commander.command(add_todo) { |cmd| todos << cmd.payload.title }
+      Sidereal.config.build!
 
       commander.handle(add_todo.new(payload: { title: 'Buy milk' }), pubsub: Sidereal::PubSub::Memory.new)
 
@@ -65,9 +78,10 @@ RSpec.describe Sidereal::Deps do
     end
 
     it 'is inherited by subclasses' do
-      parent = Class.new(Sidereal::Commander) { dep :store }
+      parent = Class.new(Sidereal::Commander) { dep :db }
+      Sidereal.config.build!
 
-      expect(Class.new(parent).new(pubsub: nil).store).to eq(:store)
+      expect(Class.new(parent).new(pubsub: nil).db).to eq(:db)
     end
   end
 end

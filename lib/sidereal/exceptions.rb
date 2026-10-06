@@ -55,16 +55,7 @@ module Sidereal
     # Apps that want a clean slate just call {Exceptions.new}.
     #
     # @return [Exceptions]
-    def self.with_default_publisher
-      new.tap do |e|
-        publisher = ->(report) {
-          notify = build_notification(report)
-          Sidereal.pubsub.publish(Sidereal.channels.for(report.message), notify)
-        }
-        e.on_retry(&publisher)
-        e.on_failure(&publisher)
-      end
-    end
+    def self.with_default_publisher = new.restore_defaults!
 
     # Translate an {ExceptionReport} into a concrete
     # {Sidereal::System::Notify*} message ready to publish.
@@ -195,6 +186,21 @@ module Sidereal
       @subs = { retry: [], failure: [], fatal: [] }
       @locked = false
       self
+    end
+
+    # Clear all subscribers and unlock, then install the default publisher
+    # pair again (see {.with_default_publisher}). {Sidereal.reload!} resets
+    # the process-global registry with it, in place, so the
+    # +sidereal.exceptions+ component keeps holding the same object.
+    # @return [self]
+    def restore_defaults!
+      reset!
+      publisher = lambda do |report|
+        notify = self.class.build_notification(report)
+        Sidereal.pubsub.publish(Sidereal.channels.for(report.message), notify)
+      end
+      on_retry(&publisher)
+      on_failure(&publisher)
     end
 
     private

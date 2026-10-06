@@ -5,9 +5,9 @@ require 'spec_helper'
 RSpec.describe GamesProjector do
   include Sourced::Testing::RSpec
 
-  # The in-memory database config/dependencies/db.rb registers in TEST, which
-  # the projector's injected db: defaults to. Recreated per example.
-  let(:test_db) { Sidereal.dependencies['db'] }
+  # The in-memory database config/components/db.rb builds in TEST, which the
+  # projector's injected db: defaults to. Its table is recreated per example.
+  let(:test_db) { Sidereal.config['db'] }
 
   before do
     test_db.create_table!(:games) do

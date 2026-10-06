@@ -4,6 +4,10 @@ require_relative 'boot'
 require 'sequel/core'
 Sequel.extension :migration
 
+# Tasks read components, which are built when a process starts. Building
+# doesn't start anything: no pubsub, no workers.
+Sidereal.config.build!
+
 namespace :db do
   desc 'Run database migrations'
   task :migrate do
@@ -21,6 +25,7 @@ namespace :db do
 
   desc 'Wipe all events from the Sourced store and all projection rows'
   task :reset do
+    Sourced.store.setup!
     Sourced.store.clear!
     Sourced.store.db[:campaigns].delete
     puts 'All events and projections deleted.'

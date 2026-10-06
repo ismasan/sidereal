@@ -372,7 +372,7 @@ RSpec.describe Sidereal::Scheduler do
 
   describe 'fiber lifecycle' do
     it 'fires at least once when started under a real Async task with a fast tick interval' do
-      sched = described_class.new(tick_interval: 0.05, store: store)
+      sched = described_class.new(tick_interval: 0.05, store: store, elector: Sidereal::Elector::AlwaysLeader.new)
       sched.schedule 'Tick' do |sc|
         sc.at '* * * * * *', TestSchedRun, n: 1
       end
