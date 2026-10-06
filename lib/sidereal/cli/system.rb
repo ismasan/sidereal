@@ -65,8 +65,8 @@ module Sidereal
           STATUS_STYLES.fetch(status, :reset)
         end
 
-        def truncate(text)
-          text.length > TYPE_WIDTH ? "#{text[0, TYPE_WIDTH - 1]}…" : text
+        def truncate(text, width = TYPE_WIDTH)
+          text.length > width ? "#{text[0, width - 1]}…" : text
         end
 
         def print_title(count, status)
@@ -118,54 +118,113 @@ module Sidereal
 
           define_styles!
           print_title(graph.components.size, graph.status)
-          # Both columns size to the data, so a small app doesn't get a wide,
-          # mostly-blank table.
-          keys = column_width(graph) { |node| node[:key] }
-          types = column_width(graph) { |node| truncate(node[:type_name]) }
-          graph.components.each { |node| print_component(node, keys, types) }
+          print_table(graph)
           print_missing(graph)
           print_problem(problem)
         end
 
         private
 
-        def print_component(node, keys, types)
-          flags = flags(node)
-          type = truncate(node[:type_name])
-          # Only pad when something follows, so a row without flags doesn't end
-          # in a run of spaces.
-          type = type.ljust(types) if flags.any?
-          terminal.print_line(
-            status_style(node[:implemented], node[:status]), node[:key].ljust(keys),
-            :type, "  #{type}", *flags
-          )
-          print_edges(node)
+        GUTTER = '  '
+        # Enough for a key or two even on a narrow terminal.
+        MIN_EDGE_WIDTH = 20
+        # Below this a type name says nothing, so stop giving its room away.
+        MIN_TYPE_WIDTH = 16
+
+        # Aligned columns under a bold header, with the edges wrapped into the
+        # last one rather than trailing off the line or spilling onto an
+        # indented one of their own. Not {Commands.print_table}, which the other
+        # listings share: it can't wrap, and widening it for one caller seemed
+        # worse than keeping the wrapping here.
+        def print_table(graph)
+          headers = ['Component', 'Type', 'State', @options[:dependents] ? 'Used by' : 'Needs']
+          rows = graph.components.map { |node| row_for(node) }
+          widths = (0..2).map { |i| [headers[i].length, *rows.map { |row| row[i].first.length }].max }
+          widths[1], edge_width = share_width(widths)
+          rows.each { |row| row[1][0] = truncate(row[1].first, widths[1]) }
+
+          terminal.print_line(:title, header_line(headers, widths))
+          rows.each { |row| print_row(row, widths, edge_width) }
         end
 
-        # The widest value in a column, so it sizes to the data.
-        def column_width(graph)
-          graph.components.map { |node| yield(node).length }.max.to_i
+        # A key names the component, so it is never shortened; the type gives
+        # up room instead, down to a floor, so the edges keep a column to wrap
+        # into on a narrower terminal.
+        #
+        # @return [Array(Integer, Integer)] the type and edge widths
+        def share_width(widths)
+          fixed = widths[0] + widths[2] + (GUTTER.length * 3) + 1
+          spare = terminal.width - fixed - widths[1]
+          return [widths[1], spare] if spare >= MIN_EDGE_WIDTH
+
+          type = [widths[1] + spare - MIN_EDGE_WIDTH, MIN_TYPE_WIDTH].max
+          [type, [terminal.width - fixed - type, MIN_EDGE_WIDTH].max]
         end
 
-        # Unimplemented is the one that stops a boot, so it is the one that
-        # shouts. The rest are shape, not trouble.
-        def flags(node)
-          parts = []
-          parts += [:bad, ' unimplemented'] unless node[:implemented]
-          parts += [:mode, " #{node[:mode]}"] if node[:mode] && node[:mode] != :singleton
-          parts += [:flag, ' deferred'] if node[:deferred]
-          parts
+        def header_line(headers, widths)
+          (headers.take(3).each_with_index.map { |text, i| text.ljust(widths[i]) } + [headers.last]).join(GUTTER)
         end
 
-        def print_edges(node)
-          keys = @options[:dependents] ? node[:dependents] : node[:deps]
-          return if keys.empty?
+        def row_for(node)
+          [
+            [node[:key], status_style(node[:implemented], node[:status])],
+            [truncate(node[:type_name]), :type],
+            [state_of(node), state_style(node)],
+            @options[:dependents] ? node[:dependents] : node[:deps],
+            node[:missing] || []
+          ]
+        end
 
-          label = @options[:dependents] ? 'used by' : 'needs  '
-          missing = node[:missing] || []
-          terminal.print_line :muted, "  #{label}  ", *keys.flat_map.with_index { |key, i|
+        # One cell rather than a column each: the extra words are rare, and a
+        # column per flag would be mostly empty.
+        def state_of(node)
+          return 'not implemented' unless node[:implemented]
+
+          parts = [node[:status].to_s]
+          parts << node[:mode].to_s if node[:mode] && node[:mode] != :singleton
+          parts << 'deferred' if node[:deferred]
+          parts.join(', ')
+        end
+
+        def state_style(node)
+          return :bad unless node[:implemented]
+          return :flag if node[:deferred]
+
+          :muted
+        end
+
+        def print_row(row, widths, edge_width)
+          keys, missing = row[3], row[4]
+          lines = wrap(keys, edge_width)
+          # The last column is only padded when something follows it, so a row
+          # without edges doesn't end in a run of spaces.
+          cells = (0..2).flat_map do |i|
+            last = i == 2 && lines.empty?
+            [row[i].last, last ? row[i].first : row[i].first.ljust(widths[i]), :reset, last ? '' : GUTTER]
+          end
+
+          terminal.print_line(*cells, *edge_cells(lines.first || [], missing))
+          indent = ' ' * (widths.sum + (GUTTER.length * 3))
+          lines.drop(1).each { |line| terminal.print_line(:reset, indent, *edge_cells(line, missing)) }
+        end
+
+        def edge_cells(keys, missing)
+          keys.flat_map.with_index do |key, i|
             [missing.include?(key) ? :bad : :reset, i.zero? ? key : ", #{key}"]
-          }
+          end
+        end
+
+        # Greedy wrap of the key list, so a long one reads down the column
+        # instead of off the edge of the terminal.
+        def wrap(keys, width)
+          keys.each_with_object([]) do |key, lines|
+            piece = lines.last && !lines.last.empty? ? ", #{key}" : key
+            if lines.empty? || lines.last.sum { |k| k.length + 2 } - 2 + piece.length > width
+              lines << [key]
+            else
+              lines.last << key
+            end
+          end
         end
 
         def print_missing(graph)
