@@ -440,6 +440,10 @@ module Sidereal
             MIN_TYPE_WIDTH = 24
 
             def call
+              # Guards the tail loop as much as the listing: a limit of zero
+              # makes every batch both empty and "full", and it would spin.
+              raise Sidereal::CLI::Error, '--limit must be at least 1' if @options[:limit] < 1
+
               Sidereal::CLI.boot_app!
               store = Sidereal.config['sourced.store']
 
@@ -470,7 +474,11 @@ module Sidereal
                   output.flush
                   cursor = messages.last.position + 1
                 end
-                sleep INTERVAL
+
+                # A full batch is one the limit truncated, so there is already
+                # more behind it: go straight back for it rather than
+                # trickling a page a second until the backlog clears.
+                sleep INTERVAL if messages.size < @options[:limit]
               end
             rescue Interrupt
               # Ctrl-C out of a tail is how it ends, not a crash.
