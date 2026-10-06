@@ -17,6 +17,10 @@ require 'sqlite3'
 #
 #   Sidereal.config.config!('db.filepath') { ENV.fetch('DATABASE_FILE') }
 #
+# Or source the value from the ENV with a one-liner:
+# 
+#   Sidereal.config.env('DATABASE_FILE' => 'db.filepath')
+#
 # Or to use another database entirely, re-implement `db` and ignore the path:
 #
 #   Sidereal.config.component!('db') do
