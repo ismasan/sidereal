@@ -247,6 +247,49 @@ RSpec.describe Sidereal::CLI::New do
       expect(out).to include('console', 'Start an IRB session with the app loaded')
     end
 
+    it "lists an integration's commands, which it registers when the app configures it" do
+      out, status = bin_sid(generate('app', '--sourced'), '--help')
+
+      expect(status).to be_success, out
+      expect(out).to include('sourced', "Inspect the app's Sourced setup")
+    end
+
+    # Loading the app lets its integrations register commands and skills;
+    # building it, which opens connections, is left to the commands that need
+    # component values. So usage connects to nothing.
+    it 'loads the app without building it, so --help opens no database' do
+      root = generate('app', '--sourced')
+      FileUtils.rm_f(Dir[File.join(root, 'storage/*')])
+
+      out, status = bin_sid(root, '--help')
+
+      expect(status).to be_success, out
+      expect(Dir[File.join(root, 'storage/*')]).to be_empty
+    end
+
+    describe 'an app that fails to load' do
+      it 'still prints usage, and says why' do
+        root = generate
+        File.write(File.join(root, 'boot.rb'), "raise 'boom'\n", mode: 'a')
+
+        out, status = bin_sid(root, '--help')
+
+        expect(status).to be_success, out
+        expect(out).to include('failed to load', 'boom')
+        expect(out).to include('[-h/--help]')
+      end
+
+      it 'fails loudly for a command that needs the app' do
+        root = generate
+        File.write(File.join(root, 'boot.rb'), "raise 'boom'\n", mode: 'a')
+
+        out, status = bin_sid(root, 'commands', 'list')
+
+        expect(status).not_to be_success
+        expect(out).to include('boom')
+      end
+    end
+
     it 'starts a console with the app loaded, from any directory' do
       root = generate
 
