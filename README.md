@@ -755,6 +755,33 @@ bin/sid --help
 
 `NAME` is a command's class name (`Greetings::SayHello`) or its type (`my_app.greetings.say_hello`).
 
+`bin/sid` loads the app's `boot.rb` before it parses the command line, so integrations have registered their commands by the time a name is looked up. Loading declares and implements [components](#configuration) but builds none of them, so nothing is connected to yet — a command that needs component values builds them itself. That's why `--help` opens no database. If `boot.rb` raises, `bin/sid` says so and still prints usage, so the command line keeps working on an app that doesn't.
+
+### Extending the command line
+
+An integration adds its own commands from its `setup`, the same place it wires components (see [Custom backends](#custom-backends)). A command is a `Sidereal::CLI::Command` — a [Samovar](https://github.com/ioquatix/samovar) command — and can nest sub-commands of its own:
+
+```ruby
+# lib/my_integration.rb
+module MyIntegration
+  def self.setup(config, **opts)
+    require 'my_integration/cli'
+    Sidereal::CLI.register 'mine', MyIntegration::CLI::Namespace
+    # ... components, skills
+  end
+end
+```
+
+So a command exists exactly when the app configures the integration that provides it — the same rule as its components and its skills. Keep the file that defines the command classes light: it is loaded while the app loads, and a command should reach for the heavy parts of the integration from its own `#call`, after `Sidereal::CLI.boot_app!`.
+
+| Step | When | What it does |
+| --- | --- | --- |
+| `Sidereal::CLI.load_app(root)` | `bin/sid`, before parsing | Changes into the app root and requires `boot.rb`, so integrations' `setup` runs |
+| `Sidereal::CLI.boot_app!` | in a command's `#call` | `Sidereal.config.build!` — component values become readable. Opens connections; starts nothing |
+| `Sidereal.config.start_component!(key, Thread.current)` | in a command that needs a *started* component | Runs that component's `start` hook, and its dependencies' |
+
+An app can register commands of its own the same way, from `boot.rb` or a file under `config/components/`.
+
 ### Listing commands
 
 ```
@@ -880,13 +907,18 @@ Run it again after updating Sidereal or adding an integration:
 bin/sid skills update
 ```
 
-This loads the app, without connecting to anything, and writes the skills of Sidereal and of every integration the app requires. It rewrites those skills in `skills/` and leaves any other skills there alone.
+This writes the skills of Sidereal and of every integration the app configures. It rewrites those skills in `skills/` and leaves any other skills there alone. It connects to nothing: `bin/sid` has already loaded the app (see [Extending the command line](#extending-the-command-line)), so the skills are registered by the time the command runs.
 
-An integration registers its skills when it's required, with the path to a skill's `SKILL.md` or a directory holding it:
+An integration registers its skills from its `setup`, with the path to a skill's `SKILL.md` or a directory holding it:
 
 ```ruby
 # lib/my_integration.rb
-Sidereal.skills.add('my-integration', File.expand_path('skills/my-integration', __dir__))
+module MyIntegration
+  def self.setup(config, **opts)
+    Sidereal.skills.add('my-integration', File.expand_path('skills/my-integration', __dir__))
+    # ... components
+  end
+end
 ```
 
 ### Console
@@ -1424,7 +1456,14 @@ Sidereal.config.use_file_system!                         # FS store + unix-socke
 Sidereal.config.config!('sidereal.store') { MyStore.new } # ...but your own store
 ```
 
-**Integrations.** Backends that provide several components at once (a store and a dispatcher, plus bridging) ship as *integrations*, applied with `Sidereal.config.use(SomeIntegration, **opts)`. It calls `SomeIntegration.setup(Sidereal.config, **opts)`, which mounts and implements components. `use_file_system!` is itself one. Integrations that implement the same component replace each other's: the last one wins. See [Using Sourced as a backend](#using-sourced-as-a-backend) for the canonical example.
+**Integrations.** Backends that provide several components at once (a store and a dispatcher, plus bridging) ship as *integrations*, applied with `Sidereal.config.use(SomeIntegration, **opts)`. It calls `SomeIntegration.setup(Sidereal.config, **opts)`, which mounts and implements components. Anything that responds to `setup` qualifies, so an integration can live in any gem — Sidereal needs no knowledge of it. `use_file_system!` is itself one. Integrations that implement the same component replace each other's: the last one wins. See [Using Sourced as a backend](#using-sourced-as-a-backend) for the canonical example.
+
+`setup` is also where an integration registers the things that aren't components: its [`bin/sid` commands](#extending-the-command-line) and its [agent skills](#agent-skills). One rule covers all three — they exist exactly when the app configures the integration. `setup` runs while `boot.rb` loads, before anything is prepared or built, so it can declare and implement freely.
+
+Two later hooks exist for work that needs to see the whole loaded app, both on the component tree's notifier:
+
+- `config.notifier.subscribe('root.preparing') { ... }` fires before the dependency order is resolved and before the tree locks, so it can still declare and implement components. The Sourced integration registers Sidereal's commanders as reactors there, once every app class has loaded.
+- A component's own `prepare` hook runs after the order is resolved. It can act, but anything it *declares* then is never built — use `root.preparing` for that.
 
 ### Filesystem store
 
