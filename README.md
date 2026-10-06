@@ -761,6 +761,7 @@ bin/sid --help
 | `bin/sid sourced install` | Sets up the Sourced integration, and a database for it |
 | `bin/sid sourced migration` | Writes the migration for Sourced's tables |
 | `bin/sid sourced topology` | Shows how the app's commands, events and read models connect |
+| `bin/sid system graph` | Prints the app's components and how they depend on each other |
 | `bin/sid console` | Starts an IRB session with the app loaded |
 
 `NAME` is a command's class name (`Greetings::SayHello`) or its type (`my_app.greetings.say_hello`).
@@ -866,6 +867,45 @@ A checkout of the app gets its database the same way, since `db/migrations/` is 
 `boot.rb` says nothing about Sourced — the `require` lives in the generated component file too, so installing Sourced later works exactly like generating with it. Its order is load-bearing in two ways: `config/components/` loads **after** `Sidereal.config.use_file_system!`, because both implement `sidereal.store` and the last implementation of a key wins (the other way round a Sourced app would append its commands to files while Sourced's runtime watched its own tables); and `LOADER.eager_load` comes **after** the components, so that the `require` in `config/components/sourced.rb` has happened before Zeitwerk loads a `system/` class that subclasses `Sourced::Decider`.
 
 Once installed, `bin/sid sourced topology` describes the app — see [Sourced topology](#sourced-topology). That command comes from the integration, so it appears only once the app has configured it; `sourced install` is built in and available before that.
+
+### The component graph
+
+`bin/sid system graph` prints the [components](#configuration) the app is made of, in the order they're built and started, each with what it depends on:
+
+```
+Sidereal.config  37 components, built
+
+sidereal.elector                        Interface[start, on_promote, on_demote, lea…
+sidereal.pubsub                         Interface[start, subscribe, publish]
+  needs    sidereal.elector
+db.filepath                             Sidereal::Types::String
+db                                      Sequel::Database
+  needs    db.filepath
+sourced.db                              Sequel::Database                             alias
+  needs    db
+sidereal.dispatcher                     Interface[start, stop]                       deferred
+  needs    sidereal.store, sidereal.pubsub, sidereal.channels, sidereal.exceptions, …
+```
+
+Keys are coloured by status, and a component is marked when it's [deferred](#custom-backends) or when its mode isn't the default singleton (`alias`, `dynamic`). `--dependents` turns the edges around, showing what depends on each component rather than what it needs.
+
+A component tree is a DAG rather than a tree, so edges are listed per component instead of being nested — a component with two dependents would otherwise have to appear twice.
+
+It's most useful when the configuration is broken, so it prints the graph even then, and names the problem underneath:
+
+```
+UnimplementedComponentError: components are declared but not implemented: mailer
+```
+
+A dependency that was never declared is listed too, as `Not declared:`.
+
+`--mermaid` prints a [Mermaid](https://mermaid.js.org) flowchart of the same graph and nothing else, so it can go straight into a file:
+
+```bash
+bin/sid system graph --mermaid > graph.mmd
+```
+
+Edges point from each dependency to its dependents, nodes are shaped by mode and styled by status, and a configuration problem goes to stderr so the redirect stays clean.
 
 ### Listing commands
 

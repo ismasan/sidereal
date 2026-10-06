@@ -75,6 +75,7 @@ module Sidereal
     require_relative 'cli/db'
     require_relative 'cli/installer'
     require_relative 'cli/sourced'
+    require_relative 'cli/system'
     require_relative 'cli/skills'
 
     class << self
@@ -128,6 +129,7 @@ module Sidereal
         register 'commands', Commands
         register 'db', DB
         register 'sourced', Sourced
+        register 'system', System
         register 'skills', SkillsCommand
 
         Dir.chdir(@app_root)
