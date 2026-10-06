@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require_relative 'generator'
+require_relative 'installer'
 
 module Sidereal
   module CLI
@@ -66,7 +66,7 @@ module Sidereal
         )
 
         terminal.puts "Creating #{context.title} in #{root}", style: :title
-        Generator.new(TEMPLATES, root, context).generate do |path|
+        Generator.new(TEMPLATES, root, context).generate do |_action, path|
           terminal.print_line :key, '  create  ', :reset, path
         end
 
@@ -93,12 +93,7 @@ module Sidereal
       def run!(root, *command)
         terminal.puts
         terminal.print_line :key, '  run  ', :reset, command.join(' ')
-        ok = with_unbundled_env { system(*command, chdir: root) }
-        raise Error, "`#{command.join(' ')}` failed in #{root}" unless ok
-      end
-
-      def with_unbundled_env(&)
-        defined?(Bundler) ? Bundler.with_unbundled_env(&) : yield
+        Installer.new(root).run!(*command)
       end
 
       def load_boot_in_spec_helper(root)
