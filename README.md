@@ -766,6 +766,7 @@ bin/sid --help
 | `bin/sid sourced groups start NAME` | Starts a stopped or failed consumer group again |
 | `bin/sid sourced groups reset NAME` | Resets a consumer group, so its reactor reads everything again |
 | `bin/sid sourced messages list` | Lists the most recent messages in the store, with `--tail` to follow |
+| `bin/sid sourced messages correlation ID` | Draws the causal tree of one workflow |
 | `bin/sid system graph` | Prints the app's components and how they depend on each other |
 | `bin/sid system tree` | Prints the app's components as a tree, and who implemented each |
 | `bin/sid console` | Starts an IRB session with the app loaded |
@@ -910,6 +911,22 @@ A group that isn't running says why underneath the table — the exception if it
 ```bash
 bin/sid sourced messages list --tail | grep todos.added
 ```
+
+`bin/sid sourced messages correlation <id>` traces one workflow — every message sharing a correlation, nested by what caused what. Any id in the chain will do:
+
+```
+Correlation 0f346b73-30eb-4627-82fb-940427b86711  5 messages
+
+s.todos.add  #3  00:40:26  0f346b73-30eb-4627-82fb-940427b86711  {"title":"Taxes"}
+└── s.todos.added  #4  00:40:26  7c2b1628-e533-4c03-8839-5348fd0da391  {"title":"Taxes"}
+    ├── s.todos.notify  #5  00:40:26  4631f909-c84d-41b2-ae78-bd909edb4440  {"title":"Taxes"}
+    │   └── s.todos.notified  #7  00:40:26  32b3d62f-0674-4d34-a49b-1ddbc3e7c103  {"title":"Taxes"}
+    └── s.todos.notify  #6  00:40:26  c02d2d86-c8a6-4916-9dbe-5c50b4e55074  {"title":"Taxes (audit)"}
+```
+
+Message types follow Event Modeling's colours — **commands blue, events yellow** — so the shape of a workflow reads off the indentation and the colour together. A message of neither kind, such as a plain `Sidereal::Message`, keeps the default rather than being miscoloured as one.
+
+A chain whose first command has already been deleted — which is what an exclusive consumer such as a commander does on ack — still draws, rooted at the oldest message left.
 
 Once installed, `bin/sid sourced topology` describes the app — see [Sourced topology](#sourced-topology). That command comes from the integration, so it appears only once the app has configured it; `sourced install` is built in and available before that.
 
