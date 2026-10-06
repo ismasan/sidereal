@@ -348,6 +348,61 @@ RSpec.describe Sidereal::Integrations::Sourced::CLI::Groups::Reset do
   end
 end
 
+RSpec.describe Sidereal::Integrations::Sourced::CLI::Messages::List do
+  Positioned = Struct.new(:position, :type, :created_at, :payload)
+  Payload = Struct.new(:to_h)
+
+  let(:store) { instance_double(Sourced::Store) }
+
+  def message(position, type, **payload)
+    Positioned.new(position, type, Time.new(2026, 4, 1, 9, 0, 0), Payload.new(payload))
+  end
+
+  def result(messages, last_position: messages.map(&:position).max.to_i)
+    Sourced::ReadAllResult.new(messages:, last_position:, fetcher: nil)
+  end
+
+  def list(*arguments, reads: [])
+    allow(Sidereal::CLI).to receive(:boot_app!)
+    allow(Sidereal.config).to receive(:[]).with('sourced.store').and_return(store)
+    out = StringIO.new
+    command = described_class.new(arguments, name: 'list', output: out)
+    reads.each { |expectation| expectation.call(command) }
+    command.call
+    out.string
+  end
+
+  it 'asks for the newest and prints them oldest first' do
+    # read_all reads forward, so the newest page needs :desc — then reversing
+    # it puts the log back in the order it happened.
+    expect(store).to receive(:read_all).with(limit: 100, order: :desc)
+                                       .and_return(result([message(2, 'b'), message(1, 'a')]))
+
+    out = list
+
+    # position, date, time, type, payload
+    expect(out.lines.map { |line| line.split[3] }).to eq(%w[a b])
+  end
+
+  it 'shows position, time, type and payload on one line' do
+    allow(store).to receive(:read_all).and_return(result([message(7, 'todos.add', title: 'Milk')]))
+
+    expect(list).to eq("     7  2026-04-01 09:00:00  todos.add                 {\"title\":\"Milk\"}\n")
+  end
+
+  it 'takes a limit' do
+    expect(store).to receive(:read_all).with(limit: 5, order: :desc).and_return(result([]))
+
+    list('--limit', '5')
+  end
+
+  it 'prints nothing for an empty store' do
+    allow(store).to receive(:read_all).and_return(result([]))
+
+    expect(list).to eq('')
+  end
+end
+
 RSpec.describe Sidereal::Integrations::Sourced, '.setup' do
   # Sourced.config is process-global and gets mounted into Sidereal.config,
   # which the suite replaces before each example: a fresh one can be mounted.
