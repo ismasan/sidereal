@@ -139,6 +139,9 @@ module Sidereal
       #   so this is what surfaces failures in the UI.
       # - Sidereal's commanders are registered with Sourced as the tree is
       #   prepared, once every app class has loaded.
+      # - `bin/sid sourced` and the sidereal-sourced agent skill are registered
+      #   with {Sidereal::CLI} and {Sidereal.skills}. The app's bin/sid loads it
+      #   before parsing the command line, so this is in time for either.
       #
       # @param config [Sourced::Component] the app's root, see {Sidereal.config}
       # @param db [String, Symbol, nil] the key of a component in +config+ whose
@@ -147,6 +150,7 @@ module Sidereal
       #   teardown. When nil, Sourced's own +db+ is used.
       # @return [Sourced::Component]
       def self.setup(config, db: nil)
+        register_cli_and_skills
         config.mount('sourced', ::Sourced)
         config.alias('sourced.db', db.to_s) if db
         config.config!('sourced.notifier', ['sidereal.pubsub', 'sidereal.exceptions']) do |pubsub, exceptions|
@@ -175,6 +179,20 @@ module Sidereal
         # root.preparing is published just before, while it's still open.
         config.notifier.subscribe('root.preparing') { register_commanders }
         config
+      end
+
+      # The two things an app gets by configuring this integration that aren't
+      # components: `bin/sid sourced` and the skill describing it. Both land in
+      # process-global registries, so both are idempotent under a repeated
+      # +use+. The CLI file only defines command classes — it doesn't load
+      # Sourced, which the commands do for themselves via +boot_app!+.
+      # @return [void]
+      def self.register_cli_and_skills
+        require 'sidereal/integrations/sourced/cli'
+        # Fully qualified: inside this module a bare CLI is this integration's,
+        # which shadows Sidereal::CLI.
+        Sidereal::CLI.register 'sourced', Sidereal::Integrations::Sourced::CLI::Namespace
+        Sidereal.skills.add('sidereal-sourced', File.expand_path('sourced/skills/sidereal-sourced', __dir__))
       end
 
       # Register every Sidereal commander with Sourced, with its full command
@@ -368,10 +386,3 @@ end
 
 # Projectors: auto-generate + publish a "projected" signal from partition_by.
 ::Sourced::Projector.singleton_class.prepend(Sidereal::Integrations::Sourced::ProjectorSignals)
-
-# --- Agent skills (runs at require time) ---
-
-# The sidereal-sourced skill points agents to `bin/sid sourced`, whose
-# commands bin/sid registers when the app's bundle includes sourced.
-# `bin/sid skills update` writes it into apps that require this file.
-Sidereal.skills.add('sidereal-sourced', File.expand_path('sourced/skills/sidereal-sourced', __dir__))
