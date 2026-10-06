@@ -5,7 +5,6 @@
 require 'sidereal'
 require 'zeitwerk'
 <% if sourced? -%>
-require 'sequel'
 require 'sidereal/integrations/sourced'
 <% end -%>
 
@@ -30,21 +29,19 @@ LOADER.setup
 # coming from other processes.
 LOADER.eager_load
 
-Sidereal.configure do |config|
-  # File-backed command store, pubsub and leader election under ./storage.
-  # Updates reach browsers connected to any worker, so COUNT > 1 works.
-  config.use_file_system!
-<% if sourced? -%>
-  # Keep commands and events in Sourced's SQLite store instead of files.
-  # Sourced creates its tables on first boot.
-  config.use Sidereal::Integrations::Sourced,
-    store: -> { Sequel.sqlite(File.expand_path('storage/<%= app_name %>.db', __dir__)) }
-<% end -%>
-end
+# Components: the connections, clients and other services the app's classes
+# use, declared and implemented in config/components/. Loaded first, so the
+# configuration below can name them. Nothing is built while this file loads:
+# each process builds its own when it starts. See config/components/example.rb.
+Dir[File.join(__dir__, 'config/components/**/*.rb')].sort.each { |file| require file }
 
-# Dependencies: connections, clients and other services the app's classes
-# use, registered with Sidereal.dependencies. Loaded after the configuration
-# above, so a file here can also replace one of Sidereal's own with
-# `override: true`. Nothing is built while this file loads: each process
-# builds its dependencies when it starts. See config/dependencies/example.rb.
-Dir[File.join(__dir__, 'config/dependencies/**/*.rb')].sort.each { |file| require file }
+# File-backed command store, pubsub and leader election under ./storage.
+# Updates reach browsers connected to any worker, so COUNT > 1 works.
+Sidereal.config.use_file_system!
+<% if sourced? -%>
+
+# Keep commands and events in Sourced's SQLite store instead of files, in the
+# `db` connection config/components/db.rb opens. Sourced creates its tables
+# when the process starts.
+Sidereal.config.use Sidereal::Integrations::Sourced, db: 'db'
+<% end -%>

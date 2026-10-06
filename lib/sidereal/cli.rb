@@ -43,6 +43,27 @@ module Sidereal
       # {.load_app}. Nil outside an app.
       attr_reader :app_root
 
+      # The commands `sid` can run, keyed by the name they are typed as. The
+      # top-level {Application} dispatches on this very hash, so a command
+      # registered after it is defined is still found.
+      #
+      # @return [Hash{String => Class<Command>}]
+      def registry
+        @registry ||= {}
+      end
+
+      # Add a command to `sid`, under the name it is typed as. A command is a
+      # {Command} subclass, and can nest sub-commands of its own.
+      #
+      #   Sidereal::CLI.register 'deploy', MyApp::CLI::Deploy
+      #
+      # @param name [String]
+      # @param command_class [Class<Command>]
+      # @return [Class<Command>] command_class
+      def register(name, command_class)
+        registry[name] = command_class
+      end
+
       # Called by an app's bin/sid: remembers the app's root and registers
       # the commands that only make sense inside an app, including those of
       # integrations the app's bundle includes (`sourced` for Sourced). The
@@ -52,21 +73,22 @@ module Sidereal
       # @param root [String] the app's root directory
       def load_app(root)
         @app_root = File.expand_path(root)
-        Application.register 'console', AppConsole
-        Application.register 'commands', Commands
-        Application.register 'skills', SkillsCommand
+        register 'console', AppConsole
+        register 'commands', Commands
+        register 'skills', SkillsCommand
 
         # Integrations add their own commands, for apps that bundle them.
         if Gem.loaded_specs.key?('sourced')
           require 'sidereal/integrations/sourced/cli'
-          Integrations::Sourced::CLI.install(Application)
+          Integrations::Sourced::CLI.install
         end
       end
 
       # Load the app as a server worker has it: change into its root, since
       # paths like ./storage are relative to it, require its boot.rb, then
-      # build its dependencies ({Sidereal::Dependencies#build!}), which is
-      # where integrations such as Sourced finish setting up.
+      # build its components ({Sidereal.config}), so a command can read any of
+      # them. Building opens connections but starts nothing: no pubsub, no
+      # workers, no dispatcher.
       #
       # @param build [Boolean] false to load the app's code only, without
       #   connecting to anything
@@ -76,20 +98,16 @@ module Sidereal
 
         Dir.chdir(app_root)
         require File.join(app_root, 'boot')
-        Sidereal.dependencies.build! if build
+        Sidereal.config.build! if build
       end
     end
 
+    # The commands available outside an app. {.load_app} adds the rest.
+    register 'info', Info
+    register 'new', New
+
     # The top-level `sid` command.
     class Application < Command
-      def self.registry
-        @_registry ||= {}
-      end
-
-      def self.register(name, command_class)
-        registry[name] = command_class
-      end
-
       # Parse and run the command line. Returns true on success and false on
       # a parse error or a CLI::Error, so the result can be passed straight
       # to `exit`.
@@ -116,10 +134,7 @@ module Sidereal
         option '-h/--help', 'Print usage'
       end
 
-      register 'info', Info
-      register 'new', New
-
-      nested :command, registry
+      nested :command, CLI.registry
 
       def call
         if @options[:help] || @command.nil?
