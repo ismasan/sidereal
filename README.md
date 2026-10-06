@@ -847,7 +847,7 @@ Sidereal.config.use Sidereal::Integrations::Sourced, db: 'db'
 
 The generated comments show what to re-implement: where to `Sourced.register` deciders and projectors, the worker count, the error strategy behind the retry toasts, and `sidereal.runner.process` to run a Sourced runtime in every worker rather than only the leader.
 
-`boot.rb` loads `config/components/` **after** `Sidereal.config.use_file_system!`, and that order is load-bearing: both implement `sidereal.store`, and the last implementation of a key wins. The other way round, a Sourced app would append its commands to files while Sourced's runtime watched its own tables.
+`boot.rb` says nothing about Sourced — the `require` lives in the generated component file too, so installing Sourced later works exactly like generating with it. Its order is load-bearing in two ways: `config/components/` loads **after** `Sidereal.config.use_file_system!`, because both implement `sidereal.store` and the last implementation of a key wins (the other way round a Sourced app would append its commands to files while Sourced's runtime watched its own tables); and `LOADER.eager_load` comes **after** the components, so that the `require` in `config/components/sourced.rb` has happened before Zeitwerk loads a `system/` class that subclasses `Sourced::Decider`.
 
 Once installed, `bin/sid sourced topology` describes the app — see [Sourced topology](#sourced-topology). That command comes from the integration, so it appears only once the app has configured it; `sourced install` is built in and available before that.
 

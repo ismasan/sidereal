@@ -180,6 +180,19 @@ RSpec.describe Sidereal::CLI::New do
       expect(boot.index('config/components/**')).to be > boot.index('Sidereal.config.use_file_system!')
     end
 
+    # Also load-bearing: `sourced install` writes a component file that
+    # requires Sourced, and classes in system/ subclass Sourced::Decider. The
+    # other order fails with `uninitialized constant Sourced::Decider`.
+    it 'eager loads the app after the components, so a component file can require what the classes need' do
+      boot = read(generate, 'boot.rb')
+
+      expect(boot.index('LOADER.eager_load')).to be > boot.index('config/components/**')
+    end
+
+    it 'leaves requiring the integration to `sourced install` as well' do
+      expect(read(generate('app', '--sourced'), 'boot.rb')).not_to include('integrations/sourced')
+    end
+
     it 'comes with an example component file, all commented out' do
       example = read(generate('app', '--sourced'), 'config/components/example.rb')
       code = example.lines.reject { |line| line.strip.empty? || line.start_with?('#') }
@@ -260,6 +273,31 @@ RSpec.describe Sidereal::CLI::New do
     # generated (not installed) one.
     def bin_sid(root, *arguments, stdin_data: '', chdir: root)
       Open3.capture2e(File.join(root, 'bin/sid'), *arguments, stdin_data:, chdir:)
+    end
+
+    # The bare LoadError from the binstub says nothing about why.
+    it "explains a bin/sid that the app's Sidereal does not have" do
+      allow_any_instance_of(Sidereal::CLI::Installer).to receive(:run!) do |_, *command|
+        raise Sidereal::CLI::Error, "`#{command.join(' ')}` failed" if command.first == 'bin/sid'
+
+        true
+      end
+
+      expect { sid_new(File.join(@dir, 'app'), '--db') }.to output.to_stdout
+
+      expect(io.string).to include('bin/sid db install', '--sidereal-path')
+    end
+
+    it 'says nothing extra when the app was generated against a checkout' do
+      allow_any_instance_of(Sidereal::CLI::Installer).to receive(:run!) do |_, *command|
+        raise Sidereal::CLI::Error, "`#{command.join(' ')}` failed" if command.first == 'bin/sid'
+
+        true
+      end
+
+      expect { sid_new(File.join(@dir, 'app'), '--db', '--sidereal-path', @dir) }.to output.to_stdout
+
+      expect(io.string).not_to include('--sidereal-path <path>')
     end
 
     it 'is executable, as is bin/dev' do
