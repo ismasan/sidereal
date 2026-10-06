@@ -121,17 +121,19 @@ RSpec.describe Sidereal::Integrations::Sourced, '.setup' do
     Sourced.reset!
     Sourced::Store::MessageCodec.reset!
     # Both registries outlive an example, and a previous one may have filled them.
+    Sidereal::CLI::Sourced::COMMANDS.delete('migration')
     Sidereal::CLI::Sourced::COMMANDS.delete('topology')
     Sidereal.skills.delete('sidereal-sourced')
   end
 
   after { Sourced.reset! }
 
-  it 'registers `sid sourced topology`, beside the built-in install' do
+  it 'registers the commands that need Sourced loaded, beside the built-in install' do
     Sidereal.config.use described_class
 
     expect(Sidereal::CLI::Sourced::COMMANDS)
-      .to include('topology' => Sidereal::Integrations::Sourced::CLI::Topology,
+      .to include('migration' => Sidereal::Integrations::Sourced::CLI::Migration,
+                  'topology' => Sidereal::Integrations::Sourced::CLI::Topology,
                   'install' => Sidereal::CLI::Sourced::Install)
   end
 
@@ -143,6 +145,7 @@ RSpec.describe Sidereal::Integrations::Sourced, '.setup' do
   end
 
   it 'registers neither until the app configures the integration' do
+    expect(Sidereal::CLI::Sourced::COMMANDS).not_to have_key('migration')
     expect(Sidereal::CLI::Sourced::COMMANDS).not_to have_key('topology')
     expect(Sidereal.skills['sidereal-sourced']).to be_nil
   end

@@ -35,23 +35,42 @@ module Sidereal
           print_actions installer.gems('sourced', github: GITHUB, branch: BRANCH,
                                                   comment: '# Durable, event-sourced storage.')
           print_actions installer.templates(TEMPLATES, self, overwrite: !!@options[:force])
-          run_in!(app_root, 'bundle', 'install') unless @options[:skip_bundle]
+          unless @options[:skip_bundle]
+            run_in!(app_root, 'bundle', 'install')
+            # In a separate process: Sourced renders its own migration, and the
+            # gem has only just been bundled — this process's load path was
+            # fixed before it existed.
+            run_in!(app_root, 'bin/sid', 'sourced', 'migration', *[('--force' if @options[:force])].compact)
+            # The store checks its tables are there rather than creating them,
+            # so an app that hasn't migrated can't boot at all.
+            run_in!(app_root, 'bin/sid', 'db', 'migrations', 'run')
+          end
           instructions
         end
 
         private
 
+        # Samovar underscores an option's key, so these can't be derived from
+        # the flag names.
         def passed_through
-          %w[skip-bundle force].select { |option| @options[option.to_sym] }.map { |option| "--#{option}" }
+          [('--skip-bundle' if @options[:skip_bundle]), ('--force' if @options[:force])].compact
         end
 
         def instructions
           terminal.puts
           terminal.puts 'Sourced ready.', style: :title
           terminal.puts
-          terminal.puts 'Register deciders and projectors in config/components/sourced.rb, and see what it does with:'
-          terminal.puts
-          terminal.print_line :key, '  bin/sid sourced topology'
+          if @options[:skip_bundle]
+            terminal.puts "Then, once the gems are installed, write Sourced's migration and run it:"
+            terminal.puts
+            terminal.print_line :key, '  bin/sid sourced migration'
+            terminal.print_line :key, '  bin/sid db migrations run'
+          else
+            terminal.puts "Sourced's tables are migrated. Register deciders and projectors in " \
+                          'config/components/sourced.rb, and see what it does with:'
+            terminal.puts
+            terminal.print_line :key, '  bin/sid sourced topology'
+          end
         end
       end
 

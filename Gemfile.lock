@@ -8,7 +8,7 @@ GIT
 
 GIT
   remote: https://github.com/ismasan/sourced.git
-  revision: c62daf95438f0b295b342095c32b8f06c8fea798
+  revision: b8ea00ee7fda3c4bf4565ac6ffffd2e99b51a697
   branch: ccc
   specs:
     sourced (0.0.1)
@@ -183,7 +183,7 @@ GEM
     rspec-support (3.13.7)
     samovar (2.5.1)
       console (~> 1.0)
-    sequel (5.108.0)
+    sequel (5.109.0)
       bigdecimal
     sourced-component (0.1.0)
       plumb (~> 0.4)
@@ -280,7 +280,7 @@ CHECKSUMS
   rspec-mocks (3.13.8) sha256=086ad3d3d17533f4237643de0b5c42f04b66348c28bf6b9c2d3f4a3b01af1d47
   rspec-support (3.13.7) sha256=0640e5570872aafefd79867901deeeeb40b0c9875a36b983d85f54fb7381c47c
   samovar (2.5.1) sha256=8a9fc41eb8868084f0321eb41678c485cfbc7d282fb306c0be67c3284b1d2394
-  sequel (5.108.0) sha256=ae5996d1196775427916a2fa36e02f99762ead9affb8ea9b1aec2c0b16bdb3a3
+  sequel (5.109.0) sha256=e0d1d474442d620c8497d7f4851c0cc3a277920519051b8014b2877aa55efffe
   sidereal (0.1.0)
   sourced (0.0.1)
   sourced-component (0.1.0) sha256=c3cf9c1add21c900b52549be9a71034eb926e90369c002932fa1c3e6afdc5e8d

@@ -131,9 +131,11 @@ RSpec.describe 'Sidereal::Commander on the Sourced runtime' do
     # and locked from then on.
     Sidereal.config.declare('naming') { ->(id) { "named-#{id}" } }
     Sidereal.config.build!
-    # setup! creates the tables and compiles the store's message codec, which
-    # serializes payloads on #append.
-    store.setup!
+    # Apps install the tables with a migration; a store built directly installs
+    # its own. Sourced compiles the codec that serializes payloads on #append
+    # when it boots — this store is built outside the tree, so it does it here.
+    store.install!
+    store.message_codec.compile!
     router.register(IntgCommander)
   end
 
@@ -481,6 +483,9 @@ RSpec.describe 'Sidereal.config.use(Sidereal::Integrations::Sourced)' do
     use_sourced
     config.config!('sidereal.elector') { elector }
     config.config!('sourced.workers.count') { 1 }
+    # A migration installs the tables in an app, and Sourced refuses to start
+    # without them. A spec asks the store component to install its own.
+    config.config!('sourced.store.install_tables') { true }
 
     Sync do |task|
       config.start!(task)
@@ -543,10 +548,21 @@ RSpec.describe 'Sidereal.config.use(Sidereal::Integrations::Sourced)' do
     expect(config.node('db').status).to eq(:prepared)
   end
 
-  it "installs Sourced's store tables on start" do
+  # Tables come from the app's migrations: `bin/sid sourced install` writes one
+  # and `bin/sid db migrations run` applies it.
+  it "refuses to start when Sourced's tables aren't installed" do
+    use_sourced
+    config.config!('sourced.workers.count') { 0 }
+
+    expect { Sync { |task| config.start!(task) } }
+      .to raise_error(Sourced::Store::NotInstalledError, /not installed/)
+  end
+
+  it "appends to Sourced's store once its tables are there" do
     use_sourced
     config.config!('sourced.workers.count') { 0 }
     msg = CodecPriced.new(payload: { price: CodecMoney.new(cents: 250, currency: 'GBP') })
+    config.config!('sourced.store.install_tables') { true }
 
     Sync do |task|
       config.start!(task)
