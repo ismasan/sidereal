@@ -98,19 +98,19 @@ RSpec.describe Sidereal::CLI do
     end
 
     after do
-      Sidereal::CLI::Application.registry.delete('plugin')
-      Sidereal::CLI::Application.registry.delete('namespace')
+      Sidereal::CLI.registry.delete('plugin')
+      Sidereal::CLI.registry.delete('namespace')
     end
 
     it 'dispatches to a command registered after the application is defined' do
-      Sidereal::CLI::Application.register('plugin', plugin)
+      Sidereal::CLI.register('plugin', plugin)
 
       expect(run('plugin')).to eq("hello world\n")
       expect(run('plugin', '--name', 'Joe')).to eq("hello Joe\n")
     end
 
     it 'lists registered commands in usage' do
-      Sidereal::CLI::Application.register('plugin', plugin)
+      Sidereal::CLI.register('plugin', plugin)
 
       text = run('--help')
 
@@ -119,7 +119,7 @@ RSpec.describe Sidereal::CLI do
     end
 
     it 'supports plugins with their own sub-commands' do
-      Sidereal::CLI::Application.register('namespace', Class.new(Sidereal::CLI::Command) {
+      Sidereal::CLI.register('namespace', Class.new(Sidereal::CLI::Command) {
         self.description = 'A namespaced plugin'
         nested :command, { 'plugin' => Class.new(Sidereal::CLI::Command) {
           def call = terminal.puts("nested #{parent.name}")

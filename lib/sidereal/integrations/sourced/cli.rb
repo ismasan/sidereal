@@ -10,11 +10,12 @@ module Sidereal
       # {Sidereal::CLI.load_app} when the app's bundle includes the sourced
       # gem. Sourced itself is loaded with the app, by the commands that need it.
       module CLI
-        # Add the `sourced` namespace to the `sid` command line.
+        # Add the `sourced` namespace to the `sid` command line. Called by
+        # {Sidereal::CLI.load_app} once it has required this file.
         #
-        # @param application [Class<Sidereal::CLI::Application>]
-        def self.install(application)
-          application.register 'sourced', Namespace
+        # @return [void]
+        def self.install
+          Sidereal::CLI.register 'sourced', Namespace
         end
 
         # The causality tree of a Sourced topology ({::Sourced::Topology.build}):
