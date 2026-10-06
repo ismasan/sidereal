@@ -421,6 +421,88 @@ module Sidereal
           end
         end
 
+        # `sid sourced messages`
+        class Messages < Sidereal::CLI::Command
+          # `sid sourced messages list [--tail]`
+          #
+          # The log, one message per line. Only the messages go to stdout —
+          # everything else is stderr — so `| grep` and `> file` get just the
+          # log, in either mode.
+          class List < Sidereal::CLI::Command
+            self.description = 'List the most recent messages in the store'
+
+            options do
+              option '--limit <n>', 'How many to show (default 100)', type: Integer, default: 100
+              option '--tail', 'Keep printing messages as they arrive'
+            end
+
+            INTERVAL = 1
+            MIN_TYPE_WIDTH = 24
+
+            def call
+              Sidereal::CLI.boot_app!
+              store = Sidereal.config['sourced.store']
+
+              # Newest first, then reversed: read_all reads forward from the
+              # start, so asking for a limit without :desc gives the oldest.
+              recent = store.read_all(limit: @options[:limit], order: :desc).to_a.reverse
+              @width = [recent.map { |message| message.type.length }.max.to_i, MIN_TYPE_WIDTH].max
+              recent.each { |message| print_message(message) }
+              output.flush
+
+              tail(store, recent.last) if @options[:tail]
+            end
+
+            private
+
+            # From the last message printed, not the result's last_position:
+            # that is the store's own maximum, which runs ahead of the page
+            # whenever the limit truncated it, and the difference would be
+            # messages never shown.
+            def tail(store, last)
+              cursor = last ? last.position + 1 : 1
+              warn "Tailing from position #{cursor}. Ctrl-C to stop."
+
+              loop do
+                messages = store.read_all(from_position: cursor, limit: @options[:limit]).to_a
+                unless messages.empty?
+                  messages.each { |message| print_message(message) }
+                  output.flush
+                  cursor = messages.last.position + 1
+                end
+                sleep INTERVAL
+              end
+            rescue Interrupt
+              # Ctrl-C out of a tail is how it ends, not a crash.
+              nil
+            end
+
+            def print_message(message)
+              output.puts [
+                message.position.to_s.rjust(6),
+                message.created_at.strftime('%Y-%m-%d %H:%M:%S'),
+                message.type.ljust(@width),
+                payload_of(message)
+              ].join('  ')
+            end
+
+            def payload_of(message)
+              payload = message.payload
+              return '' unless payload.respond_to?(:to_h)
+
+              JSON.generate(payload.to_h)
+            end
+          end
+
+          self.description = "Inspect the messages in the app's store"
+
+          nested :command, { 'list' => List }
+
+          def call
+            @command ? @command.call : print_usage
+          end
+        end
+
         # `sid sourced topology`
         class Topology < Sidereal::CLI::Command
           self.description = 'Print how commands, events, read models and automations connect'
