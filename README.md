@@ -898,11 +898,11 @@ All three go through the app's Sourced router rather than its store, so the reac
 
 A group that isn't running says why underneath the table — the exception if it failed, or the `--message` if someone stopped it — and a *Retry at* column appears only while one is waiting to retry. Groups are registered when the app **starts**, not when the CLI builds it, so a store whose app has never run reports none.
 
-`bin/sid sourced messages list` prints the log, newest hundred last, one message per line — position, time, type and payload:
+`bin/sid sourced messages list` prints the log, newest hundred last, one message per line — position, id, time, type and payload:
 
 ```
-     7  2026-10-07 00:08:25  s.todos.add    {"title":"Coffee"}
-     8  2026-10-07 00:08:28  s.todos.added  {"title":"Coffee"}
+     7  83085e7c-56af-4702-a674-c0927a3dd316  2026-10-07 00:08:25  s.todos.add    {"title":"Coffee"}
+     8  71178680-8a77-4d4c-bfdd-41ae7b1902f9  2026-10-07 00:08:28  s.todos.added  {"title":"Coffee"}
 ```
 
 `--tail` keeps it running, polling once a second for whatever arrives next, and `--limit` changes the page size. **Only the messages go to stdout** — the "Tailing from position N" notice and anything else goes to stderr — so either mode pipes cleanly:

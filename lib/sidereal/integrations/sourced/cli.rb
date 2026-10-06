@@ -480,6 +480,9 @@ module Sidereal
             def print_message(message)
               output.puts [
                 message.position.to_s.rjust(6),
+                # Whole, never shortened: an id is for grepping and for
+                # pasting into the next command, and half of one is neither.
+                message.id,
                 message.created_at.strftime('%Y-%m-%d %H:%M:%S'),
                 message.type.ljust(@width),
                 payload_of(message)
