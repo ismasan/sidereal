@@ -50,7 +50,8 @@ bin/dev
 | Option | What it does |
 | --- | --- |
 | `--rspec` | Adds RSpec to the Gemfile and runs `rspec --init` |
-| `--sourced` | Uses [Sourced](https://github.com/ismasan/sourced) for durable, event-sourced storage, in a SQLite database under `storage/` |
+| `--db` | Sets up a SQLite database, by running [`bin/sid db install`](#database) in the new app |
+| `--sourced` | Uses [Sourced](https://github.com/ismasan/sourced) for durable, event-sourced storage, by running [`bin/sid sourced install`](#sourced), which installs a database too |
 | `--sidereal-path PATH` | Uses a local checkout of Sidereal in the Gemfile, instead of GitHub |
 | `--skip-bundle` | Doesn't run `bundle install`, or `bin/sid skills update`, which needs the bundle |
 | `--no-skills` | Doesn't install AI agent skills with `bin/sid skills update` (see [Agent skills](#agent-skills)) |
@@ -65,6 +66,7 @@ my_app/
   boot.rb                     loads and configures the app
   config.ru                   runs App
   config/components/          the connections and services the app's classes use
+                              (db.rb once `bin/sid db install` has run)
   falcon.rb                   Falcon settings: HOST, PORT and COUNT (worker processes)
   bin/dev                     development server that reloads on code changes
   bin/sid                     the sid command line, with this app loaded
@@ -788,6 +790,8 @@ An app can register commands of its own the same way, from `boot.rb` or a file u
 
 ### Database
 
+`bin/sid db install` is the one thing that sets a database up, and nothing else does: `sid new --db` runs it in the new app, `bin/sid sourced install` runs it because Sourced keeps its messages in the app's database, and an app that started without one adds it later by running the same command. So there is only ever one `db` component to know about, wherever it came from.
+
 `bin/sid db install` gives an app a SQLite database. It adds `sequel` and `sqlite3` to the Gemfile, runs `bundle install`, creates `db/migrations/` and `storage/`, ignores `storage/` in `.gitignore`, and writes `config/components/db.rb`:
 
 ```ruby
@@ -830,6 +834,22 @@ end
 ```
 
 `run` and `rollback` build the app's components to get the connection, so they need `config/components/db.rb` — without it they say to run `bin/sid db install`. `add` only writes a file, so it works before anything is configured.
+
+### Sourced
+
+`bin/sid sourced install` sets the [Sourced](#using-sourced-as-a-backend) integration up, and `sid new --sourced` runs it in the new app. It installs a database first — Sourced keeps the app's commands and events there — then adds the `sourced` gem and writes `config/components/sourced.rb`:
+
+```ruby
+require 'sidereal/integrations/sourced'
+
+Sidereal.config.use Sidereal::Integrations::Sourced, db: 'db'
+```
+
+The generated comments show what to re-implement: where to `Sourced.register` deciders and projectors, the worker count, the error strategy behind the retry toasts, and `sidereal.runner.process` to run a Sourced runtime in every worker rather than only the leader.
+
+`boot.rb` loads `config/components/` **after** `Sidereal.config.use_file_system!`, and that order is load-bearing: both implement `sidereal.store`, and the last implementation of a key wins. The other way round, a Sourced app would append its commands to files while Sourced's runtime watched its own tables.
+
+Once installed, `bin/sid sourced topology` describes the app — see [Sourced topology](#sourced-topology). That command comes from the integration, so it appears only once the app has configured it; `sourced install` is built in and available before that.
 
 ### Listing commands
 

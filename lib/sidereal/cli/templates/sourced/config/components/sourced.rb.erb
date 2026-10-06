@@ -1,0 +1,32 @@
+# frozen_string_literal: true
+
+require 'sidereal/integrations/sourced'
+
+# Sourced keeps the app's commands and events in the `db` component
+# (config/components/db.rb) and runs the handlers that react to them: the
+# commanders in web/app.rb, and any Sourced deciders and projectors in system/.
+# It replaces Sidereal's own store and dispatcher.
+#
+# Register deciders and projectors here, once they exist:
+#
+#   Sourced.register(Todos)
+#
+# The integration mounts Sourced's own components under `sourced`, so any of
+# them can be re-implemented — the last implementation of a key wins:
+#
+#   Sidereal.config.config!('sourced.workers.count') { 4 }
+#
+#   # Retry a failing command before giving up on it, which drives the
+#   # retry and failure toasts.
+#   Sidereal.config.config!('sourced.error_strategy') do
+#     Sourced::ErrorStrategy.new.retry(times: 3, after: 1)
+#   end
+#
+# It runs the Sourced runtime on the elected leader only, since SQLite
+# serializes writers. To run one in every worker instead:
+#
+#   Sidereal.config.config!('sidereal.runner.process') { :all }
+#
+# boot.rb loads this after `use_file_system!`, which matters: both implement
+# `sidereal.store` and the last one wins.
+Sidereal.config.use Sidereal::Integrations::Sourced, db: 'db'
