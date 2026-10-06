@@ -35,19 +35,31 @@ module Sidereal
 
       # Write every template into the target directory.
       #
-      # @yieldparam path [String] each written path, relative to the target
-      # @return [Array<String>] written paths, relative to the target
-      def generate
+      # Generating into a directory that already has some of these files —
+      # installing into an app, rather than creating one — passes
+      # +overwrite: false+, which keeps whatever is there. The file the app
+      # author has edited is the one worth keeping.
+      #
+      # @param overwrite [Boolean] false to keep files that already exist
+      # @yieldparam action [Symbol] +:create+ or +:skip+
+      # @yieldparam path [String] the path, relative to the target
+      # @return [Array<String>] the paths written, relative to the target
+      def generate(overwrite: true)
         templates.filter_map do |template|
           content = render(template)
           next if content.nil?
 
           path = output_path(template)
           destination = File.join(@target, path)
+          if !overwrite && File.exist?(destination)
+            yield :skip, path if block_given?
+            next
+          end
+
           FileUtils.mkdir_p(File.dirname(destination))
           File.write(destination, content)
           File.chmod(File.stat(File.join(@source, template)).mode, destination)
-          yield path if block_given?
+          yield :create, path if block_given?
           path
         end
       end

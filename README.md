@@ -751,6 +751,10 @@ bin/sid --help
 | `bin/sid commands list` | Lists the app's commands |
 | `bin/sid commands info NAME` | Shows a command's payload attributes |
 | `bin/sid commands dispatch NAME --attribute value ...` | Sends a command to the app |
+| `bin/sid db install` | Sets up a SQLite database for the app |
+| `bin/sid db migrations add NAME` | Creates a timestamped migration |
+| `bin/sid db migrations run` | Applies every migration that hasn't run |
+| `bin/sid db migrations rollback` | Rolls back the migration that ran last |
 | `bin/sid console` | Starts an IRB session with the app loaded |
 
 `NAME` is a command's class name (`Greetings::SayHello`) or its type (`my_app.greetings.say_hello`).
@@ -781,6 +785,51 @@ So a command exists exactly when the app configures the integration that provide
 | `Sidereal.config.start_component!(key, Thread.current)` | in a command that needs a *started* component | Runs that component's `start` hook, and its dependencies' |
 
 An app can register commands of its own the same way, from `boot.rb` or a file under `config/components/`.
+
+### Database
+
+`bin/sid db install` gives an app a SQLite database. It adds `sequel` and `sqlite3` to the Gemfile, runs `bundle install`, creates `db/migrations/` and `storage/`, ignores `storage/` in `.gitignore`, and writes `config/components/db.rb`:
+
+```ruby
+Sidereal.config.tap do |c|
+  c.declare('db.filepath', Sidereal::Types::String) { 'storage/db.db' }
+  c.declare('db', Sequel::Database)
+  c.component!('db', ['db.filepath']) do
+    build do |filepath|
+      FileUtils.mkdir_p(File.dirname(filepath))
+      Sequel.sqlite(filepath)
+    end
+    teardown(&:disconnect)
+  end
+end
+```
+
+Two [components](#configuration): where the file lives, and the connection to it. Each process opens its own when it starts and disconnects on shutdown — a SQLite connection can't cross a fork. Classes reach it with [`dep :db`](#injecting-components-into-classes).
+
+The file it writes is yours to edit, and the generated comments show the two usual changes — pointing `db.filepath` at the environment, or re-implementing `db` for another database entirely. `db install` never overwrites a file that is already there; it reports `skip` and leaves it alone, so it's safe to re-run (pass `--force` to overwrite, `--skip-bundle` to skip `bundle install`).
+
+Then migrate:
+
+```bash
+bin/sid db migrations add create_things   # db/migrations/20260401120000_create_things.rb
+bin/sid db migrations run
+bin/sid db migrations rollback            # just the one that ran last
+```
+
+Migrations are plain [Sequel](https://sequel.jeremyevans.net/) migrations in `db/migrations/`, named with a 14-digit UTC timestamp:
+
+```ruby
+Sequel.migration do
+  change do
+    create_table(:things) do
+      primary_key :id
+      String :name, null: false
+    end
+  end
+end
+```
+
+`run` and `rollback` build the app's components to get the connection, so they need `config/components/db.rb` — without it they say to run `bin/sid db install`. `add` only writes a file, so it works before anything is configured.
 
 ### Listing commands
 
