@@ -761,6 +761,7 @@ bin/sid --help
 | `bin/sid sourced install` | Sets up the Sourced integration, and a database for it |
 | `bin/sid sourced migration` | Writes the migration for Sourced's tables |
 | `bin/sid sourced topology` | Shows how the app's commands, events and read models connect |
+| `bin/sid sourced groups list` | Lists the consumer groups, with status, partitions and position |
 | `bin/sid system graph` | Prints the app's components and how they depend on each other |
 | `bin/sid system tree` | Prints the app's components as a tree, and who implemented each |
 | `bin/sid console` | Starts an IRB session with the app loaded |
@@ -866,6 +867,17 @@ A checkout of the app gets its database the same way, since `db/migrations/` is 
 `bin/sid sourced migration` writes that file on its own, for an app that needs it again — after changing `sourced.store.table_prefix`, say. It renders the migration from Sourced's template through the app's own store, so a configured prefix is honoured, and it leaves an existing one alone unless you pass `--force`. `sourced install` runs it in a separate process, because the gem it needs has only just been bundled.
 
 `boot.rb` says nothing about Sourced — the `require` lives in the generated component file too, so installing Sourced later works exactly like generating with it. Its order is load-bearing in two ways: `config/components/` loads **after** `Sidereal.config.use_file_system!`, because both implement `sidereal.store` and the last implementation of a key wins (the other way round a Sourced app would append its commands to files while Sourced's runtime watched its own tables); and `LOADER.eager_load` comes **after** the components, so that the `require` in `config/components/sourced.rb` has happened before Zeitwerk loads a `system/` class that subclasses `Sourced::Decider`.
+
+`bin/sid sourced groups list` shows the running side — a consumer group per reactor, how many partitions it has claimed, how far it has read, and how far behind the store that leaves it:
+
+```
+1 group, store at position 42
+
+Group           Status  Partitions  Position  Lag
+App::Commander  active  3           40        2
+```
+
+A group that stopped on an error names it underneath, and a *Retry at* column appears only while one is waiting to retry. Groups are registered when the app **starts**, not when the CLI builds it, so a store whose app has never run reports none.
 
 Once installed, `bin/sid sourced topology` describes the app — see [Sourced topology](#sourced-topology). That command comes from the integration, so it appears only once the app has configured it; `sourced install` is built in and available before that.
 

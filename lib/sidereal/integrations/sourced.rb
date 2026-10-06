@@ -200,6 +200,7 @@ module Sidereal
         # which shadows Sidereal::CLI.
         # Into Sidereal's own `sourced` namespace, beside its `install` — which
         # is built in, since it has to run before Sourced is configured.
+        Sidereal::CLI::Sourced.register 'groups', Sidereal::Integrations::Sourced::CLI::Groups
         Sidereal::CLI::Sourced.register 'migration', Sidereal::Integrations::Sourced::CLI::Migration
         Sidereal::CLI::Sourced.register 'topology', Sidereal::Integrations::Sourced::CLI::Topology
         Sidereal.skills.add('sidereal-sourced', File.expand_path('sourced/skills/sidereal-sourced', __dir__))

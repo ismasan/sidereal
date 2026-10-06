@@ -188,6 +188,74 @@ module Sidereal
           def relative(path) = path.delete_prefix("#{Sidereal::CLI.app_root}/")
         end
 
+        # `sid sourced groups`
+        class Groups < Sidereal::CLI::Command
+          # `sid sourced groups list`
+          #
+          # A consumer group per reactor, with how far it has read and how far
+          # behind the store it is. Groups are registered when the app starts,
+          # not when it is built, so a store whose app has never run has none.
+          class List < Sidereal::CLI::Command
+            self.description = 'List the consumer groups, with their status, partitions and position'
+
+            # Retry at is dropped when no group is waiting to retry.
+            HEADERS = ['Group', 'Status', 'Partitions', 'Position', 'Lag', 'Retry at'].freeze
+            ALWAYS = 5
+
+            def call
+              Sidereal::CLI.boot_app!
+              stats = Sidereal.config['sourced.store'].stats
+              if stats.groups.empty?
+                terminal.puts 'No consumer groups yet. They are registered when the app starts.'
+                return
+              end
+
+              count = stats.groups.size
+              terminal.print_line :title, "#{count} #{count == 1 ? 'group' : 'groups'}", :reset,
+                                  ", store at position #{stats.max_position}"
+              terminal.puts
+              Sidereal::CLI::Commands.print_table(terminal, HEADERS, rows(stats), keep: ALWAYS)
+              print_failures(stats)
+            end
+
+            private
+
+            def rows(stats)
+              stats.groups.map do |group|
+                [
+                  group[:group_id].to_s,
+                  group[:status].to_s,
+                  group[:partition_count].to_s,
+                  group[:newest_processed].to_s,
+                  (stats.max_position - group[:newest_processed]).to_s,
+                  group[:retry_at]&.strftime('%Y-%m-%d %H:%M:%S').to_s
+                ]
+              end
+            end
+
+            # What the table can't carry: why a group stopped.
+            def print_failures(stats)
+              failures = stats.groups.reject { |group| group[:error_context].empty? }
+              return if failures.empty?
+
+              terminal.puts
+              failures.each do |group|
+                context = group[:error_context]
+                terminal.print_line :error, "#{group[:group_id]}: ", :reset,
+                                    [context[:exception_class], context[:exception_message]].compact.join(': ')
+              end
+            end
+          end
+
+          self.description = "Inspect the app's consumer groups"
+
+          nested :command, { 'list' => List }
+
+          def call
+            @command ? @command.call : print_usage
+          end
+        end
+
         # `sid sourced topology`
         class Topology < Sidereal::CLI::Command
           self.description = 'Print how commands, events, read models and automations connect'
