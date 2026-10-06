@@ -215,7 +215,7 @@ module Sidereal
                                   ", store at position #{stats.max_position}"
               terminal.puts
               Sidereal::CLI::Commands.print_table(terminal, HEADERS, rows(stats), keep: ALWAYS)
-              print_failures(stats)
+              print_notes(stats)
             end
 
             private
@@ -233,23 +233,77 @@ module Sidereal
               end
             end
 
-            # What the table can't carry: why a group stopped.
-            def print_failures(stats)
-              failures = stats.groups.reject { |group| group[:error_context].empty? }
-              return if failures.empty?
+            # What the table can't carry: why a group isn't running. That is an
+            # exception when it failed, and the operator's own words when
+            # someone stopped it — `groups stop --message` keeps them here.
+            def print_notes(stats)
+              noted = stats.groups.reject { |group| group[:error_context].empty? }
+              return if noted.empty?
 
               terminal.puts
-              failures.each do |group|
-                context = group[:error_context]
-                terminal.print_line :error, "#{group[:group_id]}: ", :reset,
-                                    [context[:exception_class], context[:exception_message]].compact.join(': ')
+              noted.each do |group|
+                style = group[:status].to_s == 'failed' ? :error : :key
+                terminal.print_line style, "#{group[:group_id]}: ", :reset, note(group[:error_context])
               end
+            end
+
+            def note(context)
+              exception = [context[:exception_class], context[:exception_message]].compact.join(': ')
+              return exception unless exception.empty?
+              return context[:message].to_s if context[:message]
+
+              # Never a blank line: say whatever is there.
+              context.inspect
+            end
+          end
+
+          # `sid sourced groups stop <group>`
+          #
+          # A stopped group is skipped when work is claimed, so its reactor
+          # stops consuming while the rest of the app carries on.
+          class Stop < Sidereal::CLI::Command
+            self.description = 'Stop a consumer group, so its reactor claims no more work'
+
+            # Not `name`: Samovar::Command#name is the command's own name, so
+            # `one :name` would always be set, to "stop".
+            one :group_name, 'The group to stop, as `groups list` shows it'
+
+            options do
+              option '--message <text>', 'Why it was stopped, kept with the group'
+            end
+
+            def call
+              unless @group_name
+                # Fully qualified: a bare Error here resolves out to
+                # Sidereal::Error, which Application.call doesn't rescue — the
+                # message would reach the user as a backtrace.
+                raise Sidereal::CLI::Error, 'Name a group, e.g. `bin/sid sourced groups stop Todos`. ' \
+                                            '`bin/sid sourced groups list` shows them.'
+              end
+
+              Sidereal::CLI.boot_app!
+              store = Sidereal.config['sourced.store']
+              group = store.stats.groups.find { |candidate| candidate[:group_id].to_s == @group_name }
+              return terminal.puts("#{@group_name} is already stopped.") if group&.fetch(:status).to_s == 'stopped'
+
+              # The store knows which groups exist, and says so for a name it
+              # doesn't recognise — this only has to keep that out of a backtrace.
+              begin
+                store.stop_consumer_group(@group_name, @options[:message])
+              rescue ::Sourced::Store::UnknownConsumerGroupError => e
+                raise Sidereal::CLI::Error, e.message
+              end
+
+              terminal.print_line :key, '  stopped  ', :reset, @group_name
+              terminal.puts
+              terminal.puts 'It claims no more work. Start it again from `bin/sid console`: ' \
+                            "Sidereal.config['sourced.store'].start_consumer_group(#{@group_name.inspect})"
             end
           end
 
           self.description = "Inspect the app's consumer groups"
 
-          nested :command, { 'list' => List }
+          nested :command, { 'list' => List, 'stop' => Stop }
 
           def call
             @command ? @command.call : print_usage
