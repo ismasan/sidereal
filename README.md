@@ -762,6 +762,7 @@ bin/sid --help
 | `bin/sid sourced migration` | Writes the migration for Sourced's tables |
 | `bin/sid sourced topology` | Shows how the app's commands, events and read models connect |
 | `bin/sid sourced groups list` | Lists the consumer groups, with status, partitions and position |
+| `bin/sid sourced groups stop NAME` | Stops a consumer group, so its reactor claims no more work |
 | `bin/sid system graph` | Prints the app's components and how they depend on each other |
 | `bin/sid system tree` | Prints the app's components as a tree, and who implemented each |
 | `bin/sid console` | Starts an IRB session with the app loaded |
@@ -877,7 +878,9 @@ Group           Status  Partitions  Position  Lag
 App::Commander  active  3           40        2
 ```
 
-A group that stopped on an error names it underneath, and a *Retry at* column appears only while one is waiting to retry. Groups are registered when the app **starts**, not when the CLI builds it, so a store whose app has never run reports none.
+`bin/sid sourced groups stop App::Commander --message 'draining for deploy'` takes one out of service: a stopped group is skipped when work is claimed, so its reactor stops consuming while the rest of the app carries on serving. Commands keep arriving in the store and are picked up when it runs again — `Sidereal.config['sourced.store'].start_consumer_group('App::Commander')` from `bin/sid console`.
+
+A group that isn't running says why underneath the table — the exception if it failed, or the `--message` if someone stopped it — and a *Retry at* column appears only while one is waiting to retry. Groups are registered when the app **starts**, not when the CLI builds it, so a store whose app has never run reports none.
 
 Once installed, `bin/sid sourced topology` describes the app — see [Sourced topology](#sourced-topology). That command comes from the integration, so it appears only once the app has configured it; `sourced install` is built in and available before that.
 

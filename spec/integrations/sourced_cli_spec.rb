@@ -157,12 +157,74 @@ RSpec.describe Sidereal::Integrations::Sourced::CLI::Groups::List do
     expect(out).to include('Broken: RuntimeError: boom')
   end
 
+  # `groups stop --message` keeps the operator's words in the same field an
+  # exception uses, so a stopped group would otherwise print a blank line.
+  it 'shows why a group was stopped, in the operator\'s own words' do
+    out = list([group('Paused', status: 'stopped', error: { message: 'draining for deploy' })])
+
+    expect(out).to include('Paused: draining for deploy')
+  end
+
+  it 'says whatever the context holds rather than nothing' do
+    out = list([group('Odd', status: 'stopped', error: { note: 'something else' })])
+
+    expect(out).to match(/Odd: .*something else/)
+  end
+
   it 'leaves the retry column out until a group is waiting to retry' do
     expect(list([group('A')])).not_to include('Retry at')
 
     out = list([group('A', retry_at: Time.new(2026, 4, 1, 12, 30, 0))])
 
     expect(out).to include('Retry at', '2026-04-01 12:30:00')
+  end
+end
+
+RSpec.describe Sidereal::Integrations::Sourced::CLI::Groups::Stop do
+  let(:store) { instance_double(Sourced::Store, stats: Sourced::Stats.new(max_position: 9, groups:)) }
+  let(:groups) { [{ group_id: 'Todos', status: 'active', partition_count: 1, oldest_processed: 1,
+                    newest_processed: 9, retry_at: nil, error_context: {} }] }
+
+  def stop(*arguments)
+    allow(Sidereal::CLI).to receive(:boot_app!)
+    allow(Sidereal.config).to receive(:[]).with('sourced.store').and_return(store)
+
+    out = StringIO.new
+    described_class.new(arguments, name: 'stop', output: out).call
+    out.string
+  end
+
+  it 'stops the named group' do
+    expect(store).to receive(:stop_consumer_group).with('Todos', nil)
+
+    expect(stop('Todos')).to include('stopped', 'Todos')
+  end
+
+  it 'keeps the reason with it' do
+    expect(store).to receive(:stop_consumer_group).with('Todos', 'draining')
+
+    stop('Todos', '--message', 'draining')
+  end
+
+  # The store knows which groups exist and names them; this only has to keep
+  # that out of a backtrace, since Application.call prints a CLI::Error.
+  it "turns the store's unknown-group error into a command-line error" do
+    allow(store).to receive(:stop_consumer_group)
+      .and_raise(Sourced::Store::UnknownConsumerGroupError.new('Todoz', ['Todos']))
+
+    expect { stop('Todoz') }
+      .to raise_error(Sidereal::CLI::Error, /No consumer group "Todoz".*registered groups: Todos/m)
+  end
+
+  it 'leaves an already-stopped group alone' do
+    groups.first[:status] = 'stopped'
+    expect(store).not_to receive(:stop_consumer_group)
+
+    expect(stop('Todos')).to include('already stopped')
+  end
+
+  it 'needs a group to stop' do
+    expect { stop }.to raise_error(Sidereal::CLI::Error, /Name a group/)
   end
 end
 
