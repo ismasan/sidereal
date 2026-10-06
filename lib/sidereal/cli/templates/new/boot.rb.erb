@@ -29,19 +29,14 @@ LOADER.setup
 # coming from other processes.
 LOADER.eager_load
 
-# Components: the connections, clients and other services the app's classes
-# use, declared and implemented in config/components/. Loaded first, so the
-# configuration below can name them. Nothing is built while this file loads:
-# each process builds its own when it starts. See config/components/example.rb.
-Dir[File.join(__dir__, 'config/components/**/*.rb')].sort.each { |file| require file }
-
 # File-backed command store, pubsub and leader election under ./storage.
 # Updates reach browsers connected to any worker, so COUNT > 1 works.
 Sidereal.config.use_file_system!
-<% if sourced? -%>
 
-# Keep commands and events in Sourced's SQLite store instead of files, in the
-# `db` connection config/components/db.rb opens. Sourced creates its tables
-# when the process starts.
-Sidereal.config.use Sidereal::Integrations::Sourced, db: 'db'
-<% end -%>
+# Components: the connections, clients and other services the app's classes
+# use, declared and implemented in config/components/. Loaded after the
+# configuration above, so a file there can replace one of Sidereal's own —
+# which is how `bin/sid sourced install` points the store at Sourced. Nothing
+# is built while this file loads: each process builds its own when it starts.
+# See config/components/example.rb.
+Dir[File.join(__dir__, 'config/components/**/*.rb')].sort.each { |file| require file }

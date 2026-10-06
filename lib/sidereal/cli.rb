@@ -22,6 +22,20 @@ module Sidereal
         CLI.app_root || raise(Error, 'Run this command from inside a Sidereal app, with bin/sid')
       end
 
+      # Run a command in an app, saying so first. The gems an install has just
+      # added aren't in the lock file yet, so {Installer#run!} resolves outside
+      # whatever bundle this process is in.
+      #
+      # @param root [String] the app to run it in
+      # @param command [Array<String>]
+      # @return [true]
+      # @raise [Error] if the command fails
+      def run_in!(root, *command)
+        terminal.puts
+        terminal.print_line :key, '  run  ', :reset, command.join(' ')
+        Installer.new(root).run!(*command)
+      end
+
       # Render what an {Installer} reports, a line per action.
       #
       # @param actions [Array<Array>] +[action, path]+ pairs
@@ -60,6 +74,7 @@ module Sidereal
     require_relative 'cli/commands'
     require_relative 'cli/db'
     require_relative 'cli/installer'
+    require_relative 'cli/sourced'
     require_relative 'cli/skills'
 
     class << self
@@ -112,6 +127,7 @@ module Sidereal
         register 'console', AppConsole
         register 'commands', Commands
         register 'db', DB
+        register 'sourced', Sourced
         register 'skills', SkillsCommand
 
         Dir.chdir(@app_root)

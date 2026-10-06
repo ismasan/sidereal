@@ -9,14 +9,13 @@ module Sidereal
       TEMPLATES = File.expand_path('templates/new', __dir__)
       NAME_FORMAT = /\A[a-z][a-z0-9_]*\z/
       SIDEREAL_GITHUB = 'ismasan/sidereal'
-      SOURCED_GITHUB = 'ismasan/sourced'
-      SOURCED_BRANCH = 'ccc'
       PORT = 9292
 
       # What the templates see: `<%= title %>`, `<% if sourced? %>`, etc.
-      Context = Data.define(:app_name, :title, :sidereal_path, :rspec, :sourced) do
+      Context = Data.define(:app_name, :title, :sidereal_path, :rspec, :sourced, :db) do
         def rspec? = rspec
         def sourced? = sourced
+        def db? = db
         def port = PORT
         def sidereal_gem
           if sidereal_path
@@ -25,7 +24,6 @@ module Sidereal
             "gem 'sidereal', github: '#{SIDEREAL_GITHUB}'"
           end
         end
-        def sourced_gem = "gem 'sourced', github: '#{SOURCED_GITHUB}', branch: '#{SOURCED_BRANCH}'"
       end
 
       self.description = 'Create a new Sidereal app'
@@ -36,6 +34,7 @@ module Sidereal
       options do
         option '-h/--help', 'Print usage'
         option '--rspec', 'Set up RSpec'
+        option '--db', 'Set up a SQLite database (bin/sid db install)'
         option '--sourced', 'Use Sourced for durable, event-sourced storage'
         option '--sidereal-path <path>', "Use a local Sidereal checkout instead of GitHub's"
         option '--skip-bundle', "Don't run bundle install"
@@ -62,7 +61,8 @@ module Sidereal
           title: app_name.split('_').map(&:capitalize).join(' '),
           sidereal_path: @options[:sidereal_path] && File.expand_path(@options[:sidereal_path]),
           rspec: !!@options[:rspec],
-          sourced: !!@options[:sourced]
+          sourced: !!@options[:sourced],
+          db: !!@options[:db]
         )
 
         terminal.puts "Creating #{context.title} in #{root}", style: :title
@@ -75,26 +75,23 @@ module Sidereal
           return
         end
 
-        run!(root, 'bundle', 'install')
+        run_in!(root, 'bundle', 'install')
+        # Each install is its own command, run in the app, so an app gets the
+        # same one whenever it asks. `sourced install` installs the database
+        # itself, since Sourced keeps its messages there.
+        run_in!(root, 'bin/sid', 'db', 'install') if context.db?
+        run_in!(root, 'bin/sid', 'sourced', 'install') if context.sourced?
         if context.rspec?
-          run!(root, 'bundle', 'exec', 'rspec', '--init')
+          run_in!(root, 'bundle', 'exec', 'rspec', '--init')
           load_boot_in_spec_helper(root)
         end
         # The skills of Sidereal and the integrations the app requires.
-        run!(root, 'bin/sid', 'skills', 'update') unless @options[:no_skills]
+        run_in!(root, 'bin/sid', 'skills', 'update') unless @options[:no_skills]
 
         instructions(context, bundled: true)
       end
 
       private
-
-      # Run a command in the new app's directory, outside of any bundle the
-      # `sid` process itself is running in.
-      def run!(root, *command)
-        terminal.puts
-        terminal.print_line :key, '  run  ', :reset, command.join(' ')
-        Installer.new(root).run!(*command)
-      end
 
       def load_boot_in_spec_helper(root)
         path = File.join(root, 'spec', 'spec_helper.rb')
@@ -116,6 +113,8 @@ module Sidereal
         terminal.puts
         terminal.print_line :key, "  cd #{@path}"
         terminal.print_line :key, '  bundle install' unless bundled
+        terminal.print_line :key, '  bin/sid db install' if context.db? && !bundled
+        terminal.print_line :key, '  bin/sid sourced install' if context.sourced? && !bundled
         terminal.print_line :key, '  bundle exec rspec --init' if context.rspec? && !bundled
         terminal.print_line :key, '  bin/sid skills update' unless bundled || @options[:no_skills]
         terminal.print_line :key, '  bin/dev'

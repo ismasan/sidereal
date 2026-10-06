@@ -5,13 +5,6 @@ source 'https://rubygems.org'
 <%= sidereal_gem %>
 gem 'falcon'
 gem 'zeitwerk'
-<% if sourced? -%>
-
-# Durable, event-sourced storage on SQLite.
-<%= sourced_gem %>
-gem 'sequel'
-gem 'sqlite3'
-<% end -%>
 
 group :development do
   gem 'irb'

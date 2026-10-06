@@ -100,8 +100,27 @@ RSpec.describe Sidereal::CLI::New do
       expect(commands_run).to eq([%w[bundle install], %w[bin/sid skills update]])
     end
 
+    # Its own command, so an app gets the same install whenever it is run.
+    # After `bundle install`, since bin/sid needs the app's bundle.
+    it 'installs the database with --db, once the bundle is there' do
+      expect(commands_run('--db'))
+        .to eq([%w[bundle install], %w[bin/sid db install], %w[bin/sid skills update]])
+    end
+
+    # Not `db install`: Sourced keeps its messages in the app's database, so
+    # `sourced install` asks for one itself rather than `new` knowing it must.
+    it 'installs Sourced with --sourced, which installs the database itself' do
+      expect(commands_run('--sourced'))
+        .to eq([%w[bundle install], %w[bin/sid sourced install], %w[bin/sid skills update]])
+    end
+
     it "doesn't install skills with --no-skills" do
       expect(commands_run('--no-skills')).to eq([%w[bundle install]])
+    end
+
+    it 'says to install the database with --db --skip-bundle' do
+      expect { sid_new(File.join(@dir, 'app'), '--db', '--skip-bundle') }
+        .to output(%r{bundle install\n\s+bin/sid db install\n}).to_stdout
     end
 
     it 'says to install skills with --skip-bundle' do
@@ -138,20 +157,27 @@ RSpec.describe Sidereal::CLI::New do
       expect(read(generate('app', '--rspec'), 'Gemfile')).to include("group :test do\n  gem 'rspec'\nend")
     end
 
-    it 'adds Sourced and SQLite with --sourced' do
-      gemfile = read(generate('app', '--sourced'), 'Gemfile')
+    # `sourced install` adds the sourced gem, and the `db install` it runs
+    # adds sequel and sqlite3 — so the Gemfile template knows about none of them.
+    it 'leaves the Sourced and database gems to their installs' do
+      gemfile = read(generate('app', '--sourced', '--db'), 'Gemfile')
 
-      expect(gemfile).to include("gem 'sourced', github: 'ismasan/sourced', branch: 'ccc'")
-      expect(gemfile).to include("gem 'sequel'", "gem 'sqlite3'")
+      expect(gemfile).not_to include('sourced')
+      expect(gemfile).not_to include('sequel')
+      expect(gemfile).not_to include('sqlite3')
     end
   end
 
   describe 'boot.rb' do
-    it 'loads config/components before configuring Sidereal, so the configuration can name them' do
+    # Load-bearing: both `use_file_system!` and the `use` in a generated
+    # config/components/sourced.rb implement `sidereal.store`, and the last
+    # implementation of a key wins. The other order leaves a Sourced app
+    # appending commands to files.
+    it 'loads config/components after configuring Sidereal, so a file there can replace one of its own' do
       boot = read(generate, 'boot.rb')
 
       expect(boot).to include("Dir[File.join(__dir__, 'config/components/**/*.rb')].sort.each { |file| require file }")
-      expect(boot.index('config/components/**')).to be < boot.index('Sidereal.config.use_file_system!')
+      expect(boot.index('config/components/**')).to be > boot.index('Sidereal.config.use_file_system!')
     end
 
     it 'comes with an example component file, all commented out' do
@@ -170,18 +196,21 @@ RSpec.describe Sidereal::CLI::New do
       expect(boot).not_to include('Integrations::Sourced')
     end
 
-    it 'adds the Sourced integration with --sourced, on a db component' do
-      root = generate('app', '--sourced')
-
-      expect(read(root, 'boot.rb')).to include(
-        "require 'sidereal/integrations/sourced'",
-        "Sidereal.config.use Sidereal::Integrations::Sourced, db: 'db'"
-      )
-      expect(read(root, 'config/components/db.rb')).to include("Sidereal.config.declare('db', Sequel::Database)", 'storage/app.db')
+    # Nothing generates a db component: `bin/sid db install` is the one thing
+    # that sets a database up, whichever option asked for it.
+    it 'always leaves the db component to `db install`' do
+      %w[--db --sourced].each do |option|
+        expect(files(generate(option.delete_prefix('--'), option))).not_to include('config/components/db.rb')
+      end
+      expect(files(generate('plain'))).not_to include('config/components/db.rb')
     end
 
-    it 'leaves out the db component without --sourced' do
-      expect(files(generate)).not_to include('config/components/db.rb')
+    it 'leaves the Sourced wiring to `sourced install`' do
+      root = generate('app', '--sourced')
+
+      # The Zeitwerk comment mentions Sourced deciders; the wiring is what matters.
+      expect(read(root, 'boot.rb')).not_to include('Integrations::Sourced')
+      expect(files(root)).not_to include('config/components/sourced.rb')
     end
   end
 
@@ -247,11 +276,37 @@ RSpec.describe Sidereal::CLI::New do
       expect(out).to include('console', 'Start an IRB session with the app loaded')
     end
 
-    it "lists an integration's commands, which it registers when the app configures it" do
-      out, status = bin_sid(generate('app', '--sourced'), '--help')
+    it 'lists the install commands, in an app that has installed nothing' do
+      out, status = bin_sid(generate, '--help')
 
       expect(status).to be_success, out
-      expect(out).to include('sourced', "Inspect the app's Sourced setup")
+      expect(out).to include('db', 'sourced', 'install')
+    end
+
+    # The failure this guards against is silent: if boot.rb loaded
+    # config/components before `use_file_system!`, the file-system store would
+    # be implemented last and win, and a Sourced app would append its commands
+    # to files while Sourced's runtime watched its tables.
+    it 'leaves the store as Sourced once the integration is installed' do
+      root = generate('app', '--sourced')
+      out, status = bin_sid(root, 'sourced', 'install', '--skip-bundle')
+      expect(status).to be_success, out
+
+      out, status = bin_sid(root, 'console', stdin_data: "puts Sidereal.config['sidereal.store'].class\n")
+
+      expect(status).to be_success, out
+      expect(out).to include('Sourced::Store')
+    end
+
+    it "adds an integration's own commands once the app has installed it" do
+      root = generate('app', '--sourced')
+      out, status = bin_sid(root, 'sourced', 'install', '--skip-bundle')
+      expect(status).to be_success, out
+
+      out, status = bin_sid(root, 'sourced', '--help')
+
+      expect(status).to be_success, out
+      expect(out).to include('topology', 'Print how commands, events, read models and automations connect')
     end
 
     # Loading the app lets its integrations register commands and skills;
@@ -480,8 +535,10 @@ RSpec.describe Sidereal::CLI::New do
       end
     end
 
-    it "installs the skills of the integrations the app requires, keeping the app's own" do
+    it "installs the skills of the integrations the app configures, keeping the app's own" do
       root = generate('app', '--sourced')
+      out, status = bin_sid(root, 'sourced', 'install', '--skip-bundle')
+      expect(status).to be_success, out
       FileUtils.mkdir_p(File.join(root, 'skills/my-skill'))
       File.write(File.join(root, 'skills/my-skill/SKILL.md'), 'mine')
       FileUtils.mkdir_p(File.join(root, 'skills/sidereal-cli'))
@@ -518,6 +575,11 @@ RSpec.describe Sidereal::CLI::New do
         end
       RUBY
       File.write(File.join(root, 'boot.rb'), "Sourced.register(Todos)\n", mode: 'a')
+
+      # `sourced install` configures the integration and installs the database
+      # it needs; until then there is no `db` component to build.
+      out, status = bin_sid(root, 'sourced', 'install', '--skip-bundle')
+      expect(status).to be_success, out
 
       out, status = bin_sid(root, 'commands', 'list')
 
