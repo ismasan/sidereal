@@ -143,11 +143,79 @@ RSpec.describe Sidereal::CLI::System do
     end
   end
 
+  describe 'tree' do
+    it 'nests components under the namespaces that hold them' do
+      app!(<<~'RUBY')
+        Sidereal.config.declare('mailer.url', String) { 'smtp://' }
+      RUBY
+
+      out = sid('system', 'tree')
+
+      expect(out).to include('(root)', 'mailer', 'url')
+      # The namespace is a heading; the component hangs off it.
+      expect(out).to match(/mailer\n.*└── url String/)
+    end
+
+    it "marks a mounted component's own subtree" do
+      app!('')
+
+      expect(sid('system', 'tree')).to include('sidereal [mounted]')
+    end
+
+    # The question the tree answers that the graph doesn't: who implemented
+    # what a library declared.
+    it 'says when a component was implemented by someone other than its owner' do
+      app!("Sidereal.config.config!('sidereal.workers.count') { 4 }\n")
+
+      expect(sid('system', 'tree')).to match(/count .*implemented by \(root\)/)
+    end
+
+    it 'marks a deferred component and an unimplemented one' do
+      app!("Sidereal.config.declare('orphan', String)\n")
+
+      out = sid('system', 'tree')
+
+      expect(out).to include('orphan String (not implemented, open)')
+      expect(out).to match(/dispatcher .*deferred/)
+      expect(out).to include('UnimplementedComponentError')
+    end
+
+    it 'counts the components, not the namespaces that hold them' do
+      app!('')
+
+      tree = sid('system', 'tree')[/(\d+) components/, 1].to_i
+      graph = sid('system', 'graph')[/(\d+) components/, 1].to_i
+
+      expect(tree).to eq(graph)
+    end
+
+    describe '--mermaid' do
+      it 'prints the flowchart and nothing else' do
+        app!('')
+
+        out = sid('system', 'tree', '--mermaid')
+
+        expect(out).to start_with('flowchart TD')
+        expect(out).not_to include('Sidereal.config', 'components,', '├──')
+      end
+
+      it 'keeps a configuration problem off stdout' do
+        app!("Sidereal.config.declare('orphan', String)\n")
+
+        expect { @out = sid('system', 'tree', '--mermaid') }
+          .to output(/UnimplementedComponentError/).to_stderr
+
+        expect(@out).to start_with('flowchart TD')
+        expect(@out).not_to include('UnimplementedComponentError')
+      end
+    end
+  end
+
   describe 'the namespace' do
     it 'prints usage when no sub-command is given' do
       app!('')
 
-      expect(sid('system')).to include('graph', 'Print the app components')
+      expect(sid('system')).to include('graph', 'tree', 'Print the app components')
     end
   end
 end
