@@ -191,7 +191,9 @@ module Sidereal
         require 'sidereal/integrations/sourced/cli'
         # Fully qualified: inside this module a bare CLI is this integration's,
         # which shadows Sidereal::CLI.
-        Sidereal::CLI.register 'sourced', Sidereal::Integrations::Sourced::CLI::Namespace
+        # Into Sidereal's own `sourced` namespace, beside its `install` — which
+        # is built in, since it has to run before Sourced is configured.
+        Sidereal::CLI::Sourced.register 'topology', Sidereal::Integrations::Sourced::CLI::Topology
         Sidereal.skills.add('sidereal-sourced', File.expand_path('sourced/skills/sidereal-sourced', __dir__))
       end
 
