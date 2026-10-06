@@ -91,7 +91,7 @@ RSpec.describe Sidereal::CLI::New do
     # Records the commands `sid new` runs in the app instead of running them.
     def commands_run(*arguments)
       commands = []
-      allow_any_instance_of(described_class).to receive(:system) { |_, *command, **| commands << command }
+      allow_any_instance_of(Sidereal::CLI::Installer).to receive(:run!) { |_, *command| commands << command }
       expect { expect(sid_new(File.join(@dir, 'app'), *arguments)).to be(true), io.string }.to output.to_stdout
       commands
     end
@@ -288,6 +288,35 @@ RSpec.describe Sidereal::CLI::New do
         expect(status).not_to be_success
         expect(out).to include('boom')
       end
+    end
+
+    # The db commands are built in, so they work in an app that has no
+    # database yet — which is the point of `db install`.
+    it 'installs and migrates a database' do
+      root = generate
+
+      out, status = bin_sid(root, 'db', 'install', '--skip-bundle')
+      expect(status).to be_success, out
+      expect(out).to include('create  config/components/db.rb', 'update  Gemfile')
+      expect(read(root, 'Gemfile')).to include("gem 'sequel'", "gem 'sqlite3'")
+
+      out, status = bin_sid(root, 'db', 'migrations', 'run')
+      expect(status).to be_success, out
+      expect(out).to include('No migrations in db/migrations')
+
+      out, status = bin_sid(root, 'db', 'migrations', 'add', 'create_things')
+      expect(status).to be_success, out
+      migration = Dir[File.join(root, 'db/migrations/*.rb')].first
+      expect(File.basename(migration)).to match(/\A\d{14}_create_things\.rb\z/)
+      File.write(migration, "Sequel.migration { change { create_table(:things) { primary_key :id } } }\n")
+
+      out, status = bin_sid(root, 'db', 'migrations', 'run')
+      expect(status).to be_success, out
+      expect(out).to include('migrate', 'create_things')
+
+      out, status = bin_sid(root, 'db', 'migrations', 'rollback')
+      expect(status).to be_success, out
+      expect(out).to include('rollback', 'create_things')
     end
 
     it 'starts a console with the app loaded, from any directory' do

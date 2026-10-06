@@ -14,9 +14,7 @@ module Sidereal
         def call
           # bin/sid has loaded the app, so its integrations have registered
           # their skills; nothing here needs the components built.
-          raise Error, 'Run this command from inside a Sidereal app, with bin/sid' unless CLI.app_root
-
-          Sidereal.skills.install(CLI.app_root) do |action, path|
+          Sidereal.skills.install(app_root) do |action, path|
             case action
             when :write then terminal.print_line :key, '  write   ', :reset, path
             when :link then terminal.print_line :key, '  link    ', :reset, "#{path} -> #{Skills::LINKS[path]}"

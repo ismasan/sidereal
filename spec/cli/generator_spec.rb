@@ -73,8 +73,25 @@ RSpec.describe Sidereal::CLI::Generator do
     template('b/c.txt.erb', 'c')
 
     yielded = []
-    Sidereal::CLI::Generator.new(@source, @target, context).generate { |path| yielded << path }
+    Sidereal::CLI::Generator.new(@source, @target, context).generate { |action, path| yielded << [action, path] }
 
-    expect(yielded).to eq(['a.txt', 'b/c.txt'])
+    expect(yielded).to eq([[:create, 'a.txt'], [:create, 'b/c.txt']])
+  end
+
+  describe 'overwrite: false' do
+    it 'keeps a file that already exists, and says it skipped it' do
+      template('keep.txt', 'from the template')
+      FileUtils.mkdir_p(@target)
+      File.write(File.join(@target, 'keep.txt'), 'edited by hand')
+      template('fresh.txt', 'new')
+
+      yielded = []
+      written = Sidereal::CLI::Generator.new(@source, @target, context)
+                                       .generate(overwrite: false) { |action, path| yielded << [action, path] }
+
+      expect(yielded).to contain_exactly([:skip, 'keep.txt'], [:create, 'fresh.txt'])
+      expect(written).to eq(['fresh.txt'])
+      expect(File.read(File.join(@target, 'keep.txt'))).to eq('edited by hand')
+    end
   end
 end

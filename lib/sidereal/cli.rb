@@ -12,6 +12,28 @@ module Sidereal
 
     # Base class for all `sid` commands.
     class Command < Samovar::Command
+      # The root of the app `sid` is running in, for a command that needs the
+      # app's files but not its loaded code — a generator. A command that needs
+      # component values calls {CLI.boot_app!} instead, which builds them.
+      #
+      # @return [String]
+      # @raise [Error] outside an app
+      def app_root
+        CLI.app_root || raise(Error, 'Run this command from inside a Sidereal app, with bin/sid')
+      end
+
+      # Render what an {Installer} reports, a line per action.
+      #
+      # @param actions [Array<Array>] +[action, path]+ pairs
+      # @return [void]
+      def print_actions(actions)
+        actions.each do |action, path|
+          label = { create: '  create  ', update: '  update  ', skip: '  skip    ' }.fetch(action)
+          suffix = action == :skip ? ' (already there)' : ''
+          terminal.print_line :key, label, :reset, "#{path}#{suffix}"
+        end
+      end
+
       # Styled terminal writing to this command's output stream.
       # Falls back to plain text when output is not a TTY.
       def terminal
@@ -36,6 +58,8 @@ module Sidereal
     require_relative 'cli/new'
     require_relative 'cli/app_console'
     require_relative 'cli/commands'
+    require_relative 'cli/db'
+    require_relative 'cli/installer'
     require_relative 'cli/skills'
 
     class << self
@@ -87,6 +111,7 @@ module Sidereal
         @app_root = File.expand_path(root)
         register 'console', AppConsole
         register 'commands', Commands
+        register 'db', DB
         register 'skills', SkillsCommand
 
         Dir.chdir(@app_root)
