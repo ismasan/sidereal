@@ -905,7 +905,7 @@ A group that isn't running says why underneath the table — the exception if it
      8  71178680-8a77-4d4c-bfdd-41ae7b1902f9  2026-10-07 00:08:28  s.todos.added  {"title":"Coffee"}
 ```
 
-`--tail` keeps it running, polling once a second for whatever arrives next, and `--limit` changes the page size. **Only the messages go to stdout** — the "Tailing from position N" notice and anything else goes to stderr — so either mode pipes cleanly:
+`--tail` keeps it running, polling once a second for whatever arrives next, and `--limit` changes the page size. A page that comes back full is one the limit truncated, so it reads the next one straight away rather than waiting — a burst catches up at once instead of trickling out a page a second. **Only the messages go to stdout** — the "Tailing from position N" notice and anything else goes to stderr — so either mode pipes cleanly:
 
 ```bash
 bin/sid sourced messages list --tail | grep todos.added

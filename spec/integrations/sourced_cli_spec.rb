@@ -396,6 +396,34 @@ RSpec.describe Sidereal::Integrations::Sourced::CLI::Messages::List do
     list('--limit', '5')
   end
 
+  # A tail that only ever printed one page per second would fall further
+  # behind the faster messages arrived.
+  it 'goes straight back for the next page when the limit truncated one, and waits when it did not' do
+    allow(store).to receive(:read_all).with(limit: 2, order: :desc).and_return(result([]))
+    pages = [result([message(1, 'a'), message(2, 'b')]), result([message(3, 'c')])]
+    allow(store).to receive(:read_all).with(hash_including(:from_position)) do
+      raise Interrupt if pages.empty?
+
+      pages.shift
+    end
+    allow(Sidereal::CLI).to receive(:boot_app!)
+    allow(Sidereal.config).to receive(:[]).with('sourced.store').and_return(store)
+
+    out = StringIO.new
+    command = described_class.new(['--tail', '--limit', '2'], name: 'list', output: out)
+    allow(command).to receive(:sleep)
+    command.call
+
+    # Full page, then a short one: one wait, after the short page.
+    expect(command).to have_received(:sleep).once
+    expect(out.string.lines.size).to eq(3)
+  end
+
+  # Every batch would be both empty and full, so the loop would spin.
+  it 'refuses a limit it cannot page with' do
+    expect { list('--limit', '0') }.to raise_error(Sidereal::CLI::Error, /at least 1/)
+  end
+
   it 'prints nothing for an empty store' do
     allow(store).to receive(:read_all).and_return(result([]))
 
