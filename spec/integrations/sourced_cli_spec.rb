@@ -533,14 +533,14 @@ RSpec.describe Sidereal::Integrations::Sourced::CLI::Messages::Correlation do
 
   def positioned(message, position) = Sourced::PositionedMessage.new(message, position)
 
-  it 'colours commands blue and events yellow, as Event Modeling does' do
+  it 'colours commands and events as `sourced topology` does' do
     command = SpecSignIn.parse(payload: { name: 'Ada' })
     event = command.correlate(SpecSigned.parse(payload: { name: 'Ada' }))
 
     output = on_tty(command.id, batch: [positioned(command, 1), positioned(event, 2)])
 
-    expect(output).to include("38;5;33m#{command.type}")
-    expect(output).to include("38;5;220m#{event.type}")
+    expect(output).to include("\e[36m#{command.type}")
+    expect(output).to include("\e[33m#{event.type}")
   end
 
   # A Sidereal::Message is neither, so colouring it either way would be a lie.
@@ -550,7 +550,7 @@ RSpec.describe Sidereal::Integrations::Sourced::CLI::Messages::Correlation do
     output = on_tty(plain.id, batch: [positioned(plain, 1)])
 
     expect(output).to include(plain.type)
-    expect(output).not_to include('38;5;33m', '38;5;220m')
+    expect(output).not_to include("\e[36m", "\e[33m")
   end
 
   it 'says so when the store has no such message' do
