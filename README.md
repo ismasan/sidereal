@@ -924,7 +924,7 @@ s.todos.add  #3  00:40:26  0f346b73-30eb-4627-82fb-940427b86711  {"title":"Taxes
     └── s.todos.notify  #6  00:40:26  c02d2d86-c8a6-4916-9dbe-5c50b4e55074  {"title":"Taxes (audit)"}
 ```
 
-Message types follow Event Modeling's colours — **commands blue, events yellow** — so the shape of a workflow reads off the indentation and the colour together. A message of neither kind, such as a plain `Sidereal::Message`, keeps the default rather than being miscoloured as one.
+Message types are coloured by kind — **commands cyan, events yellow**, the same colours `bin/sid sourced topology` gives them — so the shape of a workflow reads off the indentation and the colour together. A message of neither kind, such as a plain `Sidereal::Message`, keeps the default rather than being miscoloured as one.
 
 A chain whose first command has already been deleted — which is what an exclusive consumer such as a commander does on ack — still draws, rooted at the oldest message left.
 
