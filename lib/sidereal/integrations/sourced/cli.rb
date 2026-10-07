@@ -523,15 +523,14 @@ module Sidereal
 
             one :message_id, 'Any message in the chain, by the id `messages list` prints'
 
-            # Event Modeling's colours: commands blue, events yellow. Both are
-            # 256-colour codes rather than Console's eight names — `style`
-            # passes an attribute it doesn't recognise straight through as an
-            # SGR number. It still answers nil on a terminal without colour,
-            # so piped output stays plain.
-            # Bold as well, so a type still reads as the node's name and the
-            # colour only adds what kind of message it is.
-            COMMAND_COLOUR = [nil, nil, :bold, 38, 5, 33].freeze
-            EVENT_COLOUR = [nil, nil, :bold, 38, 5, 220].freeze
+            # The colours `sid sourced topology` already gives the two kinds
+            # — its `command` is the base `:key` style, cyan — so one app
+            # reads the same whichever command drew it. The same codes to the
+            # byte, with no bold added: a colour and an attribute arrive as
+            # one SGR sequence, and some terminals resolve the pair to
+            # something other than the colour on its own.
+            COMMAND_COLOUR = [:cyan].freeze
+            EVENT_COLOUR = [:yellow].freeze
 
             def call
               unless @message_id
