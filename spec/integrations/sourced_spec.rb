@@ -67,11 +67,12 @@ class IntgWidget < Sourced::Decider
   Create  = Sourced::Command.define('intg_widget.create') { attribute :widget_id, Sourced::Types::String }
   Created = Sourced::Event.define('intg_widget.created')  { attribute :widget_id, Sourced::Types::String }
 
-  state do |init|
-    { widget_id: init[:widget_id], created: false }
+  state do
+    { widget_id: nil, created: false }
   end
 
-  evolve(Created) do |state, _evt|
+  evolve(Created) do |state, evt|
+    state[:widget_id] = evt.payload.widget_id
     state[:created] = true
   end
 
@@ -89,8 +90,8 @@ class IntgThingProjector < Sourced::Projector::StateStored
   consumer_group 'intg_thing_projector'
   partition_by :thing_id
 
-  state do |values|
-    { thing_id: values[:thing_id] }
+  state do
+    { thing_id: nil }
   end
 
   evolve(IntgThingHappenedEvt) do |state, evt|
@@ -110,8 +111,8 @@ class IntgEnrollmentProjector < Sourced::Projector::StateStored
 
   # Deliberately keeps course_id OUT of state — the Projected signal must
   # still carry it (sourced from partition_values, not read-model state).
-  state do |values|
-    { student_id: values[:student_id] }
+  state do
+    { student_id: nil }
   end
 
   evolve(IntgEnrolledEvt) do |state, evt|
@@ -131,9 +132,10 @@ RSpec.describe 'Sidereal::Commander on the Sourced runtime' do
     # and locked from then on.
     Sidereal.config.declare('naming') { ->(id) { "named-#{id}" } }
     Sidereal.config.build!
-    # setup! creates the tables and compiles the store's message codec, which
-    # serializes payloads on #append.
-    store.setup!
+    # install! creates the tables; the store's message codec, which serializes
+    # payloads on #append, is compiled separately.
+    store.install!
+    store.message_codec.compile!
     router.register(IntgCommander)
   end
 
@@ -264,13 +266,15 @@ RSpec.describe 'Sidereal::Commander on the Sourced runtime' do
         .then(IntgWidget::Created, widget_id: 'named-w1')
     end
 
-    it 'injects into a projector, for its state and evolve blocks' do
+    it 'injects into a projector, for its load_state block' do
       stub_const('IntgDepProjector', Class.new(Sourced::Projector::StateStored) do
         consumer_group 'intg_dep_projector'
         partition_by :thing_id
         dep 'naming' => 'namer'
 
-        state do |values|
+        # load_state runs in the projector's scope, so injected readers work
+        # there; state and evolve blocks run in its projection, without them.
+        load_state do |values|
           { thing_id: values[:thing_id], label: namer.call(values[:thing_id]) }
         end
 

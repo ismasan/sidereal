@@ -349,9 +349,11 @@ end
 
 # +dep :db+ in a decider or projector, as in a Sidereal::Commander: Sourced
 # builds an instance per claimed batch with +new(partition_values)+, which the
-# injected +initialize+ passes through, so +dep+ readers work in +state+,
-# +evolve+, +command+, +reaction+ and +sync+ blocks. Extending the base
-# classes' singletons reaches every subclass, defined before or after this.
+# injected +initialize+ passes through, so +dep+ readers work in +command+,
+# +reaction+, +sync+ and +load_state+ blocks. Not in +state+ / +evolve+ blocks:
+# those run in the reactor's Sourced::Projection, which has no dependencies.
+# Extending the base classes' singletons reaches every subclass, defined
+# before or after this.
 ::Sourced::Decider.extend(Sidereal::Deps)
 ::Sourced::Projector.extend(Sidereal::Deps)
 
