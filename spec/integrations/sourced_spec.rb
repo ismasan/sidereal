@@ -485,6 +485,7 @@ RSpec.describe 'Sidereal.config.use(Sidereal::Integrations::Sourced)' do
     use_sourced
     config.config!('sidereal.elector') { elector }
     config.config!('sourced.workers.count') { 1 }
+    config.config!('sourced.store.install_tables') { true }
 
     Sync do |task|
       config.start!(task)
@@ -543,13 +544,26 @@ RSpec.describe 'Sidereal.config.use(Sidereal::Integrations::Sourced)' do
 
     config.prepare!
 
-    expect(Sourced::Store::MessageCodec.default.encode(msg)['payload']).to eq('price' => '250 GBP')
+    expect(Sourced::Store::MessageCodec.pairs).to have_key(late)
+    expect(Sourced::Store::MessageCodec.new.compile!.encode(msg)['payload']).to eq('price' => '250 GBP')
     expect(config.node('db').status).to eq(:prepared)
   end
 
-  it "installs Sourced's store tables on start" do
+  it "refuses to start without Sourced's store tables" do
     use_sourced
     config.config!('sourced.workers.count') { 0 }
+
+    Sync do |task|
+      expect { config.start!(task) }.to raise_error(Sourced::Store::NotInstalledError)
+    ensure
+      config.teardown!
+    end
+  end
+
+  it "installs Sourced's store tables on start when store.install_tables is set" do
+    use_sourced
+    config.config!('sourced.workers.count') { 0 }
+    config.config!('sourced.store.install_tables') { true }
     msg = CodecPriced.new(payload: { price: CodecMoney.new(cents: 250, currency: 'GBP') })
 
     Sync do |task|
