@@ -4,10 +4,13 @@ class CampaignsProjector < Sourced::Projector::StateStored
   consumer_group 'campaigns_projector'
   partition_by :campaign_id
 
-  state do |values|
-    db = Sourced.store.db
-    db[:campaigns].where(campaign_id: values[:campaign_id]).first ||
-      { campaign_id: nil, name: nil, target_amount: nil, status: nil, created_at: nil, total_amount: 0 }
+  state do
+    { campaign_id: nil, name: nil, target_amount: nil, status: nil, created_at: nil, total_amount: 0 }
+  end
+
+  # The campaign's stored row, if any, which the claimed events evolve on top of.
+  load_state do |values|
+    Sourced.store.db[:campaigns].where(campaign_id: values[:campaign_id]).first
   end
 
   evolve(Campaign::CampaignCreated) do |state, evt|

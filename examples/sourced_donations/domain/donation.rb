@@ -143,8 +143,16 @@ class Donation < Sourced::Decider
     keyword_init: true
   )
 
-  state do |values|
-    State.new(donation_id: values[:donation_id], campaign_id: values[:campaign_id])
+  state do
+    State.new
+  end
+
+  # Both ids come from the events: campaign events carry campaign_id, the
+  # donation's own events carry both.
+  before_evolve do |state, evt|
+    ids = evt.payload.to_h
+    state.campaign_id ||= ids[:campaign_id]
+    state.donation_id ||= ids[:donation_id]
   end
 
   # Parent Campaign events, loaded via the :campaign_id partition key.
@@ -228,7 +236,7 @@ class Donation < Sourced::Decider
 
     event AmountSelected,
       donation_id: cmd.payload.donation_id,
-      campaign_id: state.campaign_id,
+      campaign_id: cmd.payload.campaign_id,
       amount:
   end
 
@@ -239,7 +247,7 @@ class Donation < Sourced::Decider
 
     event DonorDetailsEntered,
       donation_id: cmd.payload.donation_id,
-      campaign_id: state.campaign_id,
+      campaign_id: cmd.payload.campaign_id,
       name: cmd.payload.name,
       email: cmd.payload.email
   end
@@ -249,7 +257,7 @@ class Donation < Sourced::Decider
     return if campaign_closed?(state)
     event EmailSent,
       donation_id: cmd.payload.donation_id,
-      campaign_id: state.campaign_id
+      campaign_id: cmd.payload.campaign_id
   end
 
   command(DeliverVerificationEmail) do |state, cmd|
@@ -258,7 +266,7 @@ class Donation < Sourced::Decider
     sleep 3 # demo: simulate slow email service
     event VerificationEmailSent,
       donation_id: cmd.payload.donation_id,
-      campaign_id: state.campaign_id,
+      campaign_id: cmd.payload.campaign_id,
       token: SecureRandom.urlsafe_base64(18)
   end
 
@@ -267,7 +275,7 @@ class Donation < Sourced::Decider
     return if campaign_closed?(state)
     event EmailVerified,
       donation_id: cmd.payload.donation_id,
-      campaign_id: state.campaign_id,
+      campaign_id: cmd.payload.campaign_id,
       verified_at: cmd.created_at
   end
 
@@ -276,7 +284,7 @@ class Donation < Sourced::Decider
     return if campaign_closed?(state)
     event PaymentReady,
       donation_id: cmd.payload.donation_id,
-      campaign_id: state.campaign_id
+      campaign_id: cmd.payload.campaign_id
   end
 
   command(StartPayment) do |state, cmd|
@@ -284,7 +292,7 @@ class Donation < Sourced::Decider
     return if campaign_closed?(state)
     event PaymentStarted,
       donation_id: cmd.payload.donation_id,
-      campaign_id: state.campaign_id
+      campaign_id: cmd.payload.campaign_id
   end
 
   command(ConfirmPayment) do |state, cmd|
@@ -292,7 +300,7 @@ class Donation < Sourced::Decider
     return if campaign_closed?(state)
     event PaymentConfirmed,
       donation_id: cmd.payload.donation_id,
-      campaign_id: state.campaign_id,
+      campaign_id: cmd.payload.campaign_id,
       amount: state.amount,
       payment_reference: cmd.payload.payment_reference,
       paid_at: cmd.created_at

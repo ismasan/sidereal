@@ -27,8 +27,16 @@ class DonationView < Sourced::Projector::EventSourced
     keyword_init: true
   )
 
-  state do |values|
-    State.new(campaign_id: values[:campaign_id], donation_id: values[:donation_id])
+  state do
+    State.new
+  end
+
+  # Both ids come from the events: campaign events carry campaign_id, the
+  # donation's own events carry both.
+  before_evolve do |state, evt|
+    ids = evt.payload.to_h
+    state.campaign_id ||= ids[:campaign_id]
+    state.donation_id ||= ids[:donation_id]
   end
 
   evolve(Campaign::CampaignCreated) do |state, evt|

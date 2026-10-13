@@ -41,11 +41,12 @@ class Campaign < Sourced::Decider
     keyword_init: true
   )
 
-  state do |values|
-    State.new(campaign_id: values[:campaign_id])
+  state do
+    State.new
   end
 
   evolve(CampaignCreated) do |state, evt|
+    state.campaign_id = evt.payload.campaign_id
     state.name = evt.payload.name
     state.target_amount = evt.payload.target_amount
     state.status = 'open'

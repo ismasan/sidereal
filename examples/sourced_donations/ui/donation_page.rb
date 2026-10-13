@@ -11,7 +11,7 @@ class DonationPage < Sidereal::Page
 
   def self.load(params, _ctx)
     state, messages = load_donation_with_history(params[:campaign_id], params[:donation_id])
-    new(donation: state, messages: messages)
+    new(campaign_id: params[:campaign_id], donation_id: params[:donation_id], donation: state, messages: messages)
   end
 
   def self.load_donation(campaign_id, donation_id)
@@ -55,7 +55,11 @@ class DonationPage < Sidereal::Page
     msg.type.start_with?('campaigns.')
   end
 
-  def initialize(donation:, messages: [], current_step: nil)
+  # The ids come from the URL: +donation+ only knows them once their events
+  # have been evolved, which a time-travel step (+current_step+) may precede.
+  def initialize(campaign_id:, donation_id:, donation:, messages: [], current_step: nil)
+    @campaign_id = campaign_id
+    @donation_id = donation_id
     @donation = donation
     @messages = messages
     @current_step = current_step
@@ -63,7 +67,7 @@ class DonationPage < Sidereal::Page
 
   def channel_name
     return 'static' if @current_step
-    "campaigns.#{@donation.campaign_id}.donations.#{@donation.donation_id}"
+    "campaigns.#{@campaign_id}.donations.#{@donation_id}"
   end
 
   # Historic snapshots suppress page_key so Page.subscribe returns early and
@@ -84,7 +88,7 @@ class DonationPage < Sidereal::Page
           if @current_step
             p(class: 'historic-tag') do
               plain "Viewing state at step #{@current_step} — "
-              a(href: "/#{@donation.campaign_id}/#{@donation.donation_id}") { 'back to live' }
+              a(href: "/#{@campaign_id}/#{@donation_id}") { 'back to live' }
             end
           end
         end
@@ -98,8 +102,8 @@ class DonationPage < Sidereal::Page
       if @messages.any?
         render EventList.new(
           messages: @messages,
-          campaign_id: @donation.campaign_id,
-          donation_id: @donation.donation_id,
+          campaign_id: @campaign_id,
+          donation_id: @donation_id,
           current_step: @current_step
         )
       end
@@ -224,7 +228,7 @@ class DonationPage < Sidereal::Page
         div(class: 'amount-grid') do
           AMOUNTS.each do |amount|
             command Donation::SelectAmount, class: 'amount-form', key: amount do |f|
-              f.payload_fields(donation_id: @donation.donation_id, campaign_id: @donation.campaign_id, amount:)
+              f.payload_fields(donation_id: @donation_id, campaign_id: @campaign_id, amount:)
               button(type: :submit, class: 'amount-button') do
                 span(class: 'amount-button__currency') { '€' }
                 span(class: 'amount-button__value') { amount.to_s }
@@ -247,7 +251,7 @@ class DonationPage < Sidereal::Page
         p(class: 'lede') { "We will send a verification link before taking €#{@donation.amount}." }
 
         command Donation::EnterDonorDetails, class: 'details-form', autocomplete: 'off' do |f|
-          f.payload_fields(donation_id: @donation.donation_id, campaign_id: @donation.campaign_id)
+          f.payload_fields(donation_id: @donation_id, campaign_id: @campaign_id)
           label do
             span { 'Name' }
             f.text_field :name, autocomplete: 'name', placeholder: 'Ada Lovelace'
@@ -353,7 +357,7 @@ class DonationPage < Sidereal::Page
             strong { "€#{@donation.amount}" }
           end
           command Donation::StartPayment, class: 'tap-form' do |f|
-            f.payload_fields(donation_id: @donation.donation_id, campaign_id: @donation.campaign_id)
+            f.payload_fields(donation_id: @donation_id, campaign_id: @campaign_id)
             button(type: :submit, class: 'tap-button') { 'Tap card' }
           end
         end

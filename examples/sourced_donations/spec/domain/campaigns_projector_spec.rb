@@ -102,6 +102,24 @@ RSpec.describe CampaignsProjector do
         }
     end
 
+    it 'evolves new events on top of the stored row' do
+      test_db[:campaigns].insert(
+        campaign_id:, name: 'Park benches', target_amount: 500,
+        status: 'open', created_at: '2026-01-01T00:00:00Z', total_amount: 40
+      )
+
+      with_reactor(CampaignsProjector, campaign_id:)
+        .given(
+          Donation::PaymentConfirmed,
+          donation_id: 'd1', campaign_id:, amount: 25,
+          payment_reference: 'r1', paid_at: Time.now
+        )
+        .then! { |_result|
+          row = test_db[:campaigns].where(campaign_id:).first
+          expect(row).to include(campaign_id:, name: 'Park benches', total_amount: 65)
+        }
+    end
+
     it 'updates the row to closed on CampaignClosed' do
       with_reactor(CampaignsProjector, campaign_id:)
         .given(Campaign::CampaignCreated, **created_attrs)
