@@ -1,13 +1,13 @@
 GIT
   remote: https://github.com/ismasan/sourced.git
-  revision: c62daf95438f0b295b342095c32b8f06c8fea798
+  revision: 6c54a15a00fd17cd6a8006fee7e83ff5b1657c1d
   branch: ccc
   specs:
     sourced (0.0.1)
       async
       plumb (= 0.4.0)
       sequel
-      sourced-component (~> 0.1)
+      sourced-component (~> 0.1, >= 0.1.1)
       sourced-message (>= 0.4)
       sqlite3
 
@@ -184,7 +184,7 @@ GEM
       mapping (~> 1.0)
     sequel (5.106.0)
       bigdecimal
-    sourced-component (0.1.0)
+    sourced-component (0.1.1)
       plumb (~> 0.4)
       sourced-message
       tsort (~> 0.2)
@@ -284,7 +284,7 @@ CHECKSUMS
   sequel (5.106.0) sha256=0e6677f230e724ecbc9b4d5fc95ef9a69997cfb24c60fff84268185e0bb254cd
   sidereal (0.1.0)
   sourced (0.0.1)
-  sourced-component (0.1.0) sha256=c3cf9c1add21c900b52549be9a71034eb926e90369c002932fa1c3e6afdc5e8d
+  sourced-component (0.1.1) sha256=61a0823a2f89e39dc08cdfaf1a6f565abed0a4edaad67241811da16004cdaa61
   sourced-message (0.4.0) sha256=39d44d647b36253ebf8a2cdb6232c3b8e402f400982a7f9ed2af5aba423b9831
   sqlite3 (2.9.5-arm64-darwin) sha256=d0cf444a70fc9395d513cfbcc1e6719e224aa645314e3824cb0474c721425aa2
   string-format (0.2.0) sha256=bc981c14116b061f12134549f32fa2d61a17b5a35dd6fd36596c21722a789af6

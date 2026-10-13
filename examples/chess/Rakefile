@@ -25,7 +25,6 @@ namespace :db do
 
   desc 'Wipe all events from the Sourced store'
   task :reset do
-    Sourced.store.setup!
     Sourced.store.clear!
     puts 'All events deleted.'
   end

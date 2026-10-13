@@ -25,7 +25,6 @@ namespace :db do
 
   desc 'Wipe all events from the Sourced store and all projection rows'
   task :reset do
-    Sourced.store.setup!
     Sourced.store.clear!
     Sourced.store.db[:campaigns].delete
     puts 'All events and projections deleted.'

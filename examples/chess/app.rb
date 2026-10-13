@@ -73,6 +73,7 @@ class ChessApp < Sidereal::App
 
     component self.class.layout.new(
       GamePage.new(
+        game_id: id,
         state: state,
         messages: messages,
         viewer_username: session[:username],

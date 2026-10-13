@@ -36,6 +36,10 @@ Sidereal.config.use_file_system!(dir: 'tmp')
 # app boots, so there's nothing to Sourced.register here.
 Sidereal.config.use Sidereal::Integrations::Sourced, db: 'db'
 
+# This demo has no migrations: Sourced creates its tables on start (and
+# Store#install! creates them from the Rakefile).
+Sidereal.config.config!('sourced.store.install_tables') { true }
+
 # Poll every 0.5s so cross-process dispatches (e.g. `rake db:seed`) are picked
 # up quickly. SQLite has no LISTEN/NOTIFY, so appends from a process without
 # the unix-socket pubsub rely on this catch-up poll.
