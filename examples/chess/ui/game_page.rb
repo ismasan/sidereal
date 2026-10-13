@@ -19,6 +19,7 @@ class GamePage < Sidereal::Page
   def self.load(params, ctx, selected_source: nil, current_step: nil)
     state, messages = load_state_with_history(params[:id], upto: current_step)
     new(
+      game_id: params[:id],
       state: state,
       messages: messages,
       viewer_username: ctx.session[:username],
@@ -47,7 +48,10 @@ class GamePage < Sidereal::Page
     end
   end
 
-  def initialize(state:, messages:, viewer_username:, selected_source: nil, current_step: nil)
+  # +game_id+ comes from the URL: +state+ only knows it once a GameCreated has
+  # been evolved, which a time-travel step (+current_step+) may precede.
+  def initialize(game_id:, state:, messages:, viewer_username:, selected_source: nil, current_step: nil)
+    @game_id = game_id
     @state = state
     @messages = messages
     @viewer = viewer_username.to_s
@@ -57,7 +61,7 @@ class GamePage < Sidereal::Page
 
   # Historic snapshots use a static channel so live SSE events don't
   # override the frozen view.
-  def channel_name = @current_step ? 'static' : "games.#{@state.game_id}"
+  def channel_name = @current_step ? 'static' : "games.#{@game_id}"
 
   # Suppress page_key on historic snapshots so Page.subscribe early-returns
   # and doesn't re-render the page from current state on SSE connect.
@@ -98,7 +102,7 @@ class GamePage < Sidereal::Page
       if historic?
         div(class: 'historic-banner') do
           plain "Viewing step #{@current_step} of #{@messages.length} — "
-          a(href: "/games/#{@state.game_id}") { 'back to live' }
+          a(href: "/games/#{@game_id}") { 'back to live' }
         end
       end
 
@@ -122,7 +126,7 @@ class GamePage < Sidereal::Page
               fen: @state.fen,
               viewer_color: viewer_color,
               interactive: your_turn?,
-              game_id: @state.game_id,
+              game_id: @game_id,
               selected_source: @selected_source
             )
           end
@@ -133,7 +137,7 @@ class GamePage < Sidereal::Page
           render MoveList.new(move_messages)
           render EventList.new(
             messages: @messages,
-            game_id: @state.game_id,
+            game_id: @game_id,
             current_step: @current_step
           )
           render_actions unless historic?
@@ -152,7 +156,7 @@ class GamePage < Sidereal::Page
     section(class: 'sidebar__section') do
       if @state.status == 'in_progress' && %w[white black].include?(viewer_color)
         command Game::Resign, class: 'inline-form' do |f|
-          f.payload_fields(game_id: @state.game_id)
+          f.payload_fields(game_id: @game_id)
           button(type: :submit, class: 'secondary-button') { 'Resign' }
         end
       end

@@ -11,18 +11,23 @@ class GamesProjector < Sourced::Projector::StateStored
   # the injected db: defaults to Sidereal.config['db'].
   dep :db
 
-  state do |values|
-    db[:games].where(game_id: values[:game_id]).first ||
-      {
-        game_id: nil,
-        white_username: nil,
-        black_username: nil,
-        status: nil,
-        end_reason: nil,
-        winner: nil,
-        move_count: 0,
-        created_at: nil
-      }
+  state do
+    {
+      game_id: nil,
+      white_username: nil,
+      black_username: nil,
+      status: nil,
+      end_reason: nil,
+      winner: nil,
+      move_count: 0,
+      created_at: nil
+    }
+  end
+
+  # The game's stored row, if any, which the claimed events evolve on top of.
+  # Runs in the projector's scope, where the injected db: is available.
+  load_state do |values|
+    db[:games].where(game_id: values[:game_id]).first
   end
 
   evolve(Game::GameCreated) do |s, e|

@@ -108,6 +108,24 @@ RSpec.describe GamesProjector do
         }
     end
 
+    it 'evolves new events on top of the stored row' do
+      test_db[:games].insert(
+        game_id:, white_username: white, black_username: black,
+        status: 'in_progress', move_count: 3, created_at: '2026-01-01T00:00:00Z'
+      )
+
+      with_reactor(GamesProjector, game_id:)
+        .given(
+          Game::MoveMade,
+          game_id:, username: white, color: 'white', from: 'e2', to: 'e4',
+          san: 'e4', fen_after: 'fen1'
+        )
+        .then! { |_result|
+          row = test_db[:games].where(game_id:).first
+          expect(row).to include(game_id:, white_username: white, status: 'in_progress', move_count: 4)
+        }
+    end
+
     it 'updates the row to in_progress when black joins' do
       with_reactor(GamesProjector, game_id:)
         .given(Game::GameCreated, game_id:, white_username: white, initial_fen: ChessEngine::INITIAL_FEN)

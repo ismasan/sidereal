@@ -23,9 +23,8 @@ class GameView < Sourced::Projector::EventSourced
     keyword_init: true
   )
 
-  state do |values|
+  state do
     State.new(
-      game_id: values[:game_id],
       move_count: 0,
       captured: { 'white' => [], 'black' => [] },
       check: false
@@ -33,6 +32,7 @@ class GameView < Sourced::Projector::EventSourced
   end
 
   evolve(Game::GameCreated) do |s, e|
+    s.game_id = e.payload.game_id
     s.white_username = e.payload.white_username
     s.fen = e.payload.initial_fen
     s.status = 'created'
