@@ -1,0 +1,23 @@
+# frozen_string_literal: true
+
+module UI
+  class Layout < Sidereal::Components::Layout
+    def view_template
+      doctype
+
+      html do
+        head do
+          meta(charset: 'utf-8')
+          meta(name: 'viewport', content: 'width=device-width, initial-scale=1.0')
+          title { 'Donations Kiosk' }
+          link(rel: 'stylesheet', href: "/css/main.css?a=#{Time.now.to_i}")
+        end
+        body do
+          div(class: 'page') do
+            render page
+          end
+        end
+      end
+    end
+  end
+end

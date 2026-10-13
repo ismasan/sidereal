@@ -95,7 +95,7 @@ class DonationPage < Sidereal::Page
 
         main(class: 'kiosk') do
           render Stepper.new(@donation)
-          render CurrentStep.new(@donation)
+          render CurrentStep.new(@donation, campaign_id: @campaign_id, donation_id: @donation_id)
         end
       end
 
@@ -159,8 +159,10 @@ class DonationPage < Sidereal::Page
   end
 
   class CurrentStep < Sidereal::Components::BaseComponent
-    def initialize(donation)
+    def initialize(donation, campaign_id:, donation_id:)
       @donation = donation
+      @campaign_id = campaign_id
+      @donation_id = donation_id
     end
 
     def view_template
@@ -171,9 +173,9 @@ class DonationPage < Sidereal::Page
         when 'closed'
           render CampaignClosed.new
         when 'started'
-          render AmountPicker.new(@donation)
+          render AmountPicker.new(@donation, campaign_id: @campaign_id, donation_id: @donation_id)
         when 'amount_selected'
-          render DonorDetailsForm.new(@donation)
+          render DonorDetailsForm.new(@donation, campaign_id: @campaign_id, donation_id: @donation_id)
         when 'details_entered'
           render PreparingEmail.new(@donation)
         when 'email_sent'
@@ -183,7 +185,7 @@ class DonationPage < Sidereal::Page
         when 'email_verified'
           render PaymentPreparing.new(@donation)
         when 'payment_ready'
-          render PaymentPad.new(@donation)
+          render PaymentPad.new(@donation, campaign_id: @campaign_id, donation_id: @donation_id)
         when 'payment_started'
           render PaymentProcessing.new(@donation)
         when 'payment_confirmed'
@@ -216,8 +218,10 @@ class DonationPage < Sidereal::Page
   class AmountPicker < Sidereal::Components::BaseComponent
     AMOUNTS = [5, 10, 30, 50].freeze
 
-    def initialize(donation)
+    def initialize(donation, campaign_id:, donation_id:)
       @donation = donation
+      @campaign_id = campaign_id
+      @donation_id = donation_id
     end
 
     def view_template
@@ -241,8 +245,10 @@ class DonationPage < Sidereal::Page
   end
 
   class DonorDetailsForm < Sidereal::Components::BaseComponent
-    def initialize(donation)
+    def initialize(donation, campaign_id:, donation_id:)
       @donation = donation
+      @campaign_id = campaign_id
+      @donation_id = donation_id
     end
 
     def view_template
@@ -342,8 +348,10 @@ class DonationPage < Sidereal::Page
   end
 
   class PaymentPad < Sidereal::Components::BaseComponent
-    def initialize(donation)
+    def initialize(donation, campaign_id:, donation_id:)
       @donation = donation
+      @campaign_id = campaign_id
+      @donation_id = donation_id
     end
 
     def view_template
