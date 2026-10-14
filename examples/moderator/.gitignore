@@ -2,6 +2,5 @@ storage/*.db
 storage/*.db-*
 storage/leader.lock
 storage/*.sock
-Gemfile.lock
 .env
 storage/store/
