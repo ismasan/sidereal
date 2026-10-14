@@ -81,6 +81,45 @@ class IntgWidget < Sourced::Decider
   end
 end
 
+class IntgDoor < Sourced::Machine
+  consumer_group 'intg_door'
+  partition_by :door_id
+
+  Open   = Sourced::Command.define('intg_door.open')  { attribute :door_id, Sourced::Types::String }
+  Opened = Sourced::Event.define('intg_door.opened')  { attribute :door_id, Sourced::Types::String }
+
+  initial do
+    command Open => Opened
+  end
+
+  final Opened
+end
+
+# Its join completes when it claims Locked, which another reactor appends.
+class IntgVault < Sourced::Machine
+  consumer_group 'intg_vault'
+  partition_by :vault_id
+
+  Arm     = Sourced::Command.define('intg_vault.arm')   { attribute :vault_id, Sourced::Types::String }
+  Armed   = Sourced::Event.define('intg_vault.armed')   { attribute :vault_id, Sourced::Types::String }
+  Locked  = Sourced::Event.define('intg_vault.locked')  { attribute :vault_id, Sourced::Types::String }
+  Secured = Sourced::Event.define('intg_vault.secured') { attribute :vault_id, Sourced::Types::String }
+
+  initial do
+    command Arm => Armed
+  end
+
+  checkpoint Armed do
+    region :lock do
+      final Locked
+    end
+
+    done Secured
+  end
+
+  final Secured
+end
+
 IntgThingHappenedEvt = Sourced::Event.define('intg.thing_happened_evt') do
   attribute :thing_id, Sourced::Types::String
 end
@@ -266,6 +305,26 @@ RSpec.describe 'Sidereal::Commander on the Sourced runtime' do
         .then(IntgWidget::Created, widget_id: 'named-w1')
     end
 
+    it 'injects into a machine, for its command blocks' do
+      stub_const('IntgDepDoor', Class.new(Sourced::Machine) do
+        consumer_group 'intg_dep_door'
+        partition_by :door_id
+        dep :naming
+
+        initial do
+          command IntgDoor::Open => IntgDoor::Opened do |_state, cmd|
+            event IntgDoor::Opened, door_id: naming.call(cmd.payload.door_id)
+          end
+        end
+
+        final IntgDoor::Opened
+      end)
+
+      with_reactor(IntgDepDoor, door_id: 'd1')
+        .when(IntgDoor::Open, door_id: 'd1')
+        .then(IntgDoor::Opened, door_id: 'named-d1')
+    end
+
     it 'injects into a projector, for its load_context block' do
       stub_const('IntgDepProjector', Class.new(Sourced::Projector::StateStored) do
         consumer_group 'intg_dep_projector'
@@ -297,6 +356,11 @@ RSpec.describe 'Sidereal::Commander on the Sourced runtime' do
 
     it 'a projector stands for its Projected signal' do
       expect(IntgThingProjector.sidereal_events).to eq([IntgThingProjector::Projected])
+    end
+
+    it 'a machine stands for its checkpoints and the events it evolves' do
+      expect(IntgDoor.sidereal_events).to eq(IntgDoor.handled_messages_for_evolve)
+      expect(IntgDoor.sidereal_events).to include(IntgDoor::Opened)
     end
 
     it 'lets a page react to a whole reactor' do
@@ -336,6 +400,37 @@ RSpec.describe 'Sidereal::Commander on the Sourced runtime' do
       expect(event.correlation_type).to eq(IntgWidget::Create.type)
       expect(event.causation_id).not_to eq(event.id)
       expect(event.correlation_id).to eq(event.causation_id)
+    end
+  end
+
+  describe 'Sourced::Machine auto-publishes the checkpoints it decides into' do
+    include Sourced::Testing::RSpec
+
+    it 'publishes each emitted event via Sidereal.channels.for, correlated to the command' do
+      Sidereal.channels.channel_name(IntgDoor::Opened) { |m| "doors.#{m.payload.door_id}" }
+
+      with_reactor(IntgDoor, door_id: 'd1')
+        .when(IntgDoor::Open, door_id: 'd1')
+        .then!(IntgDoor::Opened, door_id: 'd1')
+
+      expect(pubsub.published.size).to eq(1)
+      entry = pubsub.published.first
+      expect(entry[:channel]).to eq('doors.d1')
+      expect(entry[:message]).to be_a(IntgDoor::Opened)
+      expect(entry[:message].correlation_type).to eq(IntgDoor::Open.type)
+    end
+  end
+
+  describe 'Sourced::Machine auto-publishes the joins it decides on claim' do
+    include Sourced::Testing::RSpec
+
+    it 'publishes the join completed by a checkpoint another reactor appended' do
+      with_reactor(IntgVault, vault_id: 'v1')
+        .given(IntgVault::Armed, vault_id: 'v1')
+        .when(IntgVault::Locked, vault_id: 'v1')
+        .then!(IntgVault::Secured, vault_id: 'v1')
+
+      expect(pubsub.published.map { |entry| entry[:message].class }).to eq([IntgVault::Secured])
     end
   end
 
