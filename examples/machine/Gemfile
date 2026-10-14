@@ -1,0 +1,25 @@
+# frozen_string_literal: true
+
+source 'https://rubygems.org'
+
+gem 'sidereal', path: '/Users/ismasan/code/personal/gems/sidereal'
+gem 'sourced', path: '/Users/ismasan/code/personal/gems/sourced'
+# The Sourced dashboard, mounted at /sourced in config.ru.
+gem 'sourced-ui', path: '/Users/ismasan/code/personal/gems/sourced-ui'
+gem 'falcon'
+gem 'zeitwerk'
+
+group :development do
+  gem 'irb'
+end
+
+group :test do
+  gem 'rspec'
+end
+
+# The app's database. See config/components/db.rb.
+gem 'sequel'
+gem 'sqlite3'
+
+# Durable, event-sourced storage.
+# gem 'sourced', github: 'ismasan/sourced', branch: 'ccc'
