@@ -8,8 +8,8 @@ GIT
 
 GIT
   remote: https://github.com/ismasan/sourced.git
-  revision: 2cbcef97374514d2224bae5a389dfb49325bde7a
-  branch: ccc
+  revision: 9f63ff0e94a96c8a8a5db790b8abc803bd9c3351
+  branch: statecharts
   specs:
     sourced (0.0.1)
       async
