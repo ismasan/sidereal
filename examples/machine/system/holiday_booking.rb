@@ -16,8 +16,9 @@ require 'securerandom'
 #                           │                       └ board: ChooseBoard ▶ BoardChosen
 #                           └ extras: ToggleExtra (data) … FinishExtras ▶ ExtrasChosen
 #
-# Every checkpoint is an event the machine appends, so the booking's position
-# and its data both come from its history.
+# Checkpoints are positions, and each is the event the machine appends when it
+# moves there (HolidayBooking::FlightChosen is holiday_booking.runtime.flight_chosen).
+# What the traveller picks are data events, appended in the same decision.
 class HolidayBooking < Sourced::Machine
   partition_by :booking_id
 
@@ -84,9 +85,24 @@ class HolidayBooking < Sourced::Machine
     attribute :booking_id, Sourced::Types::UUID::V4
   end
 
-  # ---- Events ----
+  # ---- Checkpoints ----
 
-  BookingStarted = Sourced::Event.define('holidays.booking_started') do
+  BookingStarted = Checkpoint(:booking_started)
+  FlightChosen = Checkpoint(:flight_chosen)
+  FlightConfirmed = Checkpoint(:flight_confirmed)
+  HotelChosen = Checkpoint(:hotel_chosen)
+  RoomChosen = Checkpoint(:room_chosen)
+  BoardChosen = Checkpoint(:board_chosen)
+  HotelConfirmed = Checkpoint(:hotel_confirmed)
+  ExtrasChosen = Checkpoint(:extras_chosen)
+  ItineraryReady = Checkpoint(:itinerary_ready)
+  BookingConfirmed = Checkpoint(:booking_confirmed)
+  BookingCancelled = Checkpoint(:booking_cancelled)
+  HoldExpired = Checkpoint(:hold_expired)
+
+  # ---- Events: what the traveller picked ----
+
+  TripPlanned = Sourced::Event.define('holidays.trip_planned') do
     attribute :booking_id, Sourced::Types::UUID::V4
     attribute :destination, Sourced::Types::String
     attribute :depart_on, Sourced::Types::Date
@@ -94,35 +110,26 @@ class HolidayBooking < Sourced::Machine
     attribute :travellers, Sourced::Types::Integer
   end
 
-  FlightChosen = Sourced::Event.define('holidays.flight_chosen') do
+  FlightSelected = Sourced::Event.define('holidays.flight_selected') do
     attribute :booking_id, Sourced::Types::UUID::V4
     attribute :flight, Sourced::Types::String
   end
 
-  FlightConfirmed = Sourced::Event.define('holidays.flight_confirmed') do
-    attribute :booking_id, Sourced::Types::UUID::V4
-  end
-
-  HotelChosen = Sourced::Event.define('holidays.hotel_chosen') do
+  HotelSelected = Sourced::Event.define('holidays.hotel_selected') do
     attribute :booking_id, Sourced::Types::UUID::V4
     attribute :hotel, Sourced::Types::String
   end
 
-  RoomChosen = Sourced::Event.define('holidays.room_chosen') do
+  RoomSelected = Sourced::Event.define('holidays.room_selected') do
     attribute :booking_id, Sourced::Types::UUID::V4
     attribute :room, Sourced::Types::String
   end
 
-  BoardChosen = Sourced::Event.define('holidays.board_chosen') do
+  BoardSelected = Sourced::Event.define('holidays.board_selected') do
     attribute :booking_id, Sourced::Types::UUID::V4
     attribute :board, Sourced::Types::String
   end
 
-  HotelConfirmed = Sourced::Event.define('holidays.hotel_confirmed') do
-    attribute :booking_id, Sourced::Types::UUID::V4
-  end
-
-  # Data: they change the extras, not the machine's position.
   ExtraAdded = Sourced::Event.define('holidays.extra_added') do
     attribute :booking_id, Sourced::Types::UUID::V4
     attribute :extra, Sourced::Types::String
@@ -133,33 +140,17 @@ class HolidayBooking < Sourced::Machine
     attribute :extra, Sourced::Types::String
   end
 
-  ExtrasChosen = Sourced::Event.define('holidays.extras_chosen') do
-    attribute :booking_id, Sourced::Types::UUID::V4
-  end
-
-  ItineraryReady = Sourced::Event.define('holidays.itinerary_ready') do
-    attribute :booking_id, Sourced::Types::UUID::V4
-  end
-
-  # Data: a declined card leaves checkout where it is, hold timer included.
+  # A declined card leaves checkout where it is, hold timer included.
   PaymentDeclined = Sourced::Event.define('holidays.payment_declined') do
     attribute :booking_id, Sourced::Types::UUID::V4
     attribute :last4, Sourced::Types::String
     attribute :reason, Sourced::Types::String
   end
 
-  BookingConfirmed = Sourced::Event.define('holidays.booking_confirmed') do
+  PaymentCaptured = Sourced::Event.define('holidays.payment_captured') do
     attribute :booking_id, Sourced::Types::UUID::V4
     attribute :reference, Sourced::Types::String
     attribute :last4, Sourced::Types::String
-  end
-
-  BookingCancelled = Sourced::Event.define('holidays.booking_cancelled') do
-    attribute :booking_id, Sourced::Types::UUID::V4
-  end
-
-  HoldExpired = Sourced::Event.define('holidays.hold_expired') do
-    attribute :booking_id, Sourced::Types::UUID::V4
   end
 
   # ---- Domain state ----
@@ -213,30 +204,30 @@ class HolidayBooking < Sourced::Machine
     trip.booking_id = evt.payload.booking_id
   end
 
-  evolve BookingStarted do |trip, evt|
+  evolve TripPlanned do |trip, evt|
     trip.destination = evt.payload.destination
     trip.depart_on = evt.payload.depart_on
     trip.nights = evt.payload.nights
     trip.travellers = evt.payload.travellers
   end
 
-  evolve FlightChosen do |trip, evt|
+  evolve FlightSelected do |trip, evt|
     trip.flight = evt.payload.flight
   end
 
   # Choosing another hotel re-enters HotelChosen, which restarts its room and
   # board regions: the earlier picks were for the other hotel.
-  evolve HotelChosen do |trip, evt|
+  evolve HotelSelected do |trip, evt|
     trip.hotel = evt.payload.hotel
     trip.room = nil
     trip.board = nil
   end
 
-  evolve RoomChosen do |trip, evt|
+  evolve RoomSelected do |trip, evt|
     trip.room = evt.payload.room
   end
 
-  evolve BoardChosen do |trip, evt|
+  evolve BoardSelected do |trip, evt|
     trip.board = evt.payload.board
   end
 
@@ -248,6 +239,7 @@ class HolidayBooking < Sourced::Machine
     trip.toggle(evt.payload.extra)
   end
 
+  # The hold starts when checkout is entered.
   evolve ItineraryReady do |trip, evt|
     trip.hold_until = evt.created_at + HOLD_SECONDS
   end
@@ -256,14 +248,16 @@ class HolidayBooking < Sourced::Machine
     trip.declined = evt.payload.reason
   end
 
-  evolve BookingConfirmed do |trip, evt|
+  evolve PaymentCaptured do |trip, evt|
     trip.reference = evt.payload.reference
   end
 
   # ---- The statechart ----
 
   initial do
-    command StartBooking => BookingStarted
+    command StartBooking => BookingStarted do |_trip, cmd|
+      event TripPlanned, cmd.payload.to_h.slice(:destination, :depart_on, :nights, :travellers)
+    end
   end
 
   checkpoint BookingStarted do
@@ -271,11 +265,15 @@ class HolidayBooking < Sourced::Machine
 
     region :flight do
       initial do
-        command ChooseFlight => FlightChosen
+        command ChooseFlight => FlightChosen do |_trip, cmd|
+          event FlightSelected, flight: cmd.payload.flight
+        end
       end
 
       checkpoint FlightChosen do
-        command ChooseFlight => FlightChosen
+        command ChooseFlight => FlightChosen do |_trip, cmd|
+          event FlightSelected, flight: cmd.payload.flight
+        end
         command ConfirmFlight => FlightConfirmed
       end
 
@@ -284,15 +282,21 @@ class HolidayBooking < Sourced::Machine
 
     region :hotel do
       initial do
-        command ChooseHotel => HotelChosen
+        command ChooseHotel => HotelChosen do |_trip, cmd|
+          event HotelSelected, hotel: cmd.payload.hotel
+        end
       end
 
       checkpoint HotelChosen do
-        command ChooseHotel => HotelChosen
+        command ChooseHotel => HotelChosen do |_trip, cmd|
+          event HotelSelected, hotel: cmd.payload.hotel
+        end
 
         region :room do
           initial do
-            command ChooseRoom => RoomChosen
+            command ChooseRoom => RoomChosen do |_trip, cmd|
+              event RoomSelected, room: cmd.payload.room
+            end
           end
 
           final RoomChosen
@@ -300,7 +304,9 @@ class HolidayBooking < Sourced::Machine
 
         region :board do
           initial do
-            command ChooseBoard => BoardChosen
+            command ChooseBoard => BoardChosen do |_trip, cmd|
+              event BoardSelected, board: cmd.payload.board
+            end
           end
 
           final BoardChosen
@@ -329,7 +335,7 @@ class HolidayBooking < Sourced::Machine
   end
 
   checkpoint ItineraryReady do
-    after(HOLD_SECONDS) do |_trip, _evt|
+    after(HOLD_SECONDS) do |_trip, _transition|
       dispatch ExpireHold
     end
 
@@ -339,7 +345,8 @@ class HolidayBooking < Sourced::Machine
       if card.end_with?('0000')
         event PaymentDeclined, last4: card[-4..], reason: 'Your card was declined. Try another one.'
       else
-        event BookingConfirmed, last4: card[-4..], reference: "SR-#{SecureRandom.alphanumeric(6).upcase}"
+        event PaymentCaptured, last4: card[-4..], reference: "SR-#{SecureRandom.alphanumeric(6).upcase}"
+        to BookingConfirmed
       end
     end
 

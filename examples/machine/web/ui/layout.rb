@@ -5,6 +5,7 @@ module UI
   # in web/public/css/app.css.
   class Layout < Sidereal::Components::BasicLayout
     FONTS = 'https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=Unbounded:wght@500;700&display=swap'
+    NOW = Time.now.to_s
 
     def view_template
       doctype
@@ -18,7 +19,10 @@ module UI
           link(rel: 'preconnect', href: 'https://fonts.gstatic.com', crossorigin: true)
           link(rel: 'stylesheet', href: FONTS)
           style { raw safe(STYLES) }
-          link(rel: 'stylesheet', href: '/css/app.css?a=3')
+          link(rel: 'stylesheet', href: "/css/app.css?a=#{NOW}")
+          # Step links patch the page and push its URL: going back or forward
+          # loads the page at the URL the browser lands on.
+          script { raw safe("addEventListener('popstate', () => location.reload())") }
         end
 
         body do

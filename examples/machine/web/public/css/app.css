@@ -147,6 +147,10 @@ code { font-size: 0.9em; color: var(--starlight); }
 /* Datastar marks a form that's waiting for its POST. */
 form[data-indicator-fetching] .button { transition: opacity 0.2s; }
 .inline-form { display: inline; margin: 0; }
+/* A form's hidden inputs come first: its visible controls get no stacking margin. */
+.inline-form > * + *,
+.console-form * + *,
+.check > * + * { margin-top: 0; }
 
 input[type="text"],
 input[type="number"],
@@ -161,6 +165,26 @@ select {
   border-radius: 0.6rem;
   color-scheme: dark;
 }
+/* A select drawn like the text inputs, with its own chevron: native
+   selects ignore padding and height, so they'd sit lower and shorter. */
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  height: auto;
+  line-height: inherit;
+  padding-right: 2.4rem;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%23aeb0d8' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.9rem center;
+  background-size: 0.75rem;
+  cursor: pointer;
+}
+select option { color: var(--starlight); background: #161a44; }
+input[type="text"],
+input[type="number"],
+input[type="date"],
+select { box-sizing: border-box; min-height: 2.9rem; margin: 0; }
+
 input:focus,
 select:focus {
   outline: none;
@@ -595,11 +619,13 @@ select:focus {
   transition: fill 0.4s, stroke 0.4s;
 }
 .statechart__node--parallel > .statechart__box { fill: rgba(31, 36, 87, 0.55); }
+.statechart__node--compound > .statechart__box { fill: rgba(31, 36, 87, 0.35); stroke-dasharray: 6 3; }
 .statechart__final-ring { fill: none; stroke: rgba(174, 176, 216, 0.45); }
 .statechart__label { fill: var(--starlight); font-weight: 700; }
 .statechart__hint { fill: var(--mist); font-size: 10px; font-style: italic; }
 .statechart__timer { fill: var(--mist); font-size: 10px; }
 .statechart__dot { fill: var(--mist); }
+.statechart__history { fill: #1f2457; stroke: var(--periwinkle); stroke-width: 1.2; }
 
 .statechart__node.is-visited > .statechart__box { stroke: var(--periwinkle); }
 .statechart__node.is-visited > .statechart__dot { fill: var(--periwinkle); }
@@ -636,3 +662,132 @@ select:focus {
   stroke-linejoin: round;
 }
 .statechart__edge.is-live .statechart__edge-label { fill: var(--gold); font-weight: 700; }
+/* Checkboxes: a gold box with a dark tick when checked. */
+
+input[type="checkbox"] {
+  appearance: none;
+  flex: none;
+  display: grid;
+  place-content: center;
+  width: 1.15rem;
+  height: 1.15rem;
+  margin: 0;
+  background: rgba(14, 16, 51, 0.6);
+  border: 1px solid rgba(174, 176, 216, 0.5);
+  border-radius: 0.35rem;
+  cursor: pointer;
+  transition: background-color 0.15s, border-color 0.15s;
+}
+input[type="checkbox"]::before {
+  content: "";
+  width: 0.62rem;
+  height: 0.62rem;
+  background: var(--ink);
+  clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
+  transform: scale(0);
+  transition: transform 0.12s;
+}
+input[type="checkbox"]:hover { border-color: var(--periwinkle); }
+input[type="checkbox"]:checked { background: var(--gold); border-color: var(--gold); }
+input[type="checkbox"]:checked::before { transform: scale(1); }
+input[type="checkbox"]:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
+
+/* The payroll emulator: UI::PayrollRunPage. */
+
+.console-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem 1rem;
+  padding: 1rem 1.25rem;
+  background: rgba(14, 16, 51, 0.55);
+  border: 1px solid rgba(174, 176, 216, 0.2);
+  border-radius: 1rem;
+}
+.console-form > * + * { margin-top: 0; }
+.console-form .button { padding-block: 0.7rem; }
+.console-form--inline { padding: 0; background: none; border: 0; }
+.console-form--inline .field__label { display: none; }
+.console-form--inline input { padding-block: 0.45rem; }
+.console-form--inline .button { padding-block: 0.45rem; }
+
+.field { display: grid; gap: 0.35rem; flex: 0 1 15rem; min-width: 9rem; }
+.field--narrow { flex: 0 1 9rem; min-width: 6.5rem; }
+.field__label {
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--mist);
+}
+.check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.7rem 0.1rem;
+  font-size: 0.9rem;
+  color: var(--starlight);
+  cursor: pointer;
+  user-select: none;
+}
+/* Sidereal wraps each field for its errors; the checkbox sits in the row. */
+.check .command-field { display: contents; }
+
+.payroll-items { margin-top: 2rem; }
+.payroll-items__title { font-size: 1.25rem; margin-bottom: 0.75rem; }
+.payroll-items__add { display: grid; gap: 0.75rem; margin-top: 1.5rem; }
+.payroll-items__add > * + * { margin-top: 0; }
+.payroll-items__add > .inline-form { justify-self: start; }
+.payroll-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.85rem; }
+.payroll-actions > * + * { margin-top: 0; }
+.payroll-actions .button { padding: 0.32rem 0.8rem; font-size: 0.74rem; }
+.positions { list-style: none; margin: 0.6rem 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.positions > * + * { margin-top: 0; }
+.positions code {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  font-size: 0.74rem;
+  color: var(--gold);
+  background: rgba(255, 207, 92, 0.08);
+  border: 1px solid rgba(255, 207, 92, 0.3);
+  border-radius: 999px;
+}
+.history__about { color: var(--starlight); margin-right: 0.4rem; }
+
+/* Item status: a pill per status, and the card's edge for the ones that matter. */
+
+.status {
+  flex: none;
+  padding: 0.12rem 0.6rem;
+  font-family: var(--display);
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  color: var(--mist);
+}
+.status--pending,
+.status--paid { color: #7ee0b0; background: rgba(126, 224, 176, 0.1); }
+.status--processing { color: var(--periwinkle); background: rgba(142, 162, 255, 0.1); }
+.status--blocked,
+.status--failed,
+.status--overdue { color: #ffb4a8; background: rgba(255, 180, 168, 0.1); }
+.status--skipped,
+.status--void { opacity: 0.7; }
+
+.item-card--pending,
+.item-card--paid { border-color: rgba(126, 224, 176, 0.55); box-shadow: inset 3px 0 0 #7ee0b0; }
+.item-card--blocked,
+.item-card--failed,
+.item-card--overdue { border-color: rgba(255, 180, 168, 0.5); box-shadow: inset 3px 0 0 #ffb4a8; }
+.item-card--skipped,
+.item-card--void { opacity: 0.6; }
+.item-card__note { font-size: 0.82rem; color: #7ee0b0; }
+.item-card__note--warning { color: #ffcf5c; }
+
+/* In the Run tab's grid, every item card as tall as the tallest kind (an
+   approved item, with its amount form), and as its row: cards line up
+   whatever their state. An item's own page has one card, sized to fit. */
+.payroll-items .regions { align-items: stretch; }
+.payroll-items .item-card { min-height: 23.5rem; }
+.item-card + .machine-view { margin-top: 1.5rem; }

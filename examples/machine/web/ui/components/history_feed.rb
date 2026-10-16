@@ -2,22 +2,28 @@
 
 module UI
   module Components
-    # A booking's messages in log order, each linking to the booking as it was
+    # A stream's messages in log order, each linking to the page as it was
     # once that message was in its history. The arrows step back and forth from
-    # the step on screen. Commands, checkpoints (which move the machine) and
-    # data events (which only change what's been picked) are marked apart.
+    # the step on screen. Commands, transitions (which move a machine) and
+    # data events (which only change its domain state) are marked apart.
     class HistoryFeed < Sidereal::Components::BaseComponent
       # @param messages [Array<Sourced::Message>]
       # @param current_step [Integer] the step on screen; the last one while live
       # @param live [Boolean]
       # @param live_href [String] the live page
       # @param step_href [#call(Integer)] the page at a step
-      def initialize(messages:, current_step:, live:, live_href:, step_href:)
+      # @param prefix [String, nil] a message type prefix to leave out
+      # @param hide [Array<Symbol>] payload keys every message carries, left out
+      # @param label [#call(Sourced::Message), nil] a short name for what a message is about, shown before its type
+      def initialize(messages:, current_step:, live:, live_href:, step_href:, prefix: nil, hide: [], label: nil)
         @messages = messages
         @current_step = current_step
         @live = live
         @live_href = live_href
         @step_href = step_href
+        @prefix = prefix
+        @hide = hide
+        @label = label
       end
 
       def view_template
@@ -59,7 +65,7 @@ module UI
 
       def pager_link(label, step, title)
         if step.between?(1, @messages.size) && !(@live && step > @current_step)
-          a(class: 'history__arrow', href: @step_href.call(step), title:, aria: { label: title }) { label }
+          a(class: 'history__arrow', href: @step_href.call(step), title:, aria: { label: title }, data: travel(step)) { label }
         else
           span(class: 'history__arrow history__arrow--disabled', aria: { hidden: 'true' }) { label }
         end
@@ -70,12 +76,15 @@ module UI
         current = step == @current_step
         future = step > @current_step
         li(class: ['history__item', "history__item--#{kind}", ('is-current' if current), ('is-future' if future)]) do
-          a(class: 'history__link', href: @step_href.call(step), aria: { current: current ? 'step' : nil }) do
+          a(class: 'history__link', href: @step_href.call(step), aria: { current: current ? 'step' : nil }, data: travel(step)) do
             span(class: 'history__step') { step.to_s }
             span(class: 'history__body') do
               span(class: 'history__type') do
                 span(class: 'history__kind') { kind.to_s }
-                plain message.type.delete_prefix('holidays.')
+                if (about = @label&.call(message))
+                  span(class: 'history__about') { about }
+                end
+                plain(@prefix ? message.type.delete_prefix(@prefix) : message.type)
               end
               summary = payload_summary(message)
               span(class: 'history__payload') { summary } unless summary.empty?
@@ -87,17 +96,31 @@ module UI
         end
       end
 
+      # A step link patches the page in place (the step routes answer a Datastar
+      # request with the page and push its URL) instead of loading it. The href
+      # stays, for a new tab.
+      def travel(step) = { 'on:click__prevent' => "@get('#{@step_href.call(step)}')" }
+
       def kind_of(message)
-        if message.is_a?(Sourced::Command) then :command
-        elsif HolidayBooking.checkpoint?(message.class) then :checkpoint
+        if message in Sourced::Command then :command
+        elsif transition?(message) then :checkpoint
         else :data
         end
       end
 
-      # The payload without the booking id every message carries, and a card
-      # number masked down to its last four digits.
+      # A machine's checkpoint events (and a child's Started) move it: they
+      # record where from and where to.
+      def transition?(message)
+        (message in Sourced::Machine::Checkpoint | Sourced::Machine::ChildEvent) && message.payload.respond_to?(:target)
+      end
+
+      # A transition as where it went from and to; any other message's payload
+      # without the keys every message carries, and a card number masked down
+      # to its last four digits.
       def payload_summary(message)
-        message.payload.to_h.except(:booking_id).map do |key, value|
+        return "#{message.payload.source} → #{message.payload.target}" if transition?(message)
+
+        message.payload.to_h.except(*@hide).map do |key, value|
           value = "•••• #{value.to_s.delete(' ')[-4..]}" if key == :card_number
           "#{key}: #{value}"
         end.join(' · ')
