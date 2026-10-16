@@ -34,25 +34,34 @@ class App < Sidereal::App
          HolidayBooking::CancelBooking
 
   page UI::HomePage
-  page UI::BookingPage
-  page UI::DiagramPage
+  page UI::Booking::Page
+  page UI::Booking::DiagramPage
 
-  # Time travel: either tab, rendered from the first `step` messages of the
-  # booking's history. Static, so nothing live replaces it. The history feed
-  # links here.
+  # Time travel: any tab, rendered from the first `step` messages of the
+  # booking's or payroll's history. Static, so nothing live replaces it. The
+  # history feeds link here.
   get '/bookings/:booking_id/at/:step' do |booking_id:, step:|
-    render_step UI::BookingPage, booking_id, step
+    render_step UI::Booking::Page, booking_id, step
   end
 
   get '/bookings/:booking_id/diagram/at/:step' do |booking_id:, step:|
-    render_step UI::DiagramPage, booking_id, step
+    render_step UI::Booking::DiagramPage, booking_id, step
+  end
   end
 
-  private def render_step(page_class, booking_id, step)
+  # A Datastar request (a step link in a history feed) gets the page patched
+  # in place, and the step's URL pushed onto the browser's history; any other
+  # gets the whole page.
+  private def render_step(page_class, *ids, step)
     step = Integer(step, 10, exception: false)
-    page = step && page_class.at(booking_id, step)
+    page = step && page_class.at(*ids, step)
     halt 404, 'Not found' unless page
+    return component(page) unless browser.sse?
 
-    component page
+    path = request.path
+    browser.stream do |sse|
+      sse.patch_elements page
+      sse.execute_script "history.pushState({}, '', #{path.to_json})"
+    end
   end
 end
