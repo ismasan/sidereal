@@ -9,7 +9,7 @@ module MachineHelpers
   # decision would build it: the target's own class, or for a mounted
   # machine's checkpoint, the class +machine+ generates for it.
   def moved(machine, trigger, from:, to:, exited: [], entered: [to], **keys)
-    klass = machine.checkpoint_class(machine.tree.node_at(to).key)
+    klass = machine.state_class(machine.tree.node_at(to).key)
     klass.new(payload: { **keys, trigger:, source: from, target: to, exited:, entered: })
   end
 

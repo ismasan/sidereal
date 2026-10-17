@@ -53,7 +53,7 @@ module UI
 
       def position_name(region)
         case @machine.current(region)
-        in Class => checkpoint if Sourced::Machine.handle?(checkpoint) then checkpoint.checkpoint_name.to_s
+        in Class => checkpoint if Sourced::Machine.handle?(checkpoint) then checkpoint.state_name.to_s
         else 'initial'
         end
       end

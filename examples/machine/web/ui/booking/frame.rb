@@ -28,7 +28,7 @@ module UI
       def initialize(history)
         @history = history
         @booking = history.booking
-        @trip = @booking.state
+        @trip = @booking.context
         @machine = @booking.machine
       end
 

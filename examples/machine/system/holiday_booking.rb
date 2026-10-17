@@ -63,10 +63,11 @@ class HolidayBooking < Sourced::Machine
 
   FinishExtras = Command(:finish_extras)
 
+  # 12 to 19 digits; spaces, as people type them, are dropped.
+  CardNumber = Sourced::Types::String.transform(::String) { |number| number.delete(' ') }[/\A\d{12,19}\z/]
+
   Pay = Command(:pay) do
-    attribute :card_number, (Sourced::Types::String.check('Enter a card number: 12 to 19 digits') do |number|
-      number.delete(' ').match?(/\A\d{12,19}\z/)
-    end)
+    attribute :card_number, CardNumber
   end
 
   CancelBooking = Command(:cancel_booking)
@@ -76,18 +77,18 @@ class HolidayBooking < Sourced::Machine
 
   # ---- Checkpoints ----
 
-  BookingStarted = Checkpoint(:booking_started)
-  FlightChosen = Checkpoint(:flight_chosen)
-  FlightConfirmed = Checkpoint(:flight_confirmed)
-  HotelChosen = Checkpoint(:hotel_chosen)
-  RoomChosen = Checkpoint(:room_chosen)
-  BoardChosen = Checkpoint(:board_chosen)
-  HotelConfirmed = Checkpoint(:hotel_confirmed)
-  ExtrasChosen = Checkpoint(:extras_chosen)
-  ItineraryReady = Checkpoint(:itinerary_ready)
-  BookingConfirmed = Checkpoint(:booking_confirmed)
-  BookingCancelled = Checkpoint(:booking_cancelled)
-  HoldExpired = Checkpoint(:hold_expired)
+  BookingStarted = State(:booking_started)
+  FlightChosen = State(:flight_chosen)
+  FlightConfirmed = State(:flight_confirmed)
+  HotelChosen = State(:hotel_chosen)
+  RoomChosen = State(:room_chosen)
+  BoardChosen = State(:board_chosen)
+  HotelConfirmed = State(:hotel_confirmed)
+  ExtrasChosen = State(:extras_chosen)
+  ItineraryReady = State(:itinerary_ready)
+  BookingConfirmed = State(:booking_confirmed)
+  BookingCancelled = State(:booking_cancelled)
+  HoldExpired = State(:hold_expired)
 
   # ---- Events: what the traveller picked ----
 
@@ -176,7 +177,7 @@ class HolidayBooking < Sourced::Machine
     def total = lines.sum(&:last)
   end
 
-  state do
+  context do
     Trip.new
   end
 
@@ -240,7 +241,7 @@ class HolidayBooking < Sourced::Machine
     end
   end
 
-  checkpoint BookingStarted do
+  state BookingStarted do
     command CancelBooking => BookingCancelled
 
     region :flight do
@@ -250,7 +251,7 @@ class HolidayBooking < Sourced::Machine
         end
       end
 
-      checkpoint FlightChosen do
+      state FlightChosen do
         command ChooseFlight => FlightChosen do |_trip, cmd|
           event FlightSelected, flight: cmd.payload.flight
         end
@@ -267,7 +268,7 @@ class HolidayBooking < Sourced::Machine
         end
       end
 
-      checkpoint HotelChosen do
+      state HotelChosen do
         command ChooseHotel => HotelChosen do |_trip, cmd|
           event HotelSelected, hotel: cmd.payload.hotel
         end
@@ -314,14 +315,14 @@ class HolidayBooking < Sourced::Machine
     done ItineraryReady
   end
 
-  checkpoint ItineraryReady do
+  state ItineraryReady do
     after(HOLD_SECONDS) do |_trip, _transition|
       dispatch ExpireHold
     end
 
     # A card ending in 0000 is declined, any other is charged.
     command Pay => BookingConfirmed | nil do |_trip, cmd|
-      card = cmd.payload.card_number.delete(' ')
+      card = cmd.payload.card_number
       if card.end_with?('0000')
         event PaymentDeclined, last4: card[-4..], reason: 'Your card was declined. Try another one.'
       else

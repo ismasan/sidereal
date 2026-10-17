@@ -169,4 +169,22 @@ RSpec.describe HolidayBooking do
       expect(instance.handles_command?(cmd(HolidayBooking::Pay, card_number: '4242424242424242'))).to be(false)
     end
   end
+
+  # The machine decides any Pay it's given: a card number is checked when the
+  # command is built, which is where a browser's command is refused.
+  describe 'a card number' do
+    def pay(card_number) = cmd(HolidayBooking::Pay, card_number:)
+
+    it 'takes 12 to 19 digits, dropping the spaces people type' do
+      expect(pay('4242 4242 4242 4242')).to be_valid
+      expect(pay('4242 4242 4242 4242').payload.card_number).to eq('4242424242424242')
+      expect(pay('424242424242')).to be_valid
+    end
+
+    it 'refuses anything else' do
+      expect(pay('4242')).not_to be_valid
+      expect(pay('4242 4242 4242 4242 4242')).not_to be_valid
+      expect(pay('4242-4242-4242-4242')).not_to be_valid
+    end
+  end
 end

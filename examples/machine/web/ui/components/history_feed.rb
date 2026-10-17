@@ -111,7 +111,7 @@ module UI
       # A machine's checkpoint events (and a child's Started) move it: they
       # record where from and where to.
       def transition?(message)
-        (message in Sourced::Machine::Checkpoint | Sourced::Machine::ChildEvent) && message.payload.respond_to?(:target)
+        (message in Sourced::Machine::State | Sourced::Machine::ChildEvent) && message.payload.respond_to?(:target)
       end
 
       # A transition as where it went from and to; any other message's payload
