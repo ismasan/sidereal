@@ -11,7 +11,7 @@ class GamesProjector < Sourced::Projector::StateStored
   # the injected db: defaults to Sidereal.config['db'].
   dep :db
 
-  state do
+  context do
     {
       game_id: nil,
       white_username: nil,
@@ -26,7 +26,7 @@ class GamesProjector < Sourced::Projector::StateStored
 
   # The game's stored row, if any, which the claimed events evolve on top of.
   # Runs in the projector's scope, where the injected db: is available.
-  load_state do |values|
+  load_context do |values|
     db[:games].where(game_id: values[:game_id]).first
   end
 
@@ -54,10 +54,10 @@ class GamesProjector < Sourced::Projector::StateStored
     s[:winner] = e.payload.winner
   end
 
-  sync do |state:, **|
-    next unless state[:game_id]
+  sync do |context:, **|
+    next unless context[:game_id]
 
-    db[:games].insert_conflict(:replace).insert(state)
+    db[:games].insert_conflict(:replace).insert(context)
   end
 
   # A `Projected` signal (attribute: game_id) is auto-generated from

@@ -1,5 +1,10 @@
 # frozen_string_literal: true
 
+require_relative 'ui/layout'
+require_relative 'ui/components/event_list'
+require_relative 'ui/campaigns_list_page'
+require_relative 'ui/donation_page'
+
 class App < Sidereal::App
   layout UI::Layout
 
@@ -33,7 +38,7 @@ class App < Sidereal::App
 
   get '/:campaign_id/:donation_id/verify/:token' do |campaign_id:, donation_id:, token:|
     decider, events = Sourced.load(Donation, campaign_id:, donation_id:)
-    if decider.state.verification_token == token
+    if decider.context.verification_token == token
       cmd = Donation::VerifyEmailAddress.new(payload: { donation_id:, campaign_id: })
       Sidereal.dispatch!(cmd)
       redirect to("/#{campaign_id}/#{donation_id}")

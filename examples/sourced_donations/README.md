@@ -25,13 +25,13 @@ Same UI flow as `donations1` — `AmountPicker → DonorDetailsForm → Preparin
 | | `donations1` | `sourced_donations` |
 | --- | --- | --- |
 | State | mutable Struct in `PStore` | rebuilt from event log via `Sourced.load` |
-| Command handlers | mutate the store directly | pure: validate against state, emit events |
+| Command handlers | mutate the store directly | pure: validate against context, emit events |
 | Automations | `dispatch` from inside command handlers | Sourced `reaction` blocks emit follow-up commands |
 | Persistence | `donations.pstore` | `storage/donations.db` (SQLite via Sequel) |
 | Workers | Sidereal in-memory queue | Sourced consumer-group workers |
 | `/verify/...` lookup | `DonationStore.find_by_token` | URL carries `donation_id`, decider checks the token |
 
-## Decider shape (`domain/donation.rb`)
+## Decider shape (`system/donation.rb`)
 
 ```ruby
 class Donation < Sourced::Decider
@@ -39,12 +39,12 @@ class Donation < Sourced::Decider
 
   # commands & events defined with Sourced::Command.define / Sourced::Event.define
 
-  state { |values| State.new(donation_id: values[:donation_id]) }
+  context { State.new }
 
   evolve(AmountSelected) { |s, e| s.amount = e.payload.amount; s.status = 'amount_selected' }
   # ... one evolve per event
 
-  command(SelectAmount) do |state, cmd|
+  command(SelectAmount) do |context, cmd|
     raise 'invalid' unless AMOUNTS.include?(cmd.payload.amount.to_i)
     event AmountSelected, donation_id: cmd.payload.donation_id, amount: cmd.payload.amount.to_i
   end
@@ -54,13 +54,13 @@ class Donation < Sourced::Decider
   reaction(EmailSent)           { |_, evt| dispatch DeliverVerificationEmail, donation_id: evt.payload.donation_id }
 
   # mock_payment_service automation
-  reaction(CardPresented) do |state, evt|
-    payment_reference = MockPaymentService.charge(state)
+  reaction(CardPresented) do |context, evt|
+    payment_reference = MockPaymentService.charge(context)
     dispatch ConfirmPayment, donation_id: evt.payload.donation_id, payment_reference:
   end
 
   # bridge to Sidereal SSE — publish each event on the per-donation channel
-  after_sync do |state:, events:, **|
+  after_sync do |context:, events:, **|
     events.each do |evt|
       Sidereal.pubsub.publish(Sidereal.channels.for(evt), evt)
     end
@@ -68,12 +68,12 @@ class Donation < Sourced::Decider
 end
 ```
 
-## Loading state in a page
+## Loading context in a page
 
 ```ruby
 def self.load_donation(donation_id)
   decider, _ = Sourced.load(Donation, donation_id:)
-  decider.state
+  decider.context
 end
 ```
 

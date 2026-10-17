@@ -31,13 +31,13 @@ RSpec.describe GamesProjector do
       with_reactor(GamesProjector, game_id:)
         .given(Game::GameCreated, game_id:, white_username: white, initial_fen: ChessEngine::INITIAL_FEN)
         .then { |result|
-          expect(result.state).to include(
+          expect(result.context).to include(
             game_id:,
             white_username: white,
             status: 'created',
             move_count: 0
           )
-          expect(result.state[:created_at]).to be_a(String)
+          expect(result.context[:created_at]).to be_a(String)
         }
     end
 
@@ -46,8 +46,8 @@ RSpec.describe GamesProjector do
         .given(Game::GameCreated, game_id:, white_username: white, initial_fen: ChessEngine::INITIAL_FEN)
         .and(Game::PlayerJoined, game_id:, username: black, color: 'black')
         .then { |result|
-          expect(result.state[:black_username]).to eq(black)
-          expect(result.state[:status]).to eq('in_progress')
+          expect(result.context[:black_username]).to eq(black)
+          expect(result.context[:status]).to eq('in_progress')
         }
     end
 
@@ -56,8 +56,8 @@ RSpec.describe GamesProjector do
         .given(Game::GameCreated, game_id:, white_username: white, initial_fen: ChessEngine::INITIAL_FEN)
         .and(Game::PlayerJoined, game_id:, username: 'eve', color: 'white')
         .then { |result|
-          expect(result.state[:black_username]).to be_nil
-          expect(result.state[:status]).to eq('created')
+          expect(result.context[:black_username]).to be_nil
+          expect(result.context[:status]).to eq('created')
         }
     end
 
@@ -76,7 +76,7 @@ RSpec.describe GamesProjector do
           san: 'e5', fen_after: 'fen2'
         )
         .then { |result|
-          expect(result.state[:move_count]).to eq(2)
+          expect(result.context[:move_count]).to eq(2)
         }
     end
 
@@ -86,9 +86,9 @@ RSpec.describe GamesProjector do
         .and(Game::PlayerJoined, game_id:, username: black, color: 'black')
         .and(Game::GameEnded, game_id:, reason: 'resignation', winner: 'white')
         .then { |result|
-          expect(result.state[:status]).to eq('ended')
-          expect(result.state[:end_reason]).to eq('resignation')
-          expect(result.state[:winner]).to eq('white')
+          expect(result.context[:status]).to eq('ended')
+          expect(result.context[:end_reason]).to eq('resignation')
+          expect(result.context[:winner]).to eq('white')
         }
     end
   end

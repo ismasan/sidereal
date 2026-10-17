@@ -1,6 +1,6 @@
 GIT
   remote: https://github.com/ismasan/sourced.git
-  revision: 6c54a15a00fd17cd6a8006fee7e83ff5b1657c1d
+  revision: dd11509ab32a717544cdaedbc9988c4a285c420e
   branch: ccc
   specs:
     sourced (0.0.1)

@@ -1,6 +1,6 @@
 require 'sourced/ui/dashboard'
 require_relative 'boot'
-require_relative 'app'
+require_relative 'web/app'
 
 Sourced::UI::Dashboard.configure do |config|
   config.header_links([
@@ -13,6 +13,6 @@ map '/sourced' do
 end
 
 map '/' do
-  use Rack::Static, urls: ['/css', '/js'], root: 'public'
-  run DonationsApp
+  use Rack::Static, urls: ['/css', '/js'], root: 'web/public'
+  run App
 end

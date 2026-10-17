@@ -4,7 +4,7 @@ require 'chess'
 
 # Thin wrapper over the `chess` gem (giuse/chess 0.5).
 #
-# The Game decider stores FEN in its state and rebuilds an engine on every
+# The Game decider stores FEN in its context and rebuilds an engine on every
 # command, so this wrapper is the single boundary that touches the gem. If
 # the gem proves unsuitable, swap to another implementation with the same
 # Result interface and the rest of the app keeps working.

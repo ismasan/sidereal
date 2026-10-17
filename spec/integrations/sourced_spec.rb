@@ -67,13 +67,13 @@ class IntgWidget < Sourced::Decider
   Create  = Sourced::Command.define('intg_widget.create') { attribute :widget_id, Sourced::Types::String }
   Created = Sourced::Event.define('intg_widget.created')  { attribute :widget_id, Sourced::Types::String }
 
-  state do
+  context do
     { widget_id: nil, created: false }
   end
 
-  evolve(Created) do |state, evt|
-    state[:widget_id] = evt.payload.widget_id
-    state[:created] = true
+  evolve(Created) do |context, evt|
+    context[:widget_id] = evt.payload.widget_id
+    context[:created] = true
   end
 
   command(Create) do |_state, cmd|
@@ -90,12 +90,12 @@ class IntgThingProjector < Sourced::Projector::StateStored
   consumer_group 'intg_thing_projector'
   partition_by :thing_id
 
-  state do
+  context do
     { thing_id: nil }
   end
 
-  evolve(IntgThingHappenedEvt) do |state, evt|
-    state[:thing_id] = evt.payload.thing_id
+  evolve(IntgThingHappenedEvt) do |context, evt|
+    context[:thing_id] = evt.payload.thing_id
   end
 end
 
@@ -109,14 +109,14 @@ class IntgEnrollmentProjector < Sourced::Projector::StateStored
   consumer_group 'intg_enrollment_projector'
   partition_by :student_id, :course_id
 
-  # Deliberately keeps course_id OUT of state — the Projected signal must
+  # Deliberately keeps course_id OUT of context — the Projected signal must
   # still carry it (sourced from partition_values, not read-model state).
-  state do
+  context do
     { student_id: nil }
   end
 
-  evolve(IntgEnrolledEvt) do |state, evt|
-    state[:student_id] = evt.payload.student_id
+  evolve(IntgEnrolledEvt) do |context, evt|
+    context[:student_id] = evt.payload.student_id
   end
 end
 
@@ -266,26 +266,26 @@ RSpec.describe 'Sidereal::Commander on the Sourced runtime' do
         .then(IntgWidget::Created, widget_id: 'named-w1')
     end
 
-    it 'injects into a projector, for its load_state block' do
+    it 'injects into a projector, for its load_context block' do
       stub_const('IntgDepProjector', Class.new(Sourced::Projector::StateStored) do
         consumer_group 'intg_dep_projector'
         partition_by :thing_id
         dep 'naming' => 'namer'
 
-        # load_state runs in the projector's scope, so injected readers work
-        # there; state and evolve blocks run in its projection, without them.
-        load_state do |values|
+        # load_context runs in the projector's scope, so injected readers work
+        # there; context and evolve blocks run in its projection, without them.
+        load_context do |values|
           { thing_id: values[:thing_id], label: namer.call(values[:thing_id]) }
         end
 
-        evolve(IntgThingHappenedEvt) do |state, _evt|
-          state[:seen] = true
+        evolve(IntgThingHappenedEvt) do |context, _evt|
+          context[:seen] = true
         end
       end)
 
       with_reactor(IntgDepProjector, thing_id: 't1')
         .given(IntgThingHappenedEvt, thing_id: 't1')
-        .then { |result| expect(result.state).to eq(thing_id: 't1', label: 'named-t1', seen: true) }
+        .then { |result| expect(result.context).to eq(thing_id: 't1', label: 'named-t1', seen: true) }
     end
   end
 

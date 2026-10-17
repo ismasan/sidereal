@@ -41,25 +41,25 @@ class Campaign < Sourced::Decider
     keyword_init: true
   )
 
-  state do
+  context do
     State.new
   end
 
-  evolve(CampaignCreated) do |state, evt|
-    state.campaign_id = evt.payload.campaign_id
-    state.name = evt.payload.name
-    state.target_amount = evt.payload.target_amount
-    state.status = 'open'
+  evolve(CampaignCreated) do |context, evt|
+    context.campaign_id = evt.payload.campaign_id
+    context.name = evt.payload.name
+    context.target_amount = evt.payload.target_amount
+    context.status = 'open'
   end
 
-  evolve(CampaignClosed) do |state, _|
-    state.status = 'closed'
+  evolve(CampaignClosed) do |context, _|
+    context.status = 'closed'
   end
 
   # ---- Command handlers ----
 
-  command(CreateCampaign) do |state, cmd|
-    raise 'campaign already exists' if state.status
+  command(CreateCampaign) do |context, cmd|
+    raise 'campaign already exists' if context.status
 
     raw_target = cmd.payload.target_amount.to_s.strip
     target_amount = raw_target.empty? ? nil : raw_target.to_i
@@ -70,9 +70,9 @@ class Campaign < Sourced::Decider
       target_amount:
   end
 
-  command(CloseCampaign) do |state, cmd|
-    raise 'campaign not found' unless state.status
-    raise 'campaign already closed' if state.status == 'closed'
+  command(CloseCampaign) do |context, cmd|
+    raise 'campaign not found' unless context.status
+    raise 'campaign already closed' if context.status == 'closed'
 
     event CampaignClosed, campaign_id: cmd.payload.campaign_id
   end

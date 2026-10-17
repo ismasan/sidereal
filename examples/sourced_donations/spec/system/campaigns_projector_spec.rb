@@ -30,13 +30,13 @@ RSpec.describe CampaignsProjector do
       with_reactor(CampaignsProjector, campaign_id:)
         .given(Campaign::CampaignCreated, **created_attrs)
         .then { |result|
-          expect(result.state).to include(
+          expect(result.context).to include(
             campaign_id:,
             name: 'Park benches',
             target_amount: 500,
             status: 'open'
           )
-          expect(result.state[:created_at]).to be_a(String)
+          expect(result.context[:created_at]).to be_a(String)
         }
     end
 
@@ -45,7 +45,7 @@ RSpec.describe CampaignsProjector do
         .given(Campaign::CampaignCreated, **created_attrs)
         .and(Campaign::CampaignClosed, campaign_id:)
         .then { |result|
-          expect(result.state[:status]).to eq('closed')
+          expect(result.context[:status]).to eq('closed')
         }
     end
 
@@ -53,7 +53,7 @@ RSpec.describe CampaignsProjector do
       with_reactor(CampaignsProjector, campaign_id:)
         .given(Campaign::CampaignCreated, **created_attrs)
         .then { |result|
-          expect(result.state[:total_amount]).to eq(0)
+          expect(result.context[:total_amount]).to eq(0)
         }
     end
 
@@ -71,7 +71,7 @@ RSpec.describe CampaignsProjector do
           payment_reference: 'r2', paid_at: Time.now
         )
         .then { |result|
-          expect(result.state[:total_amount]).to eq(40)
+          expect(result.context[:total_amount]).to eq(40)
         }
     end
 
@@ -87,7 +87,7 @@ RSpec.describe CampaignsProjector do
           payment_reference: 'r1', paid_at: Time.now
         )
         .then { |result|
-          expect(result.state[:total_amount]).to eq(50)
+          expect(result.context[:total_amount]).to eq(50)
         }
     end
   end

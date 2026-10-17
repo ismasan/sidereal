@@ -8,7 +8,7 @@ GIT
 
 GIT
   remote: https://github.com/ismasan/sourced.git
-  revision: 2cbcef97374514d2224bae5a389dfb49325bde7a
+  revision: dd11509ab32a717544cdaedbc9988c4a285c420e
   branch: ccc
   specs:
     sourced (0.0.1)
@@ -202,6 +202,7 @@ GEM
 
 PLATFORMS
   arm64-darwin-24
+  arm64-darwin-25
   x86_64-linux
 
 DEPENDENCIES

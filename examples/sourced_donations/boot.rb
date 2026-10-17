@@ -9,10 +9,12 @@ require 'sidereal/integrations/sourced'
 DB_PATH = File.expand_path('storage/donations.db', __dir__)
 FileUtils.mkdir_p(File.dirname(DB_PATH))
 
-require_relative 'domain/campaign'
-require_relative 'domain/donation'
-require_relative 'domain/campaigns_projector'
-require_relative 'domain/donation_view'
+require_relative 'system/stripe_gateway'
+require_relative 'system/mock_payment_service'
+require_relative 'system/campaign'
+require_relative 'system/donation'
+require_relative 'system/campaigns_projector'
+require_relative 'system/donation_view'
 
 # The app's SQLite database, where Sourced keeps its events and the
 # CampaignsProjector its read model. Each forked Falcon worker opens its own

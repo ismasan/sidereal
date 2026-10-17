@@ -41,10 +41,10 @@ class GamePage < Sidereal::Page
     if upto
       view = GameView.new({ game_id: game_id })
       view.evolve(messages.first(upto))
-      [view.state, messages]
+      [view.context, messages]
     else
       view, _ = Sourced.load(GameView, game_id: game_id)
-      [view.state, messages]
+      [view.context, messages]
     end
   end
 

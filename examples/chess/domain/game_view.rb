@@ -23,7 +23,7 @@ class GameView < Sourced::Projector::EventSourced
     keyword_init: true
   )
 
-  state do
+  context do
     State.new(
       move_count: 0,
       captured: { 'white' => [], 'black' => [] },

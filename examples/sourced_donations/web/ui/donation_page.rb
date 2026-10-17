@@ -15,7 +15,7 @@ module UI
 
     def self.load_donation(campaign_id, donation_id)
       view, _ = Sourced.load(DonationView, campaign_id:, donation_id:)
-      view.state
+      view.context
     end
 
     # Loads donation state + the full command/event stream for the sidebar in
@@ -47,7 +47,7 @@ module UI
       view = DonationView.new({ campaign_id: campaign_id, donation_id: donation_id })
       view.evolve(evolve_messages)
 
-      [view.state, display_messages]
+      [view.context, display_messages]
     end
 
     def self.campaign_message?(msg)

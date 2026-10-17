@@ -4,9 +4,9 @@ require_relative 'chess_engine'
 
 # Event-sourced chess game.
 #
-# Stores the FEN of the current position in state, plus seat assignments and
+# Stores the FEN of the current position in its context, plus seat assignments and
 # a captured-pieces ledger. The chess engine is reconstructed from FEN on
-# every MakeMove — cheap enough for a demo, and keeps state minimal.
+# every MakeMove — cheap enough for a demo, and keeps the context minimal.
 class Game < Sourced::Decider
   consumer_group 'games'
   partition_by :game_id
@@ -78,7 +78,7 @@ class Game < Sourced::Decider
     attribute :winner, Sourced::Types::String.nullable
   end
 
-  # ---- State ----
+  # ---- Context ----
 
   State = Struct.new(
     :game_id,
@@ -93,7 +93,7 @@ class Game < Sourced::Decider
     keyword_init: true
   )
 
-  state do
+  context do
     State.new(
       move_count: 0,
       captured: { 'white' => [], 'black' => [] }
@@ -130,8 +130,8 @@ class Game < Sourced::Decider
 
   # ---- Command handlers ----
 
-  command(CreateGame) do |state, cmd|
-    return if state.status                # idempotent — re-create is a silent no-op
+  command(CreateGame) do |context, cmd|
+    return if context.status                  # idempotent — re-create is a silent no-op
     raise 'login required' if cmd.payload.white_username.to_s.empty?
 
     event GameCreated,
@@ -145,10 +145,10 @@ class Game < Sourced::Decider
   # and concurrent visitors. Sourced serializes commands per partition, so
   # a race between two visitors resolves with the second one becoming a
   # spectator.
-  command(JoinGame) do |state, cmd|
-    return unless state.status                  # game not yet created — silent no-op
-    return if cmd.payload.username == state.white_username
-    return if state.black_username              # seat taken — visitor becomes spectator
+  command(JoinGame) do |context, cmd|
+    return unless context.status                  # game not yet created — silent no-op
+    return if cmd.payload.username == context.white_username
+    return if context.black_username              # seat taken — visitor becomes spectator
 
     event PlayerJoined,
       game_id: cmd.payload.game_id,
@@ -156,18 +156,18 @@ class Game < Sourced::Decider
       color: 'black'
   end
 
-  command(MakeMove) do |state, cmd|
+  command(MakeMove) do |context, cmd|
     # Empty payloads / wrong-state moves are silent no-ops so the consumer
     # group doesn't halt on rejected attempts (e.g. user clicks a target
     # before selecting a source). Only domain-rule violations raise.
-    return unless state.status == 'in_progress'
+    return unless context.status == 'in_progress'
     return if cmd.payload.from.to_s.empty?
     return if cmd.payload.to.to_s.empty?
 
-    color = color_for(state, cmd.payload.username)
+    color = color_for(context, cmd.payload.username)
     return unless color                         # spectator click — silent no-op
 
-    engine = ChessEngine.new(state.fen)
+    engine = ChessEngine.new(context.fen)
     return unless engine.side_to_move == color  # off-turn click — silent no-op
 
     result = engine.apply(cmd.payload.from, cmd.payload.to)
@@ -193,10 +193,10 @@ class Game < Sourced::Decider
     end
   end
 
-  command(Resign) do |state, cmd|
-    return unless state.status == 'in_progress'
-    color = color_for(state, cmd.payload.username)
-    return unless color                          # spectator click — no-op
+  command(Resign) do |context, cmd|
+    return unless context.status == 'in_progress'
+    color = color_for(context, cmd.payload.username)
+    return unless color                         # spectator click — no-op
 
     event GameEnded,
       game_id: cmd.payload.game_id,
@@ -204,9 +204,9 @@ class Game < Sourced::Decider
       winner: color == 'white' ? 'black' : 'white'
   end
 
-  private def color_for(state, username)
-    return 'white' if username == state.white_username
-    return 'black' if username == state.black_username
+  private def color_for(context, username)
+    return 'white' if username == context.white_username
+    return 'black' if username == context.black_username
     nil
   end
 end
