@@ -8,9 +8,9 @@ require 'ruby_decision_model'
 # An event-sourced projector rather than a decider, because it owns no stream
 # of its own — it handles no commands and emits no events, it only watches a
 # comment's events and dispatches the next command. `Projector::EventSourced`
-# rebuilds its state from the comment's full history on every batch, so the
+# rebuilds its context from the comment's full history on every batch, so the
 # content is always there to classify, whatever position the consumer group
-# is at. There is no `sync` block, so nothing is persisted: the state lives
+# is at. There is no `sync` block, so nothing is persisted: the context lives
 # for the length of one batch.
 class Classifier < Sourced::Projector::EventSourced
   consumer_group 'classifier'
@@ -50,31 +50,31 @@ class Classifier < Sourced::Projector::EventSourced
   # default strategy and stops the consumer group immediately rather than
   # burning four more model calls to reach the same place.
   def self.on_exception(exception, message, group)
-    strategy = RETRYABLE_ERRORS.any? { |klass| exception.is_a?(klass) } ? RETRY_STRATEGY : Sourced.config.error_strategy
+    strategy = RETRYABLE_ERRORS.any? { |klass| klass === exception } ? RETRY_STRATEGY : Sourced.config['error_strategy']
     strategy.call(exception, message, group)
   end
 
-  State = Struct.new(:content, :taken)
+  Context = Struct.new(:content, :taken)
 
   # Minimal local struct to keep track of
-  # the state changes we care about here.
-  state do |_values|
-    State.new('', false)
+  # the changes we care about here.
+  context do
+    Context.new('', false)
   end
 
-  # Evolve local state
+  # Evolve local context
   # so that the classifier has the info it needs.
-  evolve(Comment::CommentCreated) do |state, evt|
-    state.content = evt.payload.content
+  evolve(Comment::CommentCreated) do |context, evt|
+    context.content = evt.payload.content
   end
 
-  evolve(Comment::ModerationStarted) do |state, _evt|
-    state.taken = true
+  evolve(Comment::ModerationStarted) do |context, _evt|
+    context.taken = true
   end
 
   # When a comment is created, start moderation immediately
-  reaction Comment::CommentCreated do |state, evt|
-    return if state.taken
+  reaction Comment::CommentCreated do |context, evt|
+    return if context.taken
 
     dispatch Comment::StartModeration,
       comment_id: evt.payload.comment_id,
@@ -82,12 +82,12 @@ class Classifier < Sourced::Projector::EventSourced
   end
 
   # Use Jev (via Feelings gem) to classify this comment.
-  reaction Comment::ModerationStarted do |state, evt|
+  reaction Comment::ModerationStarted do |context, evt|
     return unless evt.payload.started_by == 'classifier'
 
     comment_id = evt.payload.comment_id
 
-    cmd = case Feelings(state.content).most_like(VIBES)
+    cmd = case Feelings(context.content).most_like(VIBES)
     when :positive
       Comment::MarkPositive
     when :neutral
@@ -102,7 +102,7 @@ class Classifier < Sourced::Projector::EventSourced
   end
 
   # Sourced hook
-  def should_react?(state, message, replaying: false)
+  def should_react?(context, message, replaying: false)
     true
   end
 
