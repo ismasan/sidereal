@@ -18,16 +18,16 @@ class CommentDetailPage < PipelinePage
   # renders a waiting state and the inherited Projected reaction re-renders
   # the page when the row lands.
   #
-  # Historic: the row is ignored and the state is rebuilt by replaying the
-  # first +step+ messages through the Comment decider, whose State struct
-  # carries the same fields the card reads. The feed always lists the whole
+  # Historic: the row is ignored and the comment is rebuilt by replaying the
+  # first +step+ messages through the Comment decider's projection, whose State
+  # struct carries the same fields the card reads. The feed always lists the whole
   # history, so you can jump forward and back from any snapshot.
   def self.load(params, _ctx)
     comment_id = params[:comment_id]
     step = parse_step(params[:step])
     messages = EventFeed.for_comment(comment_id)
 
-    comment = step ? replay(comment_id, messages.first(step)) : CommentsProjector.find(comment_id)
+    comment = step ? replay(messages.first(step)) : CommentsProjector.find(comment_id)
     subject = Subjects.find(comment&.[](:subject_id) || params[:subject_id])
 
     new(
@@ -50,14 +50,14 @@ class CommentDetailPage < PipelinePage
     Integer(raw, 10, exception: false).then { |n| n&.positive? ? n : 0 }
   end
 
-  # The decider is already the event-sourced model of a comment, so replaying
-  # its own events through it is the projection — no separate view class. Its
+  # The decider's projection is already the event-sourced model of a comment,
+  # so replaying its own events through it needs no separate view class. Its
   # State struct converts to the same shape the projector row has, which is
-  # what DetailCard reads.
-  def self.replay(comment_id, messages)
+  # what DetailCard reads. The comment_id comes from the events.
+  def self.replay(messages)
     return nil if messages.empty?
 
-    Comment.new({ comment_id: comment_id }).evolve(messages).to_h
+    Comment.projection_class.new.evolve(messages).to_h
   end
 
   def initialize(comment_id:, current_step: nil, **rest)

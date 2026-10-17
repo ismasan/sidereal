@@ -132,16 +132,16 @@ RSpec.describe Comment do
     end
   end
 
-  describe 'state' do
+  describe 'context' do
     it 'tracks status and vibe through the pipeline' do
       with_reactor(Comment, comment_id:)
         .given(Comment::CommentCreated, **created)
         .and(Comment::ModerationStarted, comment_id:, started_by: 'moderator')
         .and(Comment::MarkedNegative, comment_id:)
         .then { |result|
-          expect(result.state.status).to eq('approved')
-          expect(result.state.vibe).to eq('negative')
-          expect(result.state.content).to eq(created[:content])
+          expect(result.context.status).to eq('approved')
+          expect(result.context.vibe).to eq('negative')
+          expect(result.context.content).to eq(created[:content])
         }
     end
 
@@ -151,8 +151,8 @@ RSpec.describe Comment do
         .and(Comment::ModerationStarted, comment_id:, started_by: 'moderator')
         .and(Comment::MarkedSpam, comment_id:)
         .then { |result|
-          expect(result.state.status).to eq('spam')
-          expect(result.state.vibe).to eq('unknown')
+          expect(result.context.status).to eq('spam')
+          expect(result.context.vibe).to eq('unknown')
         }
     end
   end
