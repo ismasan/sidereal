@@ -17,10 +17,13 @@ require 'securerandom'
 #                           └ extras: ToggleExtra (data) … FinishExtras ▶ ExtrasChosen
 #
 # Checkpoints are positions, and each is the event the machine appends when it
-# moves there (HolidayBooking::FlightChosen is holiday_booking.runtime.flight_chosen).
+# moves there (HolidayBooking::FlightChosen is holidays.runtime.flight_chosen).
 # What the traveller picks are data events, appended in the same decision.
 class HolidayBooking < Sourced::Machine
-  partition_by :booking_id
+  partition_by booking_id: Sourced::Types::UUID::V4
+
+  # Types stay holidays.*, whatever the class is called.
+  message_prefix 'holidays'
 
   # How long checkout holds the itinerary before it expires. Set HOLD_SECONDS
   # in the environment to watch it expire sooner.
@@ -28,7 +31,7 @@ class HolidayBooking < Sourced::Machine
 
   # ---- Commands ----
 
-  StartBooking = Sourced::Command.define('holidays.start_booking') do
+  StartBooking = Command(:start_booking) do
     attribute :booking_id, Sourced::Types::AutoUUID
     attribute :destination, Sourced::Types::String.options(Catalogue::DESTINATIONS.keys)
     attribute :depart_on, Sourced::Types::Date
@@ -36,54 +39,40 @@ class HolidayBooking < Sourced::Machine
     attribute :travellers, Sourced::Types::Integer[1..6]
   end
 
-  ChooseFlight = Sourced::Command.define('holidays.choose_flight') do
-    attribute :booking_id, Sourced::Types::UUID::V4
+  ChooseFlight = Command(:choose_flight) do
     attribute :flight, Sourced::Types::String.options(Catalogue.flight_codes)
   end
 
-  ConfirmFlight = Sourced::Command.define('holidays.confirm_flight') do
-    attribute :booking_id, Sourced::Types::UUID::V4
-  end
+  ConfirmFlight = Command(:confirm_flight)
 
-  ChooseHotel = Sourced::Command.define('holidays.choose_hotel') do
-    attribute :booking_id, Sourced::Types::UUID::V4
+  ChooseHotel = Command(:choose_hotel) do
     attribute :hotel, Sourced::Types::String.options(Catalogue.hotel_codes)
   end
 
-  ChooseRoom = Sourced::Command.define('holidays.choose_room') do
-    attribute :booking_id, Sourced::Types::UUID::V4
+  ChooseRoom = Command(:choose_room) do
     attribute :room, Sourced::Types::String.options(Catalogue::ROOMS.keys)
   end
 
-  ChooseBoard = Sourced::Command.define('holidays.choose_board') do
-    attribute :booking_id, Sourced::Types::UUID::V4
+  ChooseBoard = Command(:choose_board) do
     attribute :board, Sourced::Types::String.options(Catalogue::BOARDS.keys)
   end
 
-  ToggleExtra = Sourced::Command.define('holidays.toggle_extra') do
-    attribute :booking_id, Sourced::Types::UUID::V4
+  ToggleExtra = Command(:toggle_extra) do
     attribute :extra, Sourced::Types::String.options(Catalogue::EXTRAS.keys)
   end
 
-  FinishExtras = Sourced::Command.define('holidays.finish_extras') do
-    attribute :booking_id, Sourced::Types::UUID::V4
-  end
+  FinishExtras = Command(:finish_extras)
 
-  Pay = Sourced::Command.define('holidays.pay') do
-    attribute :booking_id, Sourced::Types::UUID::V4
+  Pay = Command(:pay) do
     attribute :card_number, (Sourced::Types::String.check('Enter a card number: 12 to 19 digits') do |number|
       number.delete(' ').match?(/\A\d{12,19}\z/)
     end)
   end
 
-  CancelBooking = Sourced::Command.define('holidays.cancel_booking') do
-    attribute :booking_id, Sourced::Types::UUID::V4
-  end
+  CancelBooking = Command(:cancel_booking)
 
   # Dispatched by the checkout timer, never by a browser.
-  ExpireHold = Sourced::Command.define('holidays.expire_hold') do
-    attribute :booking_id, Sourced::Types::UUID::V4
-  end
+  ExpireHold = Command(:expire_hold)
 
   # ---- Checkpoints ----
 
@@ -102,53 +91,44 @@ class HolidayBooking < Sourced::Machine
 
   # ---- Events: what the traveller picked ----
 
-  TripPlanned = Sourced::Event.define('holidays.trip_planned') do
-    attribute :booking_id, Sourced::Types::UUID::V4
+  TripPlanned = Event(:trip_planned) do
     attribute :destination, Sourced::Types::String
     attribute :depart_on, Sourced::Types::Date
     attribute :nights, Sourced::Types::Integer
     attribute :travellers, Sourced::Types::Integer
   end
 
-  FlightSelected = Sourced::Event.define('holidays.flight_selected') do
-    attribute :booking_id, Sourced::Types::UUID::V4
+  FlightSelected = Event(:flight_selected) do
     attribute :flight, Sourced::Types::String
   end
 
-  HotelSelected = Sourced::Event.define('holidays.hotel_selected') do
-    attribute :booking_id, Sourced::Types::UUID::V4
+  HotelSelected = Event(:hotel_selected) do
     attribute :hotel, Sourced::Types::String
   end
 
-  RoomSelected = Sourced::Event.define('holidays.room_selected') do
-    attribute :booking_id, Sourced::Types::UUID::V4
+  RoomSelected = Event(:room_selected) do
     attribute :room, Sourced::Types::String
   end
 
-  BoardSelected = Sourced::Event.define('holidays.board_selected') do
-    attribute :booking_id, Sourced::Types::UUID::V4
+  BoardSelected = Event(:board_selected) do
     attribute :board, Sourced::Types::String
   end
 
-  ExtraAdded = Sourced::Event.define('holidays.extra_added') do
-    attribute :booking_id, Sourced::Types::UUID::V4
+  ExtraAdded = Event(:extra_added) do
     attribute :extra, Sourced::Types::String
   end
 
-  ExtraRemoved = Sourced::Event.define('holidays.extra_removed') do
-    attribute :booking_id, Sourced::Types::UUID::V4
+  ExtraRemoved = Event(:extra_removed) do
     attribute :extra, Sourced::Types::String
   end
 
   # A declined card leaves checkout where it is, hold timer included.
-  PaymentDeclined = Sourced::Event.define('holidays.payment_declined') do
-    attribute :booking_id, Sourced::Types::UUID::V4
+  PaymentDeclined = Event(:payment_declined) do
     attribute :last4, Sourced::Types::String
     attribute :reason, Sourced::Types::String
   end
 
-  PaymentCaptured = Sourced::Event.define('holidays.payment_captured') do
-    attribute :booking_id, Sourced::Types::UUID::V4
+  PaymentCaptured = Event(:payment_captured) do
     attribute :reference, Sourced::Types::String
     attribute :last4, Sourced::Types::String
   end
