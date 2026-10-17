@@ -94,7 +94,7 @@ class Comment < Sourced::Decider
     (handled_messages + handled_messages_for_evolve).uniq.map(&:type)
   end
 
-  # ---- State ----
+  # ---- Context ----
 
   State = Struct.new(
     :comment_id,
@@ -107,45 +107,49 @@ class Comment < Sourced::Decider
     keyword_init: true
   )
 
-  state do |values|
-    State.new(comment_id: values[:comment_id], vibe: 'unknown')
+  context do
+    State.new(vibe: 'unknown')
   end
 
-  evolve(CommentCreated) do |s, e|
-    s.subject_id = e.payload.subject_id
-    s.subject_name = e.payload.subject_name
-    s.commenter_id = e.payload.commenter_id
-    s.content = e.payload.content
-    s.status = 'pending'
+  before_evolve do |context, evt|
+    context.comment_id ||= evt.payload.comment_id
   end
 
-  evolve(ModerationStarted) do |s, _e|
-    s.status = 'moderating'
+  evolve(CommentCreated) do |context, evt|
+    context.subject_id = evt.payload.subject_id
+    context.subject_name = evt.payload.subject_name
+    context.commenter_id = evt.payload.commenter_id
+    context.content = evt.payload.content
+    context.status = 'pending'
   end
 
-  evolve(MarkedPositive) do |s, _e|
-    s.status = 'approved'
-    s.vibe = 'positive'
+  evolve(ModerationStarted) do |context, _evt|
+    context.status = 'moderating'
   end
 
-  evolve(MarkedNegative) do |s, _e|
-    s.status = 'approved'
-    s.vibe = 'negative'
+  evolve(MarkedPositive) do |context, _evt|
+    context.status = 'approved'
+    context.vibe = 'positive'
   end
 
-  evolve(MarkedNeutral) do |s, _e|
-    s.status = 'approved'
-    s.vibe = 'neutral'
+  evolve(MarkedNegative) do |context, _evt|
+    context.status = 'approved'
+    context.vibe = 'negative'
   end
 
-  evolve(MarkedSpam) do |s, _e|
-    s.status = 'spam'
+  evolve(MarkedNeutral) do |context, _evt|
+    context.status = 'approved'
+    context.vibe = 'neutral'
+  end
+
+  evolve(MarkedSpam) do |context, _evt|
+    context.status = 'spam'
   end
 
   # ---- Command handlers ----
 
-  command(CreateComment) do |state, cmd|
-    return if state.status # idempotent — a re-submit of the same id is a silent no-op
+  command(CreateComment) do |context, cmd|
+    return if context.status # idempotent — a re-submit of the same id is a silent no-op
     raise 'commenter required' if cmd.payload.commenter_id.to_s.empty?
     raise 'unknown subject' unless Subjects.exists?(cmd.payload.subject_id)
     raise 'subject name required' if cmd.payload.subject_name.to_s.empty?
@@ -163,34 +167,34 @@ class Comment < Sourced::Decider
   # the second one sees status 'moderating' and no-ops. If both writes reach
   # the store concurrently instead, the optimistic-lock conflict surfaces
   # through Sidereal's error handling (a failure toast) rather than here.
-  command(StartModeration) do |state, cmd|
-    return unless state.status == 'pending'
+  command(StartModeration) do |context, cmd|
+    return unless context.status == 'pending'
 
     event ModerationStarted,
       comment_id: cmd.payload.comment_id,
       started_by: cmd.payload.started_by
   end
 
-  command(MarkPositive) do |state, cmd|
-    return unless moderating?(state)
+  command(MarkPositive) do |context, cmd|
+    return unless moderating?(context)
 
     event MarkedPositive, comment_id: cmd.payload.comment_id
   end
 
-  command(MarkNegative) do |state, cmd|
-    return unless moderating?(state)
+  command(MarkNegative) do |context, cmd|
+    return unless moderating?(context)
 
     event MarkedNegative, comment_id: cmd.payload.comment_id
   end
 
-  command(MarkNeutral) do |state, cmd|
-    return unless moderating?(state)
+  command(MarkNeutral) do |context, cmd|
+    return unless moderating?(context)
 
     event MarkedNeutral, comment_id: cmd.payload.comment_id
   end
 
-  command(MarkSpam) do |state, cmd|
-    return unless moderating?(state)
+  command(MarkSpam) do |context, cmd|
+    return unless moderating?(context)
 
     event MarkedSpam, comment_id: cmd.payload.comment_id
   end
@@ -200,5 +204,5 @@ class Comment < Sourced::Decider
   # a silent no-op: Sourced's default error strategy fails the whole consumer
   # group on a raise, which would halt moderation for every comment over one
   # bad click. Only real invariant breaches (see CreateComment) raise.
-  private def moderating?(state) = state.status == 'moderating'
+  private def moderating?(context) = context.status == 'moderating'
 end

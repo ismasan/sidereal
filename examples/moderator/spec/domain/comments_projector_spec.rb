@@ -35,8 +35,8 @@ RSpec.describe CommentsProjector do
       with_reactor(CommentsProjector, comment_id:)
         .given(Comment::CommentCreated, **created)
         .then { |result|
-          expect(result.state).to include(comment_id:, subject_id:, subject_name:, content: 'Well said!', status: 'pending', vibe: 'unknown')
-          expect(result.state[:created_at]).to be_a(String)
+          expect(result.context).to include(comment_id:, subject_id:, subject_name:, content: 'Well said!', status: 'pending', vibe: 'unknown')
+          expect(result.context[:created_at]).to be_a(String)
         }
     end
 
@@ -44,7 +44,7 @@ RSpec.describe CommentsProjector do
       with_reactor(CommentsProjector, comment_id:)
         .given(Comment::CommentCreated, **created)
         .and(Comment::ModerationStarted, comment_id:, started_by: 'moderator')
-        .then { |result| expect(result.state[:status]).to eq('moderating') }
+        .then { |result| expect(result.context[:status]).to eq('moderating') }
     end
 
     {
@@ -58,7 +58,7 @@ RSpec.describe CommentsProjector do
           .given(Comment::CommentCreated, **created)
           .and(Comment::ModerationStarted, comment_id:, started_by: 'moderator')
           .and(evt, comment_id:)
-          .then { |result| expect(result.state).to include(status:, vibe:) }
+          .then { |result| expect(result.context).to include(status:, vibe:) }
       end
     end
   end

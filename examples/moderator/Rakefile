@@ -5,12 +5,16 @@ require 'sequel/core'
 require 'yaml'
 Sequel.extension :migration
 
+# Tasks read components, which are built when a process starts. Building
+# doesn't start anything: no pubsub, no workers.
+Sidereal.config.build!
+
 FIXTURES_PATH = ENV.fetch('FIXTURES', 'config/fixtures.yml')
 
 namespace :db do
   desc 'Run database migrations'
   task :migrate do
-    Sequel::Migrator.run(Sourced.store.db, 'db/migrations')
+    Sequel::Migrator.run(Sidereal.config['db'], 'db/migrations')
     puts 'Migrations complete.'
   end
 
@@ -53,10 +57,10 @@ namespace :db do
   end
 end
 
-# boot.rb is already loaded at the top of this file, so the session comes up
-# with the domain (Comment, CommentsProjector, Subjects) and a configured
-# Sourced store. The UI (app.rb, the pages) is not loaded — require it from
-# the prompt if you want it.
+# boot.rb is already loaded and its components built at the top of this file,
+# so the session comes up with the domain (Comment, CommentsProjector,
+# Subjects) and a Sourced store. The UI (app.rb, the pages) is not loaded —
+# require it from the prompt if you want it.
 desc 'Start an IRB session with boot.rb loaded'
 task :console do
   require 'irb'

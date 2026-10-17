@@ -7,65 +7,68 @@ class CommentsProjector < Sourced::Projector::StateStored
   consumer_group 'comments_projector'
   partition_by :comment_id
 
-  state do |values|
-    db = Sourced.store.db
-    db[:comments].where(comment_id: values[:comment_id]).first ||
-      {
-        comment_id: nil,
-        subject_id: nil,
-        subject_name: nil,
-        commenter_id: nil,
-        content: nil,
-        status: nil,
-        vibe: 'unknown',
-        created_at: nil,
-        updated_at: nil
-      }
+  context do
+    {
+      comment_id: nil,
+      subject_id: nil,
+      subject_name: nil,
+      commenter_id: nil,
+      content: nil,
+      status: nil,
+      vibe: 'unknown',
+      created_at: nil,
+      updated_at: nil
+    }
   end
 
-  evolve(Comment::CommentCreated) do |s, e|
-    s[:comment_id] = e.payload.comment_id
-    s[:subject_id] = e.payload.subject_id
-    s[:subject_name] = e.payload.subject_name
-    s[:commenter_id] = e.payload.commenter_id
-    s[:content] = e.payload.content
-    s[:status] = 'pending'
-    s[:created_at] = e.created_at.iso8601
-    s[:updated_at] = e.created_at.iso8601
+  # The comment's stored row, if any, which the claimed events evolve on top of.
+  load_context do |values|
+    Sourced.store.db[:comments].where(comment_id: values[:comment_id]).first
   end
 
-  evolve(Comment::ModerationStarted) do |s, e|
-    s[:status] = 'moderating'
-    s[:updated_at] = e.created_at.iso8601
+  evolve(Comment::CommentCreated) do |context, evt|
+    context[:comment_id] = evt.payload.comment_id
+    context[:subject_id] = evt.payload.subject_id
+    context[:subject_name] = evt.payload.subject_name
+    context[:commenter_id] = evt.payload.commenter_id
+    context[:content] = evt.payload.content
+    context[:status] = 'pending'
+    context[:created_at] = evt.created_at.iso8601
+    context[:updated_at] = evt.created_at.iso8601
   end
 
-  evolve(Comment::MarkedPositive) do |s, e|
-    s[:status] = 'approved'
-    s[:vibe] = 'positive'
-    s[:updated_at] = e.created_at.iso8601
+  evolve(Comment::ModerationStarted) do |context, evt|
+    context[:status] = 'moderating'
+    context[:updated_at] = evt.created_at.iso8601
   end
 
-  evolve(Comment::MarkedNegative) do |s, e|
-    s[:status] = 'approved'
-    s[:vibe] = 'negative'
-    s[:updated_at] = e.created_at.iso8601
+  evolve(Comment::MarkedPositive) do |context, evt|
+    context[:status] = 'approved'
+    context[:vibe] = 'positive'
+    context[:updated_at] = evt.created_at.iso8601
   end
 
-  evolve(Comment::MarkedNeutral) do |s, e|
-    s[:status] = 'approved'
-    s[:vibe] = 'neutral'
-    s[:updated_at] = e.created_at.iso8601
+  evolve(Comment::MarkedNegative) do |context, evt|
+    context[:status] = 'approved'
+    context[:vibe] = 'negative'
+    context[:updated_at] = evt.created_at.iso8601
   end
 
-  evolve(Comment::MarkedSpam) do |s, e|
-    s[:status] = 'spam'
-    s[:updated_at] = e.created_at.iso8601
+  evolve(Comment::MarkedNeutral) do |context, evt|
+    context[:status] = 'approved'
+    context[:vibe] = 'neutral'
+    context[:updated_at] = evt.created_at.iso8601
   end
 
-  sync do |state:, **|
-    next unless state[:comment_id]
+  evolve(Comment::MarkedSpam) do |context, evt|
+    context[:status] = 'spam'
+    context[:updated_at] = evt.created_at.iso8601
+  end
 
-    Sourced.store.db[:comments].insert_conflict(:replace).insert(state)
+  sync do |context:, **|
+    next unless context[:comment_id]
+
+    Sourced.store.db[:comments].insert_conflict(:replace).insert(context)
   end
 
   # Pause after each committed step when SLOWMO=<seconds> is set, so the board

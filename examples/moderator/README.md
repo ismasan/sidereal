@@ -14,6 +14,8 @@ bundle exec rake db:migrate
 bundle exec falcon host
 ```
 
+`db:migrate` also installs Sourced's tables: Sourced doesn't create them on boot, and raises `Sourced::Store::NotInstalledError` without them. The migration in `db/migrations` was generated with `bundle exec rake db:sourced_migration` (`Sourced.store.copy_migration_to`); regenerate it the same way when Sourced's schema changes.
+
 Optionally fill the inbox with 50 sample comments before or while the server runs:
 
 ```bash
@@ -59,9 +61,9 @@ Clicking an inbox card only navigates to the detail view. The "Start moderating"
 
 It owns no stream. It handles no commands and emits no events; it watches a comment's events and dispatches the next command. That is an automation, and the projector base is the fit.
 
-More importantly, an event-sourced projector rebuilds its state from the comment's full partition history on every batch, so `state.content` is always the comment's text no matter where the consumer group's offset is. Nothing is persisted, since there is no `sync` block — the state lives for the length of one batch and is thrown away.
+More importantly, an event-sourced projector rebuilds its context from the comment's full partition history on every batch, so `context.content` is always the comment's text no matter where the consumer group's offset is. Nothing is persisted, since there is no `sync` block — the context lives for the length of one batch and is thrown away.
 
-The history it evolves is the *whole* partition, including messages later than the one being reacted to. So when the classifier runs behind a moderator who already took a comment, `state.taken` is already true while it reacts to `CommentCreated`, and `return if state.taken` keeps the redundant command out of the log.
+The history it evolves is the *whole* partition, including messages later than the one being reacted to. So when the classifier runs behind a moderator who already took a comment, `context.taken` is already true while it reacts to `CommentCreated`, and `return if context.taken` keeps the redundant command out of the log.
 
 ### Who took the comment
 
@@ -95,12 +97,12 @@ at once at the end.
 Measured on 20 comments with a 0.6s stand-in for the model call, counting
 messages written per second:
 
-| `worker_count` | classifier output | decider output |
+| `sourced.workers.count` | classifier output | decider output |
 | --- | --- | --- |
 | 2 | spread over 6s | all 20 in second 6 |
 | 10 | all in second 1 | all in second 1 |
 
-`boot.rb` therefore sets `worker_count` to 10. Size it by how much slow work
+`boot.rb` therefore sets `sourced.workers.count` to 30. Size it by how much slow work
 runs concurrently, not by CPU. The cost is more in-flight model calls, which
 is what the retry policy above is for, and more SQLite connections, which
 matters little because a fiber waiting on HTTP holds no lock.
@@ -158,13 +160,13 @@ Decider and projector specs use Sourced's Given/When/Then helpers; no server or 
 
 ## SQLite and worker processes
 
-Every Falcon worker loads `boot.rb`, but only the elected leader starts the Sourced dispatcher: `Sidereal::Integrations::Sourced` sets `dispatcher_process = :leader`, and `Sidereal::Host` starts the dispatcher from the elector's promote callback instead of at boot. The other workers serve HTTP, append commands to the store, and receive SSE updates over the Unix-socket pubsub. If the leader dies, its successor is promoted and starts its own dispatcher.
+Every Falcon worker loads `boot.rb`, but only the elected leader starts the Sourced dispatcher: `Sidereal::Integrations::Sourced` sets `sidereal.runner.process` to `:leader`, and Sidereal's runner starts the dispatcher when the elector promotes the process instead of at boot. The other workers serve HTTP, append commands to the store, and receive SSE updates over the Unix-socket pubsub. If the leader dies, its successor is promoted and starts its own dispatcher.
 
 That matters because the event store is SQLite, which takes one write lock at a time. When every worker ran its own dispatcher, boot — with every consumer group discovering partitions and draining the backlog at once — reliably raised `SQLite3::BusyException: database is locked` at three processes. With one dispatcher there is one set of reactor writers, and the only extra contention from more processes is the appends their HTTP requests make.
 
 Concurrency inside the leader comes from Sourced worker fibers (see the classifier section), each with its own connection. `boot.rb` additionally begins transactions as `IMMEDIATE` and allows a 15s wait for the lock, which covers the appends arriving from the other workers.
 
-For genuinely concurrent dispatchers across processes, use Postgres and set `c.dispatcher_process = :all` after `c.use Sidereal::Integrations::Sourced`.
+For genuinely concurrent dispatchers across processes, use Postgres and implement `sidereal.runner.process` as `:all` after `Sidereal.config.use Sidereal::Integrations::Sourced`.
 
 ## Configuration
 
