@@ -34,3 +34,4 @@ require 'sidereal/integrations/sourced'
 Sidereal.config.use Sidereal::Integrations::Sourced, db: 'db'
 
 Sourced.register(HolidayBooking)
+Sourced.register(CrossPost::Account)

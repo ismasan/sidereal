@@ -37,6 +37,12 @@ module UI
             labelled('Travellers') { f.number_field :travellers, min: 1, max: 6, aria: { label: 'Travellers' } }
             button(type: :submit, class: 'button button--primary') { 'Start booking' }
           end
+
+          p(class: 'welcome__lead') do
+            plain 'Bigger: '
+            a(href: '/cross-post') { 'a whole cross-posting app' }
+            plain ', described as a tree of machines.'
+          end
         end
       end
     end

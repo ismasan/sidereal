@@ -5,12 +5,10 @@ require_relative '../boot'
 Sidereal.config.build!
 
 module MachineHelpers
-  # The checkpoint event +machine+ appends moving to +to+ (a path), as a
-  # decision would build it: the target's own class, or for a mounted
-  # machine's checkpoint, the class +machine+ generates for it.
+  # The state event +machine+ appends moving to +to+ (a path), as a
+  # decision would build it: the target's own class, a part's included.
   def moved(machine, trigger, from:, to:, exited: [], entered: [to], **keys)
-    klass = machine.state_class(machine.tree.node_at(to).key)
-    klass.new(payload: { **keys, trigger:, source: from, target: to, exited:, entered: })
+    machine.tree.node_at(to).key.new(payload: { **keys, trigger:, source: from, target: to, exited:, entered: })
   end
 
   # +given+ plus the events +machine+ appends deciding +commands+ one after
@@ -21,7 +19,7 @@ module MachineHelpers
       instance.evolve(history)
       raise ArgumentError, "#{machine} doesn't take #{command.class} here" unless instance.handles_command?(command)
 
-      read = Sourced::ReadResult.new(messages: history, guard: Sourced::ConsistencyGuard.new(conditions: [], last_position: 0))
+      read = Sourced::ReadResult.new(messages: history, guard: Sourced::ConsistencyGuard.new(query: [], last_position: 0))
       appended = machine.handle_batch(keys, [command], history: read, replaying: false).flat_map do |actions, _|
         Array(actions).select { Sourced::Actions::Append === it }.flat_map(&:messages)
       end

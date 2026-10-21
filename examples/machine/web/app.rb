@@ -2,18 +2,20 @@
 
 # The web app: which commands browsers may send, and pages. config.ru runs it.
 #
-# Every command is handled by HolidayBooking, a Sourced::Machine registered in
-# config/components/sourced.rb. Handling one here just appends it; the machine
-# decides it in a background worker, refusing any its current state doesn't
-# accept, and the events it appends are published to the booking's channel,
-# where BookingPage re-renders.
+# Commands are handled by the app's Sourced::Machines, registered in
+# config/components/sourced.rb: HolidayBooking and CrossPost::Account.
+# Handling one here just appends it; the machine decides it in a background
+# worker, refusing any its current state doesn't accept, and the events it
+# appends are published to the booking's channel, where its pages re-render.
 class App < Sidereal::App
   layout UI::Layout
 
   # One channel per booking, so a page only hears about its own.
   channel_name do |msg|
-    booking_id = msg.payload&.to_h&.[](:booking_id)
-    booking_id ? "bookings.#{booking_id}" : 'system'
+    payload = msg.payload&.to_h || {}
+    if (booking_id = payload[:booking_id]) then "bookings.#{booking_id}"
+    else 'system'
+    end
   end
 
   # The start form has no booking yet: the command's booking_id is generated
@@ -36,9 +38,10 @@ class App < Sidereal::App
   page UI::HomePage
   page UI::Booking::Page
   page UI::Booking::DiagramPage
+  page UI::CrossPost::DefinitionsPage
 
   # Time travel: any tab, rendered from the first `step` messages of the
-  # booking's or payroll's history. Static, so nothing live replaces it. The
+  # booking's history. Static, so nothing live replaces it. The
   # history feeds link here.
   get '/bookings/:booking_id/at/:step' do |booking_id:, step:|
     render_step UI::Booking::Page, booking_id, step
@@ -47,14 +50,25 @@ class App < Sidereal::App
   get '/bookings/:booking_id/diagram/at/:step' do |booking_id:, step:|
     render_step UI::Booking::DiagramPage, booking_id, step
   end
+
+  # The cross-post explorer: a machine, and a state picked on it.
+  get '/cross-post/explore/:machine' do |machine:|
+    render_in_place UI::CrossPost::ExplorerPage.build(machine)
   end
 
-  # A Datastar request (a step link in a history feed) gets the page patched
-  # in place, and the step's URL pushed onto the browser's history; any other
-  # gets the whole page.
+  get '/cross-post/explore/:machine/:state' do |machine:, state:|
+    render_in_place UI::CrossPost::ExplorerPage.build(machine, state)
+  end
+
   private def render_step(page_class, *ids, step)
     step = Integer(step, 10, exception: false)
-    page = step && page_class.at(*ids, step)
+    render_in_place(step && page_class.at(*ids, step))
+  end
+
+  # A Datastar request (a step link in a history feed, a pick in the
+  # explorer) gets the page patched in place, and its URL pushed onto the
+  # browser's history; any other gets the whole page.
+  private def render_in_place(page)
     halt 404, 'Not found' unless page
     return component(page) unless browser.sse?
 

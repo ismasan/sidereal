@@ -12,7 +12,7 @@ module UI
     # its box, nested as deep as they go. Arrows are drawn last, over the
     # boxes, from absolute positions.
     #
-    # A compound checkpoint (a mounted machine's) draws its sub-states inside
+    # A compound checkpoint (a machine part's) draws its sub-states inside
     # its box, starting at its start checkpoint. An arrow from inside a
     # compound checkpoint back to it re-enters it, so it's drawn to its start.
     #
@@ -54,6 +54,7 @@ module UI
         @escalations = escalations_in(chart)
         @boxes = {}
         @compounds = {} # node id => the compound checkpoint it's inside
+        @histories = {} # a parallel checkpoint's history node id => the checkpoint's id
       end
 
       def view_template
@@ -67,6 +68,9 @@ module UI
           viewBox: "-8 -8 #{(root.w + 16).round} #{(root.h + 16).round}",
           width: (root.w + 16).round,
           height: (root.h + 16).round,
+          # Its natural width, which the CSS scales from: never blown up past
+          # readable, however wide the page.
+          style: "--sc-w: #{(root.w + 16).round}px",
           role: 'img',
           aria: { label: @title }
         ) do |s|
@@ -124,7 +128,8 @@ module UI
               when 'history'
                 Box.new(w: HISTORY_R * 2, h: HISTORY_R * 2, children: [])
               when 'parallel'
-                regions = state[:states].values.map { |region| layout_region(region) }
+                history_nodes(state).each { @histories[it[:id]] = state[:id] }
+                regions = regions_of(state).map { |region| layout_region(region) }
                 w = row_width(regions, GAP_X) + PAD * 2
                 w = [w, label_width(state) + PAD * 2].max
                 Box.new(w:, h: PARALLEL_HEAD + regions.map(&:h).max + PAD, children: regions)
@@ -177,7 +182,7 @@ module UI
       # escalations count as its own, for ranking.
       def transitions(state)
         done = eventless(state)
-        done += escalations_out_of(state).map { |to| ['on_done', to] } if state[:type] == 'compound'
+        done += escalations_out_of(state).map { |to| ['on_final', to] } if state[:type] == 'compound'
         done + Array(state[:on]&.values).flat_map do |t|
           label = transition_label(t)
           t[:targets].empty? ? [[label, state[:id]]] : t[:targets].map { |target| [label, target] }
@@ -199,7 +204,7 @@ module UI
       def guarded(label, guard) = guard ? "#{label} [#{guard.to_s.split('::').last}]" : label
 
       # An event-triggered transition (`on Event`) reads as such, and one that
-      # starts child machines says which: `AddItem / starts PayrollItem`.
+      # starts child machines says which: `LogIn / starts Session`.
       def transition_label(transition)
         label = transition[:kind] == 'event' ? "on #{transition[:label]}" : transition[:label]
         starts = Array(transition[:starts]).map { |id| id.split('::').last }
@@ -320,25 +325,27 @@ module UI
               edges << Edge.new(from: state[:id], to: state[:id], label:, kind: live ? :data_live : :data)
             else
               transition[:targets].each do |target|
-                edges << Edge.new(from: state[:id], to: reentry(state[:id], target), label:, kind: live ? :live : :command)
+                to, label = @histories.key?(target) ? [@histories[target], "#{label} (#{history_mark(target)})"] : [target, label]
+                edges << Edge.new(from: state[:id], to: reentry(state[:id], to), label:, kind: live ? :live : :command)
               end
             end
           end
           eventless(state).each { |label, target| edges << Edge.new(from: state[:id], to: target, label:, kind: :done) }
           case state[:type]
-          when 'parallel' then state[:states].each_value { |child| collect_edges(child, edges) }
+          when 'parallel' then regions_of(state).each { |child| collect_edges(child, edges) }
           when 'compound' then collect_edges(state, edges)
           end
         end
         edges
       end
 
-      # How mounted machines escalate: each mount's root finals, which
-      # +on_done+ maps onto the mounting machine's checkpoints, as [from id, to id].
+      # How parts escalate: each mount's root finals, which
+      # +on_final+ maps onto the mounting machine's checkpoints, as [from id, to id].
       def escalations_in(region)
         region[:states].each_value.flat_map do |state|
-          mounted = Array(state[:mounts]).flat_map { |mount| mount[:on_done].to_a }
-          mounted + Array(state[:states]&.values).flat_map do |child|
+          mounted = Array(state[:mounts]).flat_map { |mount| mount[:on_final].to_a }
+          children = state[:type] == 'parallel' ? regions_of(state) : Array(state[:states]&.values)
+          mounted + children.flat_map do |child|
             state[:type] == 'parallel' ? escalations_in(child) : escalations_in({ states: { child[:key] => child } })
           end
         end
@@ -350,10 +357,17 @@ module UI
       end
 
       def escalation_edges
-        @escalations.map { |from, to| Edge.new(from:, to:, label: 'on_done', kind: :done) }
+        @escalations.map { |from, to| Edge.new(from:, to:, label: 'on_final', kind: :done) }
       end
 
       # A target that contains +from+ is re-entered at its start.
+      # A parallel checkpoint's regions. Its history node, if anything targets
+      # one, sits among them in +states+; it isn't drawn: arrows to it go to
+      # the checkpoint, marked (H) or (H*).
+      def regions_of(state) = state[:states].values.reject { it[:type] == 'history' }
+      def history_nodes(state) = state[:states].values.select { it[:type] == 'history' }
+      def history_mark(id) = id.end_with?('$deep_history') ? 'H*' : 'H'
+
       def reentry(from, target)
         compound = @compounds[from]
         while compound
@@ -455,7 +469,7 @@ module UI
         [path, [x + LOOP - 2, y + 4, 'start']]
       end
 
-      # The mounted machine's name: its checkpoints are defined in it.
+      # The part's name: its checkpoints are defined in it.
       def compound_name(state) = state[:mounts].first[:src].split('::').last
 
       def f(n) = n.round(1)

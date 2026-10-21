@@ -500,6 +500,7 @@ select:focus {
   padding: 1.1rem 1.1rem 0.4rem;
 }
 .history__title { font-family: var(--display); font-size: 1.1rem; font-weight: 500; margin: 0; }
+.history__about { color: var(--starlight); margin-right: 0.4rem; }
 .history__pager { display: flex; gap: 0.4rem; }
 .history__arrow {
   display: grid;
@@ -594,6 +595,8 @@ select:focus {
 .statechart {
   display: block;
   width: 100%;
+  max-width: calc(var(--sc-w, 100%) * 1.25);
+  margin-inline: auto;
   height: auto;
   font-family: var(--body);
   font-size: 11px;
@@ -662,6 +665,14 @@ select:focus {
   stroke-linejoin: round;
 }
 .statechart__edge.is-live .statechart__edge-label { fill: var(--gold); font-weight: 700; }
+
+/* Pages of definitions: charts scaled to the page's width, like the booking's. */
+
+.definitions { position: relative; max-width: none; padding: 2rem 1.5rem; }
+.definitions__lead { color: var(--mist); max-width: 52em; margin-bottom: 1.5rem; }
+.definitions__chart { margin-bottom: 2.5rem; }
+.definitions__chart h2 { font-size: 1.25rem; margin-bottom: 0.75rem; }
+
 /* Checkboxes: a gold box with a dark tick when checked. */
 
 input[type="checkbox"] {
@@ -692,102 +703,79 @@ input[type="checkbox"]:checked { background: var(--gold); border-color: var(--go
 input[type="checkbox"]:checked::before { transform: scale(1); }
 input[type="checkbox"]:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
 
-/* The payroll emulator: UI::PayrollRunPage. */
-
-.console-form {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: 0.75rem 1rem;
-  padding: 1rem 1.25rem;
-  background: rgba(14, 16, 51, 0.55);
-  border: 1px solid rgba(174, 176, 216, 0.2);
-  border-radius: 1rem;
-}
-.console-form > * + * { margin-top: 0; }
-.console-form .button { padding-block: 0.7rem; }
-.console-form--inline { padding: 0; background: none; border: 0; }
-.console-form--inline .field__label { display: none; }
-.console-form--inline input { padding-block: 0.45rem; }
-.console-form--inline .button { padding-block: 0.45rem; }
-
-.field { display: grid; gap: 0.35rem; flex: 0 1 15rem; min-width: 9rem; }
-.field--narrow { flex: 0 1 9rem; min-width: 6.5rem; }
-.field__label {
-  font-size: 0.72rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+/* Cross-post definitions */
+.machine-tree { font-size: 0.9rem; color: var(--mist); padding-left: 1.2rem; }
+.machine-tree ul { padding-left: 1.4rem; margin-top: 0.4rem; }
+.machine-tree li + li { margin-top: 0.3rem; }
+.command-table {
+  width: 100%;
+  margin-top: 1rem;
+  border-collapse: collapse;
+  font-size: 0.82rem;
   color: var(--mist);
 }
-.check {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.55rem;
-  padding: 0.7rem 0.1rem;
-  font-size: 0.9rem;
-  color: var(--starlight);
-  cursor: pointer;
-  user-select: none;
+.command-table th { text-align: left; font-weight: 600; padding: 0.5rem 0.6rem; border-bottom: 1px solid rgba(174, 176, 216, 0.3); }
+.command-table td { vertical-align: top; padding: 0.45rem 0.6rem; border-bottom: 1px solid rgba(174, 176, 216, 0.12); }
+.command-table__row--final td:first-child { opacity: 0.7; }
+.command-table__timer { font-size: 0.75rem; white-space: nowrap; }
+.command-table__commands { margin: 0; padding: 0; list-style: none; }
+.command-table__commands > * + * { margin-top: 0.15rem; }
+
+/* Cross-post explorer */
+.explorer {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(16rem, 21rem) minmax(0, 1fr);
+  gap: 2rem;
+  padding: 2rem 1.5rem;
 }
-/* Sidereal wraps each field for its errors; the checkbox sits in the row. */
-.check .command-field { display: contents; }
-
-.payroll-items { margin-top: 2rem; }
-.payroll-items__title { font-size: 1.25rem; margin-bottom: 0.75rem; }
-.payroll-items__add { display: grid; gap: 0.75rem; margin-top: 1.5rem; }
-.payroll-items__add > * + * { margin-top: 0; }
-.payroll-items__add > .inline-form { justify-self: start; }
-.payroll-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.85rem; }
-.payroll-actions > * + * { margin-top: 0; }
-.payroll-actions .button { padding: 0.32rem 0.8rem; font-size: 0.74rem; }
-.positions { list-style: none; margin: 0.6rem 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.35rem; }
-.positions > * + * { margin-top: 0; }
-.positions code {
-  display: inline-block;
-  padding: 0.15rem 0.5rem;
-  font-size: 0.74rem;
-  color: var(--gold);
-  background: rgba(255, 207, 92, 0.08);
-  border: 1px solid rgba(255, 207, 92, 0.3);
-  border-radius: 999px;
-}
-.history__about { color: var(--starlight); margin-right: 0.4rem; }
-
-/* Item status: a pill per status, and the card's edge for the ones that matter. */
-
-.status {
-  flex: none;
-  padding: 0.12rem 0.6rem;
-  font-family: var(--display);
-  font-size: 0.68rem;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  border: 1px solid currentColor;
-  border-radius: 999px;
+.explorer > * + * { margin-top: 0; }
+.explorer__nav {
+  position: sticky;
+  top: 1rem;
+  align-self: start;
+  max-height: calc(100vh - 2rem);
+  overflow-y: auto;
+  font-size: 1rem;
+  line-height: 1.4;
   color: var(--mist);
 }
-.status--pending,
-.status--paid { color: #7ee0b0; background: rgba(126, 224, 176, 0.1); }
-.status--processing { color: var(--periwinkle); background: rgba(142, 162, 255, 0.1); }
-.status--blocked,
-.status--failed,
-.status--overdue { color: #ffb4a8; background: rgba(255, 180, 168, 0.1); }
-.status--skipped,
-.status--void { opacity: 0.7; }
-
-.item-card--pending,
-.item-card--paid { border-color: rgba(126, 224, 176, 0.55); box-shadow: inset 3px 0 0 #7ee0b0; }
-.item-card--blocked,
-.item-card--failed,
-.item-card--overdue { border-color: rgba(255, 180, 168, 0.5); box-shadow: inset 3px 0 0 #ffb4a8; }
-.item-card--skipped,
-.item-card--void { opacity: 0.6; }
-.item-card__note { font-size: 0.82rem; color: #7ee0b0; }
-.item-card__note--warning { color: #ffcf5c; }
-
-/* In the Run tab's grid, every item card as tall as the tallest kind (an
-   approved item, with its amount form), and as its row: cards line up
-   whatever their state. An item's own page has one card, sized to fit. */
-.payroll-items .regions { align-items: stretch; }
-.payroll-items .item-card { min-height: 23.5rem; }
-.item-card + .machine-view { margin-top: 1.5rem; }
+.explorer__heading { font-size: 1.1rem; margin: 1.5rem 0 0.6rem; }
+.explorer__tree, .explorer__tree ul, .explorer__states, .explorer__states ul { list-style: none; margin: 0; padding: 0; }
+.explorer__tree ul { padding-left: 1.1rem; margin-top: 0.5rem; }
+.explorer__tree li + li { margin-top: 0.55rem; }
+.explorer__tree a[aria-current] { font-weight: 700; text-decoration: none; }
+.explorer__mounts { display: block; font-size: 0.82rem; opacity: 0.75; }
+.explorer__states li { margin-top: 0.2rem; }
+.explorer__states ul { padding-left: 1.1rem; }
+.explorer__region { display: inline-block; padding: 0.25rem 0.6rem; font-size: 0.78rem; letter-spacing: 0.06em; text-transform: uppercase; opacity: 0.6; }
+.explorer__state { display: inline-block; padding: 0.25rem 0.6rem; border-radius: 0.45rem; text-decoration: none; }
+.explorer__state:hover { background: rgba(174, 176, 216, 0.12); }
+.explorer__state--final { opacity: 0.75; font-style: italic; }
+.explorer__state--parallel::after, .explorer__state--compound::after { content: ' ▾'; font-size: 0.7em; }
+.explorer__state[aria-current] { background: rgba(174, 176, 216, 0.25); font-weight: 700; }
+.explorer__lead { color: var(--mist); max-width: 52em; margin-bottom: 1rem; }
+.explorer__chart { overflow-x: auto; }
+/* Wide charts (Post) scroll rather than shrink their labels away. */
+.explorer__chart .statechart { min-width: calc(var(--sc-w) * 0.9); }
+.explorer__chart .statechart__node { cursor: pointer; }
+.explorer__panel { margin-top: 1.5rem; color: var(--mist); }
+.explorer__panel h2 { font-size: 1.15rem; }
+.explorer__panel h3 { font-size: 0.9rem; margin-bottom: 0.4rem; }
+.explorer__sub { margin-top: 0.9rem; }
+.explorer__type { font-size: 0.8rem; font-weight: 400; opacity: 0.75; }
+.explorer__columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: 1rem 2rem;
+  margin-top: 0.75rem;
+}
+.explorer__columns > * + * { margin-top: 0; }
+.explorer__commands { list-style: none; margin: 0; padding: 0; font-size: 0.85rem; }
+.explorer__commands > * + * { margin-top: 0.2rem; }
+.explorer__commands--refused code { opacity: 0.6; text-decoration: line-through; }
+.explorer__note { font-size: 0.82rem; opacity: 0.85; }
+@media (max-width: 760px) {
+  .explorer { grid-template-columns: minmax(0, 1fr); padding: 1.5rem 1rem; }
+  .explorer__nav { position: static; max-height: none; }
+}
