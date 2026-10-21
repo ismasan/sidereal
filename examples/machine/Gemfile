@@ -6,7 +6,7 @@ gem 'sidereal', path: '../..'
 # gem 'sourced', github: 'ismasan/sourced', branch: 'statecharts'
 gem 'sourced', path: '/Users/ismaelcelis/code/personal/gems/sourced'
 # The Sourced dashboard, mounted at /sourced in config.ru.
-gem 'sourced-ui', github: 'ismasan/sourced-ui', branch: 'ccc'
+gem 'sourced-ui', github: 'ismasan/sourced-ui'
 gem 'falcon'
 gem 'zeitwerk'
 
@@ -21,6 +21,3 @@ end
 # The app's database. See config/components/db.rb.
 gem 'sequel'
 gem 'sqlite3'
-
-# Durable, event-sourced storage.
-# gem 'sourced', github: 'ismasan/sourced', branch: 'ccc'
