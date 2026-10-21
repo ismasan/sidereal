@@ -93,7 +93,7 @@ module UI
 
       # ---- Layout: sizes, relative to each box's own origin ----
 
-      def layout_region(region, root: false)
+      def layout_region(region, root: false, kind: root ? :root : :region)
         states = region[:states].values
         ranks = rank(region, states)
         rows = states.group_by { |state| ranks.fetch(state[:id]) }.sort.map do |_, members|
@@ -106,7 +106,7 @@ module UI
         inner_w = rows.zip(gaps).map { |row, gap| row_width(row, gap) }.max || 0
         inner_h = rows.sum { |row| row.map(&:h).max } + GAP_Y * [rows.size - 1, 0].max
 
-        Box.new(kind: root ? :root : :region, data: region, rows:, gaps:, children: rows.flatten,
+        Box.new(kind:, data: region, rows:, gaps:, children: rows.flatten,
                 w: inner_w + pad * 2, h: head + inner_h + pad * 2)
       end
 
@@ -122,32 +122,29 @@ module UI
       end
 
       def layout_node(state)
-        box = case state[:type]
-              when 'initial'
-                Box.new(w: DOT * 2, h: DOT * 2, children: [])
-              when 'history'
-                Box.new(w: HISTORY_R * 2, h: HISTORY_R * 2, children: [])
-              when 'parallel'
-                history_nodes(state).each { @histories[it[:id]] = state[:id] }
-                regions = regions_of(state).map { |region| layout_region(region) }
-                w = row_width(regions, GAP_X) + PAD * 2
-                w = [w, label_width(state) + PAD * 2].max
-                Box.new(w:, h: PARALLEL_HEAD + regions.map(&:h).max + PAD, children: regions)
-              when 'compound'
-                state[:states].each_value { |sub| @compounds[sub[:id]] = state }
-                inner = layout_region({ id: state[:id], key: state[:key], initial: state[:initial], states: state[:states] }, root: true)
-                inner.kind = :compound_region
-                head = label_width(state) + compound_name(state).length * CHAR_W + PAD * 2
-                Box.new(w: [inner.w + PAD * 2, head].max, h: PARALLEL_HEAD + inner.h + PAD, children: [inner])
-              else
-                Box.new(w: label_width(state), h: NODE_H, children: [])
-              end
-        box.kind = state[:type].to_sym
-        box.data = state
+        size = case state[:type]
+               in 'initial'
+                 { w: DOT * 2, h: DOT * 2, children: [] }
+               in 'history'
+                 { w: HISTORY_R * 2, h: HISTORY_R * 2, children: [] }
+               in 'parallel'
+                 history_nodes(state).each { @histories[it[:id]] = state[:id] }
+                 regions = regions_of(state).map { |region| layout_region(region) }
+                 w = row_width(regions, GAP_X) + PAD * 2
+                 w = [w, label_width(state) + PAD * 2].max
+                 { w:, h: PARALLEL_HEAD + regions.map(&:h).max + PAD, children: regions }
+               in 'compound'
+                 state[:states].each_value { |sub| @compounds[sub[:id]] = state }
+                 inner = layout_region({ id: state[:id], key: state[:key], initial: state[:initial], states: state[:states] },
+                                       root: true, kind: :compound_region)
+                 head = label_width(state) + compound_name(state).length * CHAR_W + PAD * 2
+                 { w: [inner.w + PAD * 2, head].max, h: PARALLEL_HEAD + inner.h + PAD, children: [inner] }
+               else
+                 { w: label_width(state), h: NODE_H, children: [] }
+               end
         loops = transitions(state).filter_map { |label, target| label if target == state[:id] }
-        box.extra = loops.any? ? LOOP + loops.map { |label| text_width(label) }.max + 8 : 0
-        @boxes[state[:id]] = box
-        box
+        extra = loops.any? ? LOOP + loops.map { |label| text_width(label) }.max + 8 : 0
+        @boxes[state[:id]] = Box.new(**size, kind: state[:type].to_sym, data: state, extra:)
       end
 
       def label_width(state)
