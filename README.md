@@ -1634,7 +1634,7 @@ Commands are processed asynchronously by worker fibers. The browser never waits 
 
 ## Using Sourced as a backend
 
-[Sourced](https://github.com/ismasan/sourced) ("ccc" branch) is an event sourcing library with a persistent SQLite store, partition-aware consumer groups, and a signal-driven dispatcher. Sidereal can use it as a drop-in backend, replacing the in-memory store and dispatcher.
+[Sourced](https://github.com/ismasan/sourced) is an event sourcing library with a persistent SQLite store, partition-aware consumer groups, and a signal-driven dispatcher. Sidereal can use it as a drop-in backend, replacing the in-memory store and dispatcher.
 
 ### Setup
 
