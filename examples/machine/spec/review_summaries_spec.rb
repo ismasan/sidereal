@@ -18,6 +18,6 @@ RSpec.describe ReviewSummaries do
     with_reactor(ReviewSummaries, booking_id: id)
       .given(Reviews::ReviewRequested, booking_id: id)
       .given(Reviews::ReviewSubmitted, booking_id: id, rating: 5, comment: '')
-      .then { |result| expect(result.messages).to be_empty }
+      .then! { |result| expect(result.messages).to be_empty }
   end
 end

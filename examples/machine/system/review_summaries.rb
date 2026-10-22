@@ -23,7 +23,7 @@ class ReviewSummaries < Sourced::Projector::EventSourced
   end
 
   # Logged rather than stored: the example keeps no table for it.
-  sync do |state:, **|
-    Sourced.logger.info("review summary: #{state}")
+  sync do |context:, **|
+    Sourced.logger.info("review summary: #{context}")
   end
 end
