@@ -1,12 +1,22 @@
-GIT
-  remote: https://github.com/ismasan/sourced-ui.git
-  revision: 73dbc652bb6efeb8b41867cb1f6a5b3455d65d6b
+PATH
+  remote: ../../../sourced-ui
   specs:
     sourced-ui (0.1.0)
       logger
       phlex
       sidereal
       sourced
+
+PATH
+  remote: ../../../sourced
+  specs:
+    sourced (0.0.1)
+      async
+      plumb (= 0.4.0)
+      sequel
+      sourced-component (~> 0.1, >= 0.1.1)
+      sourced-message (>= 0.5.1)
+      sqlite3
 
 PATH
   remote: ../..
@@ -22,17 +32,6 @@ PATH
       sourced-component (~> 0.1)
       sourced-message (>= 0.4.0)
       tsort
-
-PATH
-  remote: /Users/ismaelcelis/code/personal/gems/sourced
-  specs:
-    sourced (0.0.1)
-      async
-      plumb (= 0.4.0)
-      sequel
-      sourced-component (~> 0.1, >= 0.1.1)
-      sourced-message (>= 0.5)
-      sqlite3
 
 GEM
   remote: https://rubygems.org/

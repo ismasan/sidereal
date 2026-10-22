@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 require 'sidereal/integrations/sourced'
+# Statechart components, from the Sourced dashboard's gem.
+require 'sourced/ui/components'
 
 # Sourced keeps the app's commands and events in the `db` component
 # (config/components/db.rb) and runs the handlers that react to them: the
@@ -35,3 +37,5 @@ Sidereal.config.use Sidereal::Integrations::Sourced, db: 'db'
 
 Sourced.register(HolidayBooking)
 Sourced.register(CrossPost::Account)
+Sourced.register(Reviews)
+Sourced.register(ReviewSummaries)

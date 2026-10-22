@@ -22,8 +22,8 @@ module UI
 
       def render_tab
         section(class: 'machine-view', aria: { label: 'Statechart' }) do
-          render Components::Statechart.new(@booking.to_h, title: 'HolidayBooking statechart')
-          render Components::StatechartLegend.new
+          render Sourced::UI::Components::Statechart.new(@booking.to_h, title: 'HolidayBooking statechart')
+          render Sourced::UI::Components::StatechartLegend.new
           pre(class: 'machine-view__value') do
             code { "# machine.value\n#{JSON.pretty_generate(json_value(@machine.value))}" }
           end

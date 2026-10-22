@@ -44,7 +44,7 @@ module UI
               render_header
               render_chart
               @row ? render_state : render_overview
-              render Components::StatechartLegend.new
+              render Sourced::UI::Components::StatechartLegend.new
             end
           end
         end
@@ -155,7 +155,7 @@ module UI
         chart = @row ? Charts.highlight(@definition, @row.path) : @definition
 
         div(class: 'explorer__chart machine-view', data: { 'on:click' => pick }) do
-          render Components::Statechart.new(chart, title: "#{Charts.short_name(@machine)} statechart")
+          render Sourced::UI::Components::Statechart.new(chart, title: "#{Charts.short_name(@machine)} statechart")
         end
       end
 

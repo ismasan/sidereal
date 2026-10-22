@@ -29,7 +29,7 @@ module UI
 
             render_tree
             ::CrossPost.machines.each { render_machine(it) }
-            render Components::StatechartLegend.new
+            render Sourced::UI::Components::StatechartLegend.new
           end
         end
       end
@@ -70,7 +70,7 @@ module UI
         section(id: anchor(machine), class: 'definitions__chart machine-view', aria: { label: "#{name} statechart" }) do
           h2 { name }
           p(class: 'definitions__lead') { "Partitioned by #{chart[:partition_by].join(', ')}." }
-          render Components::Statechart.new(chart, title: "#{name} statechart")
+          render Sourced::UI::Components::Statechart.new(chart, title: "#{name} statechart")
           render_commands(Charts.rows(chart))
           details(class: 'machine-view__value') do
             summary { 'Mermaid' }

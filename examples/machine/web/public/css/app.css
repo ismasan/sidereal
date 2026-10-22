@@ -590,7 +590,7 @@ select:focus {
   .statechart__box { transition: none; }
 }
 
-/* Statechart: UI::Components::Statechart draws HolidayBooking from Machine#to_h. */
+/* Statechart: Sourced::UI::Components::Statechart (sourced-ui) draws machines from Machine#to_h. */
 
 .statechart {
   display: block;

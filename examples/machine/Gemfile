@@ -4,9 +4,9 @@ source 'https://rubygems.org'
 
 gem 'sidereal', path: '../..'
 # gem 'sourced', github: 'ismasan/sourced', branch: 'statecharts'
-gem 'sourced', path: '/Users/ismaelcelis/code/personal/gems/sourced'
+gem 'sourced', path: '../../../sourced'
 # The Sourced dashboard, mounted at /sourced in config.ru.
-gem 'sourced-ui', github: 'ismasan/sourced-ui'
+gem 'sourced-ui', path: '../../../sourced-ui'# github: 'ismasan/sourced-ui'
 gem 'falcon'
 gem 'zeitwerk'
 
