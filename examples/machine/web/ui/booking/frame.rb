@@ -14,6 +14,9 @@ module UI
       # Every event the machine evolves: its checkpoints and its data.
       on HolidayBooking
 
+      # Command forms must be for commands the booking accepts at this step.
+      with_machine { @booking }
+
       TABS = { booking: 'Booking', diagram: 'Diagram' }.freeze
 
       def self.load(params, _ctx) = new(History.load(params[:booking_id]))

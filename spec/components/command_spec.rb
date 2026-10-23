@@ -72,6 +72,78 @@ RSpec.describe Sidereal::Components::Command do
     expect(html[/<form[^>]*>/]).not_to include('key=')
   end
 
+  # Stands in for a Sourced::Machine: its #available_commands, and the #machine
+  # view whose value an error names.
+  CommandSpecMachine = Data.define(:available_commands, :value) do
+    def machine = self
+  end
+
+  describe 'inside with_machine' do
+    let(:machine) { CommandSpecMachine.new(Set[CommandSpecAddItem], :placed) }
+
+    let(:wrapping) do
+      Class.new(Sidereal::Components::BaseComponent) do
+        def initialize(machine, content)
+          @machine = machine
+          @content = content
+        end
+
+        def view_template = with_machine(@machine) { instance_exec(&@content) }
+      end
+    end
+
+    def render_in(&content) = wrapping.new(machine, content).call(context:)
+
+    it 'renders a form for a command the machine accepts' do
+      html = render_in { command(CommandSpecAddItem) { |f| f.text_field :title } }
+      expect(html).to include('value="command_spec.add_item"')
+    end
+
+    it "raises for a command the machine doesn't accept" do
+      expect { render_in { command(CommandSpecBookCourse) { |f| f.text_field :course_name } } }.to raise_error(
+        Sidereal::CommandNotAvailableError,
+        "CommandSpecMachine doesn't accept CommandSpecBookCourse at :placed. It accepts: CommandSpecAddItem"
+      )
+    end
+
+    it 'checks nothing outside it, and restores the previous machine after it' do
+      expect { render_in { raise 'boom' } }.to raise_error('boom')
+      expect(Sidereal::Components::BaseComponent.current_machine).to be_nil
+      expect(render(CommandSpecBookCourse)).to include('value="command_spec.book_course"')
+    end
+
+    it 'rejects anything without available_commands' do
+      component = Class.new(Sidereal::Components::BaseComponent) do
+        def view_template = with_machine(Object.new) {}
+      end
+      expect { component.new.call(context:) }.to raise_error(ArgumentError, /is not a machine/)
+    end
+
+    describe '.with_machine' do
+      let(:component) do
+        Class.new(Sidereal::Components::BaseComponent) do
+          with_machine { @machine }
+
+          def initialize(machine, command_class)
+            @machine = machine
+            @command_class = command_class
+          end
+
+          def view_template
+            command(@command_class) { |f| f.text_field :title }
+          end
+        end
+      end
+
+      it 'wraps the whole template, in subclasses too' do
+        expect(Class.new(component).new(machine, CommandSpecAddItem).call(context:)).to include('command_spec.add_item')
+        expect { Class.new(component).new(machine, CommandSpecBookCourse).call(context:) }
+          .to raise_error(Sidereal::CommandNotAvailableError)
+        expect(Sidereal::Components::BaseComponent.current_machine).to be_nil
+      end
+    end
+  end
+
   # The mirror of decoding: a command holds Ruby values, an <input> can only
   # hold a String, so the app's FormsCodec encodes at that boundary.
   describe 'rendering a command instance' do

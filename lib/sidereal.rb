@@ -14,6 +14,10 @@ module Sidereal
   # Raised by a build where builds are forbidden: see {.lock!}
   class ForkError < Error; end
 
+  # Raised by a command form rendered for a command the current machine
+  # doesn't accept in its current state. See {Components::BaseComponent#with_machine}.
+  class CommandNotAvailableError < Error; end
+
   # The environment the app runs in: +APP_ENV+, else +RACK_ENV+, else
   # +"development"+. Production deployments must set one of them, or
   # {ShowExceptions} shows backtraces to visitors. Read by {App.show_exceptions?}
