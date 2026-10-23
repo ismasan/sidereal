@@ -15,7 +15,10 @@ module Sidereal
       # {Page::RENDERING_KEY}.
       MACHINE_KEY = :__sidereal_rendering_machine__
 
-      # The machine set by the innermost {#with_machine} in this fiber, or +nil+.
+      # The configuration of the machine set by the innermost {#with_machine}
+      # in this fiber, or +nil+.
+      #
+      # @return [Sourced::Machine::Configuration, nil]
       def self.current_machine = Thread.current[MACHINE_KEY]
 
       # Render every instance of this component, and its subclasses, inside
@@ -42,19 +45,19 @@ module Sidereal
         with_machine(instance_exec(&reader)) { super(&block) }
       end
 
-      # Render the block with +machine+ as the current machine: any command form
-      # rendered inside it raises {Sidereal::CommandNotAvailableError} unless
-      # +machine+ accepts that command in its current state. Restores the
-      # previous machine afterwards, so the innermost one wins.
+      # Render the block with +machine+ as the current machine: a command form
+      # rendered inside it, for a command the machine handles, raises
+      # {Sidereal::CommandNotAvailableError} unless the machine accepts that
+      # command in its current state. Forms for commands the machine doesn't
+      # handle aren't checked. Restores the previous machine afterwards, so the
+      # innermost one wins.
       #
-      # @param machine [Sourced::Machine]
+      # @param machine [#to_machine_config] a Sourced::Machine, or a
+      #   Sourced::Machine::Configuration
       private def with_machine(machine)
-        unless machine.respond_to?(:available_commands)
-          raise ArgumentError, "#{machine.inspect} is not a machine: it doesn't respond to #available_commands"
-        end
-
+        configuration = machine.to_machine_config
         previous = Thread.current[MACHINE_KEY]
-        Thread.current[MACHINE_KEY] = machine
+        Thread.current[MACHINE_KEY] = configuration
         begin
           yield
         ensure

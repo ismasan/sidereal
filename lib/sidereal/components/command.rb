@@ -267,15 +267,20 @@ module Sidereal
       private
 
       # Inside {BaseComponent#with_machine}, refuse to render a form for a
-      # command the machine doesn't accept in its current state.
+      # command the machine handles but doesn't accept in its current state.
+      # Commands the machine doesn't handle are none of its business.
       def check_available!(command_class)
-        machine = BaseComponent.current_machine
-        return if machine.nil? || machine.available_commands.include?(command_class)
+        configuration = BaseComponent.current_machine
+        return if configuration.nil?
+        return unless configuration.handled_commands.include?(command_class)
 
-        available = machine.available_commands.map(&:name).sort
+        available = configuration.available_commands
+        return if available.include?(command_class)
+
+        names = available.map(&:name).sort
         raise CommandNotAvailableError,
-              "#{machine.class} doesn't accept #{command_class} at #{machine.machine.value.inspect}. " \
-              "It accepts: #{available.empty? ? 'nothing' : available.join(', ')}"
+              "#{command_class} isn't available at #{configuration.value.inspect}. " \
+              "Available: #{names.empty? ? 'nothing' : names.join(', ')}"
       end
 
       # Make a value safe to embed in a DOM id by collapsing any char outside

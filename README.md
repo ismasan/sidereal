@@ -631,7 +631,7 @@ Field helpers: `text_field`, `text_area`, `number_field`, `date_field`, `check_b
 
 #### Forms for a state machine
 
-A page for a [Sourced](https://github.com/ismasan/sourced) machine should only offer the commands the machine accepts in its current state. Declare the machine with `with_machine`, and every command form rendered inside the page or component, at any depth, is checked against the machine's `available_commands`. A form for a command the machine doesn't accept raises `Sidereal::CommandNotAvailableError` while rendering, instead of showing a form that would be refused when submitted:
+A page for a [Sourced](https://github.com/ismasan/sourced) machine should only offer the commands the machine accepts in its current state. Declare the machine with `with_machine`, and every command form rendered inside the page or component, at any depth, is checked against it. A form for one of the machine's commands (its `handled_commands`) that it doesn't accept in its current state (its `available_commands`) raises `Sidereal::CommandNotAvailableError` while rendering, instead of showing a form that would be refused when submitted. Forms for commands the machine doesn't handle at all, such as another machine's or a plain app command, render as usual:
 
 ```ruby
 class BookingPage < Sidereal::Page
@@ -658,8 +658,8 @@ end
 ```
 
 ```
-Sidereal::CommandNotAvailableError: HolidayBooking doesn't accept HolidayBooking::StartBooking
-at {HolidayBooking::BookingStarted => {...}}. It accepts: HolidayBooking::CancelBooking, ...
+Sidereal::CommandNotAvailableError: HolidayBooking::StartBooking isn't available
+at {HolidayBooking::BookingStarted => {...}}. Available: HolidayBooking::CancelBooking, ...
 ```
 
 `with_machine` is inherited by subclasses. To check only part of a template, pass the machine to the instance helper and wrap that part in a block:
@@ -674,7 +674,7 @@ def view_template
 end
 ```
 
-Blocks can nest, and the innermost machine is the one checked. Forms rendered outside any `with_machine` aren't checked. The machine can be any object that responds to `available_commands` with a set of command classes. `Sourced::Machine` instances do.
+Blocks can nest, and the innermost machine is the one checked. Forms rendered outside any `with_machine` aren't checked. The machine can be any object that responds to `to_machine_config` with a configuration, which answers `handled_commands` and `available_commands` with sets of command classes: a `Sourced::Machine` instance, or a read-only `Sourced::Machine::Configuration` built from stored paths with `MyMachine.configuration(paths)`, which lets a listing check each record's forms without loading its history.
 
 The current machine is kept in `Thread.current`, which Ruby scopes to the current fiber, so concurrent requests under Falcon never see each other's machine. It's restored when the block or render ends, even if it raises. A child fiber started during a render, such as an `Async` task or an external `Enumerator`, doesn't inherit it, so forms rendered there aren't checked.
 

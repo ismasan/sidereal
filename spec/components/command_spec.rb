@@ -72,14 +72,15 @@ RSpec.describe Sidereal::Components::Command do
     expect(html[/<form[^>]*>/]).not_to include('key=')
   end
 
-  # Stands in for a Sourced::Machine: its #available_commands, and the #machine
-  # view whose value an error names.
-  CommandSpecMachine = Data.define(:available_commands, :value) do
-    def machine = self
+  # Stand in for a Sourced::Machine::Configuration, which is its own
+  # #to_machine_config, and for a machine instance, which answers with its own.
+  CommandSpecConfiguration = Data.define(:handled_commands, :available_commands, :value) do
+    def to_machine_config = self
   end
+  CommandSpecMachine = Data.define(:to_machine_config)
 
   describe 'inside with_machine' do
-    let(:machine) { CommandSpecMachine.new(Set[CommandSpecAddItem], :placed) }
+    let(:machine) { CommandSpecConfiguration.new(Set[CommandSpecAddItem, CommandSpecBookCourse], Set[CommandSpecAddItem], :placed) }
 
     let(:wrapping) do
       Class.new(Sidereal::Components::BaseComponent) do
@@ -99,10 +100,25 @@ RSpec.describe Sidereal::Components::Command do
       expect(html).to include('value="command_spec.add_item"')
     end
 
-    it "raises for a command the machine doesn't accept" do
+    it "raises for a command the machine handles, but doesn't accept now" do
       expect { render_in { command(CommandSpecBookCourse) { |f| f.text_field :course_name } } }.to raise_error(
         Sidereal::CommandNotAvailableError,
-        "CommandSpecMachine doesn't accept CommandSpecBookCourse at :placed. It accepts: CommandSpecAddItem"
+        "CommandSpecBookCourse isn't available at :placed. Available: CommandSpecAddItem"
+      )
+    end
+
+    it "renders a form for a command the machine doesn't handle" do
+      foreign = CommandSpecConfiguration.new(Set[CommandSpecAddItem], Set[CommandSpecAddItem], :placed)
+      html = wrapping.new(foreign, proc { command(CommandSpecBookCourse) { |f| f.text_field :course_name } }).call(context:)
+
+      expect(html).to include('value="command_spec.book_course"')
+    end
+
+    it "names a machine instance's state, from its configuration" do
+      instance = CommandSpecMachine.new(CommandSpecConfiguration.new(Set[CommandSpecAddItem], Set[], :done))
+
+      expect { wrapping.new(instance, proc { command(CommandSpecAddItem) }).call(context:) }.to raise_error(
+        Sidereal::CommandNotAvailableError, "CommandSpecAddItem isn't available at :done. Available: nothing"
       )
     end
 
@@ -112,11 +128,11 @@ RSpec.describe Sidereal::Components::Command do
       expect(render(CommandSpecBookCourse)).to include('value="command_spec.book_course"')
     end
 
-    it 'rejects anything without available_commands' do
+    it 'raises for anything without to_machine_config' do
       component = Class.new(Sidereal::Components::BaseComponent) do
         def view_template = with_machine(Object.new) {}
       end
-      expect { component.new.call(context:) }.to raise_error(ArgumentError, /is not a machine/)
+      expect { component.new.call(context:) }.to raise_error(NoMethodError, /to_machine_config/)
     end
 
     describe '.with_machine' do
