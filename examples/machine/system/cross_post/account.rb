@@ -207,9 +207,7 @@ module CrossPost
     state Verifying do
       on_final Verifying::Verified => Active
 
-      after('P30D') do |_profile, _transition|
-        dispatch PurgeUnverified
-      end
+      after('P30D' => PurgeUnverified)
 
       command PurgeUnverified => Closed
       command CloseAccount => Closed

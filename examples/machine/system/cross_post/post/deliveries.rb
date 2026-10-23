@@ -61,9 +61,7 @@ module CrossPost
           end
 
           state retrying do
-            after(60) do |_draft, _transition|
-              dispatch resend
-            end
+            after(60 => resend)
 
             command resend => sending
           end

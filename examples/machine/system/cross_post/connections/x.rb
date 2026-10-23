@@ -43,9 +43,7 @@ module CrossPost
       end
 
       state Connected do
-        after(ACCESS_TOKEN_TTL) do |_ctx, _transition|
-          dispatch Refresh
-        end
+        after(ACCESS_TOKEN_TTL => Refresh)
 
         command Refresh => Refreshing
         command ReportRevoked => NeedsReauth

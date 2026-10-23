@@ -39,9 +39,7 @@ module CrossPost
         end
 
         started Redirecting do
-          after('10m') do |_ctx, _transition|
-            dispatch Abandon
-          end
+          after('10m' => Abandon)
 
           command ReceiveCode => ExchangingCode
           command DenyAccess => Denied

@@ -41,9 +41,7 @@ module CrossPost
       end
 
       state Connected do
-        after('P53D') do |_ctx, _transition|
-          dispatch WarnExpiry
-        end
+        after('P53D' => WarnExpiry)
 
         command WarnExpiry => Expiring
         command ReportRevoked => NeedsReauth
@@ -51,9 +49,7 @@ module CrossPost
       end
 
       state Expiring do
-        after('P7D') do |_ctx, _transition|
-          dispatch Expire
-        end
+        after('P7D' => Expire)
 
         command Expire => NeedsReauth
         command Reauthorize => Authorizing

@@ -26,9 +26,7 @@ module CrossPost
       ExpireLink = Command(:expire_verification_link)
 
       started AwaitingClick do
-        after('24h') do |_profile, _transition|
-          dispatch ExpireLink
-        end
+        after('24h' => ExpireLink)
 
         command VerifyEmail => Verified | nil do |profile, cmd|
           to Verified if profile.verification_token == cmd.payload.token

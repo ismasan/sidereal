@@ -25,9 +25,7 @@ module CrossPost
     Revoke = Command(:revoke)
 
     started Active do
-      after('P30D') do |_ctx, _transition|
-        dispatch Expire
-      end
+      after('P30D' => Expire)
 
       command LogOut => LoggedOut
       command Expire => Expired

@@ -34,9 +34,7 @@ module CrossPost
       end
 
       state Locked do
-        after('15m') do |_profile, _transition|
-          dispatch Unlock
-        end
+        after('15m' => Unlock)
 
         command Unlock => Open
       end

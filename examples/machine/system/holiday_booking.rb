@@ -316,9 +316,7 @@ class HolidayBooking < Sourced::Machine
   end
 
   state ItineraryReady do
-    after(HOLD_SECONDS) do |_trip, _transition|
-      dispatch ExpireHold
-    end
+    after(HOLD_SECONDS => ExpireHold)
 
     # A card ending in 0000 is declined, any other is charged.
     command Pay => BookingConfirmed | nil do |_trip, cmd|

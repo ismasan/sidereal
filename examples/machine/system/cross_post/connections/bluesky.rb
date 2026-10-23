@@ -40,9 +40,7 @@ module CrossPost
       end
 
       state Connected do
-        after(ACCESS_JWT_TTL) do |_ctx, _transition|
-          dispatch Refresh
-        end
+        after(ACCESS_JWT_TTL => Refresh)
 
         command Refresh => Refreshing
         command ReportRevoked => NeedsReauth
