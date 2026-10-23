@@ -54,7 +54,7 @@ RSpec.describe Sidereal::ShowExceptions do
   end
 
   # The stream runs as its body is read, and the exception carries on to the
-  # dispatcher's on_error, which prints it.
+  # streamer's on_error, which prints it.
   def streamed_body
     post '/commands', command: { type: 'show_exceptions_test.boom', payload: { title: 'x' } }
     body = nil
@@ -74,12 +74,14 @@ RSpec.describe Sidereal::ShowExceptions do
     Sidereal.environment = 'production'
 
     expect(app.show_exceptions?).to be(false)
+    expect(app.streamer_class).to equal(Datastar::Dispatcher)
     expect { get '/boom' }.to raise_error(ShowExceptionsTestError)
     expect(streamed_body).not_to include('sidereal-exception')
   end
 
   it 'decides when the app is defined, not per request' do
     expect(app.show_exceptions?).to be(true)
+    expect(app.streamer_class).to equal(Sidereal::App::ExceptionStreamer)
     Sidereal.environment = 'production'
 
     get '/boom'
