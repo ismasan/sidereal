@@ -14,6 +14,21 @@ module Sidereal
   # Raised by a build where builds are forbidden: see {.lock!}
   class ForkError < Error; end
 
+  # The environment the app runs in: +APP_ENV+, else +RACK_ENV+, else
+  # +"development"+. Production deployments must set one of them, or
+  # {ShowExceptions} shows backtraces to visitors. Read by {App.show_exceptions?}
+  # when an app class is defined.
+  #
+  # @return [String]
+  def self.environment = @environment ||= ENV['APP_ENV'] || ENV['RACK_ENV'] || 'development'
+
+  # @param env [String, Symbol]
+  def self.environment=(env)
+    @environment = env&.to_s
+  end
+
+  def self.development? = environment == 'development'
+
   def self.message_method_name(prefix, name)
     "__handle_#{prefix}_#{name.split('::').map(&:downcase).join('_')}"
   end
@@ -307,6 +322,7 @@ require_relative 'sidereal/system'
 require_relative 'sidereal/channels'
 require_relative 'sidereal/exceptions'
 require_relative 'sidereal/router'
+require_relative 'sidereal/show_exceptions'
 require_relative 'sidereal/components/layout'
 require_relative 'sidereal/page'
 require_relative 'sidereal/pubsub/memory'

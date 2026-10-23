@@ -6,6 +6,9 @@ require 'console'
 require 'logger'
 require "sidereal"
 
+# Specs that want development's error pages set Sidereal.environment themselves.
+ENV['APP_ENV'] ||= 'test'
+
 # Silence Console logs during tests — error/warn output from intentional
 # failure-path tests (dispatcher handler errors, publish errors) drowns
 # out the rspec progress otherwise. Set CONSOLE_LEVEL=debug to re-enable.

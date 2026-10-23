@@ -23,9 +23,55 @@ module Sidereal
       status 200
     }
 
+    # A Datastar streamer that appends an exception raised while a response
+    # streams to the page, as {ShowExceptions} does for one raised before the
+    # response starts. It's raised on afterwards, for the +on_error+
+    # callbacks. The {.streamer_class} of apps that {.show_exceptions?}.
+    class ExceptionStreamer < Datastar::Dispatcher
+      def stream(streamer = nil, **, &block)
+        streamer ||= block
+        reporting = lambda do |sse|
+          streamer.call(sse)
+        rescue StandardError => ex
+          report_exception(sse, ex) unless client_disconnect?(ex)
+          raise ex
+        end
+        super(reporting, **)
+      end
+
+      private def report_exception(sse, ex)
+        overlay = Components::ExceptionView.new(ex, request:, overlay: true).call
+        sse.patch_elements(overlay, selector: 'body', mode: 'append')
+      rescue StandardError
+        nil # the stream is gone: the exception it carried is the one to raise
+      end
+    end
+
     class << self
+      # Whether this app reports exceptions to the browser, with
+      # {ShowExceptions} and {ExceptionStreamer}. Decided once, when the class
+      # is defined, by {Sidereal.development?}: set +APP_ENV+ or
+      # {Sidereal.environment=} before loading the app's classes.
+      def show_exceptions?
+        @show_exceptions = Sidereal.development? if @show_exceptions.nil?
+        @show_exceptions
+      end
+
+      # The router, wrapped in {ShowExceptions} when the app {.show_exceptions?},
+      # inside any middleware added with {.session}.
+      def app
+        @app ||= show_exceptions? ? ShowExceptions.new(method(:route)) : method(:route)
+      end
+
+      # The class of {#datastar}: {ExceptionStreamer} when the app {.show_exceptions?}.
+      def streamer_class
+        @streamer_class ||= show_exceptions? ? ExceptionStreamer : Datastar::Dispatcher
+      end
+
       def inherited(subclass)
         super
+        subclass.app
+        subclass.streamer_class
         handled_commands.each do |type, klass|
           subclass.handled_commands[type] = klass
         end
@@ -424,7 +470,7 @@ module Sidereal
     #
     # Also aliased as {#browser} for readability inside handler blocks.
     def datastar
-      @datastar ||= Datastar.new(request:, view_context: self, heartbeat: 0.4).on_error do |err|
+      @datastar ||= self.class.streamer_class.new(request:, view_context: self, heartbeat: 0.4).on_error do |err|
         puts "Datastar error: #{err}"
         puts err.backtrace.join("\n")
       end
