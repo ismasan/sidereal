@@ -39,6 +39,11 @@ module UI
           end
 
           p(class: 'welcome__lead') do
+            a(href: '/bookings') { 'Every booking' }
+            plain ', with the buttons each one accepts now.'
+          end
+
+          p(class: 'welcome__lead') do
             plain 'Bigger: '
             a(href: '/cross-post') { 'a whole cross-posting app' }
             plain ', described as a tree of machines.'

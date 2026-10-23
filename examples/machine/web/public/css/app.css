@@ -397,6 +397,7 @@ select:focus {
 .option__body strong { font-size: 0.95rem; }
 .option__note { font-size: 0.8rem; color: var(--mist); }
 .options--compact .option { padding: 0.45rem 0.6rem; }
+.option__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.4rem; }
 .option__tag {
   font-size: 0.75rem;
   color: var(--gold);

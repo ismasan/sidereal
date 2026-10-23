@@ -2,7 +2,17 @@
 # and build its components, so classes can read the ones they inject.
 # Building starts nothing: no pubsub, no workers.
 require_relative '../boot'
+require 'tmpdir'
+
+# Specs get a database of their own, migrated afresh, rather than the app's:
+# projectors with `dep :db` load and sync their records there.
+TEST_DB_DIR = Dir.mktmpdir('machine-example-specs')
+at_exit { FileUtils.remove_entry(TEST_DB_DIR) }
+Sidereal.config.config!('db.filepath') { File.join(TEST_DB_DIR, 'test.db') }
 Sidereal.config.build!
+
+Sequel.extension :migration
+Sequel::Migrator.run(Sidereal.config['db'], File.expand_path('../db/migrations', __dir__))
 
 module MachineHelpers
   # The state event +machine+ appends moving to +to+ (a path), as a

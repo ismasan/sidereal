@@ -36,6 +36,7 @@ class App < Sidereal::App
          HolidayBooking::CancelBooking
 
   page UI::HomePage
+  page UI::BookingsPage
   page UI::Booking::Page
   page UI::Booking::DiagramPage
   page UI::CrossPost::DefinitionsPage
