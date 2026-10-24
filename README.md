@@ -1758,6 +1758,91 @@ Sourced.register(TodoDecider)
 
 You don't write any publishing code — that's the auto-publish below.
 
+### State machines
+
+A `Sourced::Machine` is a Decider written as a statechart. You declare its states and, for each one, the commands it accepts and the state each command moves it to. A command the current state doesn't accept is refused. Each state is an event the machine appends when it enters that state, and a command block can append data events alongside it:
+
+```ruby
+class Order < Sourced::Machine
+  partition_by order_id: Sourced::Types::UUID::V4
+
+  PlaceOrder = Command(:place_order) do
+    attribute :order_id, Sourced::Types::AutoUUID
+    attribute :item, Sourced::Types::String
+  end
+  Ship = Command(:ship)
+  Cancel = Command(:cancel)
+
+  Placed = State(:placed)
+  Shipped = State(:shipped)
+  Cancelled = State(:cancelled)
+
+  ItemAdded = Event(:item_added) do
+    attribute :item, Sourced::Types::String
+  end
+
+  context { { items: [] } }
+
+  evolve ItemAdded do |order, evt|
+    order[:items] << evt.payload.item
+  end
+
+  initial do
+    command PlaceOrder => Placed do |_order, cmd|
+      event ItemAdded, item: cmd.payload.item
+    end
+  end
+
+  state Placed do
+    command Ship => Shipped
+    command Cancel => Cancelled
+  end
+
+  final Shipped
+  final Cancelled
+end
+
+Sourced.register(Order)
+```
+
+The App exposes its commands with `handle`, like any other. The integration publishes the events a machine appends, its states and its data events, so `on Order` on a page reloads it whenever the machine moves. Load the machine in the page with `Sourced.load`, ask it where it is with `machine.in?(state)`, and declare it with [`with_machine`](#forms-for-a-state-machine) so that only the forms its current state accepts can render:
+
+```ruby
+class OrderPage < Sidereal::Page
+  path '/orders/:order_id'
+
+  on Order
+  with_machine { @order }
+
+  def self.load(params, _ctx)
+    order, = Sourced.load(Order, order_id: params[:order_id])
+    new(params[:order_id], order)
+  end
+
+  def initialize(order_id, order)
+    @order_id = order_id
+    @order = order
+  end
+
+  def view_template
+    div(id: 'order', data: _d.signals(page_key: self.class.page_key, params: { order_id: @order_id }).to_h) do
+      p { @order.context[:items].join(', ') }
+
+      if @order.machine.in?(Order::Placed)
+        command Order::Ship do |f|
+          f.payload_fields(order_id: @order_id)
+          button(type: :submit) { 'Ship' }
+        end
+      end
+    end
+  end
+end
+```
+
+A machine's commands carry its partition attributes (`order_id` here) without declaring them. Rendering `command Order::Ship` while the order is shipped already would raise `Sidereal::CommandNotAvailableError`, which is why the form is behind `in?`.
+
+Machines also have parallel and nested regions, `done` transitions, timers (`after`) and child machines. The [`examples/machine`](examples/machine) app is a worked example, and the [Sourced docs](https://ismasan.github.io/sourced/#machines) cover everything a machine can do.
+
 ### Auto-publish
 
 The integration publishes reactor output to Sidereal's PubSub for you, so Page reactions pick it up and stream DOM updates via SSE. Every path resolves its channel through your App's `channel_name` resolver (`Sidereal.channels.for(evt)`), and a publish/resolver failure is reported to `Sidereal.exceptions` (it's terminal — the store already committed).
