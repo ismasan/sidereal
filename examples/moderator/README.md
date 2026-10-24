@@ -14,7 +14,7 @@ bundle exec rake db:migrate
 bundle exec falcon host
 ```
 
-`db:migrate` also installs Sourced's tables: Sourced doesn't create them on boot, and raises `Sourced::Store::NotInstalledError` without them. The migration in `db/migrations` was generated with `bundle exec rake db:sourced_migration` (`Sourced.store.copy_migration_to`); regenerate it the same way when Sourced's schema changes.
+`db:migrate` also installs Sourced's tables: Sourced doesn't create them on boot, and raises `Sourced::Store::NotInstalledError` without them. The first Sourced migration in `db/migrations` was generated with `bundle exec rake db:sourced_migration` (`Sourced.store.copy_migration_to`). When Sourced's schema changes, add a migration that alters the existing tables (as `*_add_tags_and_label_to_sourced_tables.rb` does) rather than regenerating it, so databases that already ran the first one catch up.
 
 Optionally fill the inbox with 50 sample comments before or while the server runs:
 
