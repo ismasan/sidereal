@@ -103,6 +103,7 @@ module Sidereal
         @ajax = attrs.key?(:ajax) ? attrs.delete(:ajax) : true
         @key = attrs.delete(:key) || 'cmd'
         @command = command.is_a?(Class) ? command.new : command
+        check_available!(@command.class)
         @attrs = attrs
         # Deterministic id prefix so the same form morphs in place across
         # re-renders (random ids would make idiomorph replace the elements).
@@ -264,6 +265,23 @@ module Sidereal
       attr_reader :command
 
       private
+
+      # Inside {BaseComponent#with_machine}, refuse to render a form for a
+      # command the machine handles but doesn't accept in its current state.
+      # Commands the machine doesn't handle are none of its business.
+      def check_available!(command_class)
+        configuration = BaseComponent.current_machine
+        return if configuration.nil?
+        return unless configuration.handled_commands.include?(command_class)
+
+        available = configuration.available_commands
+        return if available.include?(command_class)
+
+        names = available.map(&:name).sort
+        raise CommandNotAvailableError,
+              "#{command_class} isn't available at #{configuration.value.inspect}. " \
+              "Available: #{names.empty? ? 'nothing' : names.join(', ')}"
+      end
 
       # Make a value safe to embed in a DOM id by collapsing any char outside
       # +[A-Za-z0-9_-]+ to +_+ (so a dotted command type like

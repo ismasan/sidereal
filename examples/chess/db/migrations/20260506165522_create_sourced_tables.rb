@@ -44,6 +44,7 @@ Sequel.migration do
     create_table?(:sourced_consumer_groups) do
       primary_key :id
       String :group_id, null: false, unique: true
+      String :label
       String :status, null: false, default: 'active'
       Integer :highest_position, null: false, default: 0
       Integer :discovery_position, null: false, default: 0

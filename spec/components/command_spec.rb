@@ -72,6 +72,94 @@ RSpec.describe Sidereal::Components::Command do
     expect(html[/<form[^>]*>/]).not_to include('key=')
   end
 
+  # Stand in for a Sourced::Machine::Configuration, which is its own
+  # #to_machine_config, and for a machine instance, which answers with its own.
+  CommandSpecConfiguration = Data.define(:handled_commands, :available_commands, :value) do
+    def to_machine_config = self
+  end
+  CommandSpecMachine = Data.define(:to_machine_config)
+
+  describe 'inside with_machine' do
+    let(:machine) { CommandSpecConfiguration.new(Set[CommandSpecAddItem, CommandSpecBookCourse], Set[CommandSpecAddItem], :placed) }
+
+    let(:wrapping) do
+      Class.new(Sidereal::Components::BaseComponent) do
+        def initialize(machine, content)
+          @machine = machine
+          @content = content
+        end
+
+        def view_template = with_machine(@machine) { instance_exec(&@content) }
+      end
+    end
+
+    def render_in(&content) = wrapping.new(machine, content).call(context:)
+
+    it 'renders a form for a command the machine accepts' do
+      html = render_in { command(CommandSpecAddItem) { |f| f.text_field :title } }
+      expect(html).to include('value="command_spec.add_item"')
+    end
+
+    it "raises for a command the machine handles, but doesn't accept now" do
+      expect { render_in { command(CommandSpecBookCourse) { |f| f.text_field :course_name } } }.to raise_error(
+        Sidereal::CommandNotAvailableError,
+        "CommandSpecBookCourse isn't available at :placed. Available: CommandSpecAddItem"
+      )
+    end
+
+    it "renders a form for a command the machine doesn't handle" do
+      foreign = CommandSpecConfiguration.new(Set[CommandSpecAddItem], Set[CommandSpecAddItem], :placed)
+      html = wrapping.new(foreign, proc { command(CommandSpecBookCourse) { |f| f.text_field :course_name } }).call(context:)
+
+      expect(html).to include('value="command_spec.book_course"')
+    end
+
+    it "names a machine instance's state, from its configuration" do
+      instance = CommandSpecMachine.new(CommandSpecConfiguration.new(Set[CommandSpecAddItem], Set[], :done))
+
+      expect { wrapping.new(instance, proc { command(CommandSpecAddItem) }).call(context:) }.to raise_error(
+        Sidereal::CommandNotAvailableError, "CommandSpecAddItem isn't available at :done. Available: nothing"
+      )
+    end
+
+    it 'checks nothing outside it, and restores the previous machine after it' do
+      expect { render_in { raise 'boom' } }.to raise_error('boom')
+      expect(Sidereal::Components::BaseComponent.current_machine).to be_nil
+      expect(render(CommandSpecBookCourse)).to include('value="command_spec.book_course"')
+    end
+
+    it 'raises for anything without to_machine_config' do
+      component = Class.new(Sidereal::Components::BaseComponent) do
+        def view_template = with_machine(Object.new) {}
+      end
+      expect { component.new.call(context:) }.to raise_error(NoMethodError, /to_machine_config/)
+    end
+
+    describe '.with_machine' do
+      let(:component) do
+        Class.new(Sidereal::Components::BaseComponent) do
+          with_machine { @machine }
+
+          def initialize(machine, command_class)
+            @machine = machine
+            @command_class = command_class
+          end
+
+          def view_template
+            command(@command_class) { |f| f.text_field :title }
+          end
+        end
+      end
+
+      it 'wraps the whole template, in subclasses too' do
+        expect(Class.new(component).new(machine, CommandSpecAddItem).call(context:)).to include('command_spec.add_item')
+        expect { Class.new(component).new(machine, CommandSpecBookCourse).call(context:) }
+          .to raise_error(Sidereal::CommandNotAvailableError)
+        expect(Sidereal::Components::BaseComponent.current_machine).to be_nil
+      end
+    end
+  end
+
   # The mirror of decoding: a command holds Ruby values, an <input> can only
   # hold a String, so the app's FormsCodec encodes at that boundary.
   describe 'rendering a command instance' do

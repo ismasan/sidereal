@@ -341,6 +341,8 @@ end
 # one message that says its read model committed; reloading on the events it
 # consumes would read the model before the batch lands.
 ::Sourced::Decider.define_singleton_method(:sidereal_events) { handled_messages_for_evolve }
+# A machine likewise: its states (always evolved) and its data events.
+::Sourced::Machine.define_singleton_method(:sidereal_events) { handled_messages_for_evolve }
 ::Sourced::Projector.define_singleton_method(:sidereal_events) do
   const_defined?(:Projected, false) ? [const_get(:Projected)] : []
 end
@@ -356,6 +358,7 @@ end
 # before or after this.
 ::Sourced::Decider.extend(Sidereal::Deps)
 ::Sourced::Projector.extend(Sidereal::Deps)
+::Sourced::Machine.extend(Sidereal::Deps)
 
 # --- Auto-publish wiring (runs at require time, before domain reactors load) ---
 
@@ -365,6 +368,13 @@ end
 # correlated to the command (+Decider.handle_batch+ does that before its sync
 # hooks run), so subscribers see the +correlation_type+ they match on.
 ::Sourced::Decider.after_sync do |events: [], **|
+  Sidereal::Integrations::Sourced.publish_messages(events)
+end
+
+# Machines: the same, for the states and data events a command decided
+# into, and for the states and joins a machine moves to when it claims an event
+# appended elsewhere (a child's final, say).
+::Sourced::Machine.after_sync do |events: [], **|
   Sidereal::Integrations::Sourced.publish_messages(events)
 end
 

@@ -629,6 +629,55 @@ end
 
 Field helpers: `text_field`, `text_area`, `number_field`, `date_field`, `check_box`, and `payload_fields` for values the user doesn't edit. Pass a **message instance** instead of a class to prefill the form. Values are converted to and from the payload's declared types on the way in and out — see [Serialization](#serialization).
 
+#### Forms for a state machine
+
+A page for a [Sourced](https://github.com/ismasan/sourced) machine should only offer the commands the machine accepts in its current state. Declare the machine with `with_machine`, and every command form rendered inside the page or component, at any depth, is checked against it. A form for one of the machine's commands (its `handled_commands`) that it doesn't accept in its current state (its `available_commands`) raises `Sidereal::CommandNotAvailableError` while rendering, instead of showing a form that would be refused when submitted. Forms for commands the machine doesn't handle at all, such as another machine's or a plain app command, render as usual:
+
+```ruby
+class BookingPage < Sidereal::Page
+  path '/bookings/:booking_id'
+
+  # Evaluated in the instance, once per render
+  with_machine { @booking }
+
+  # A HolidayBooking machine, evolved from the booking's history
+  def self.load(params, _ctx) = new(Bookings.find(params[:booking_id]))
+
+  def initialize(booking) = @booking = booking
+
+  def view_template
+    if @booking.machine.in?(HolidayBooking::ItineraryReady)
+      command HolidayBooking::Pay do |f| # accepted here: renders
+        f.text_field :card_number
+      end
+    end
+
+    command HolidayBooking::StartBooking # never accepted once started: raises
+  end
+end
+```
+
+```
+Sidereal::CommandNotAvailableError: HolidayBooking::StartBooking isn't available
+at {HolidayBooking::BookingStarted => {...}}. Available: HolidayBooking::CancelBooking, ...
+```
+
+`with_machine` is inherited by subclasses. To check only part of a template, pass the machine to the instance helper and wrap that part in a block:
+
+```ruby
+def view_template
+  render_header
+
+  with_machine(@booking) do
+    render_forms
+  end
+end
+```
+
+Blocks can nest, and the innermost machine is the one checked. Forms rendered outside any `with_machine` aren't checked. The machine can be any object that responds to `to_machine_config` with a configuration, which answers `handled_commands` and `available_commands` with sets of command classes: a `Sourced::Machine` instance, or a read-only `Sourced::Machine::Configuration` built from stored paths with `MyMachine.configuration(paths)`, which lets a listing check each record's forms without loading its history.
+
+The current machine is kept in `Thread.current`, which Ruby scopes to the current fiber, so concurrent requests under Falcon never see each other's machine. It's restored when the block or render ends, even if it raises. A child fiber started during a render, such as an `Async` task or an external `Enumerator`, doesn't inherit it, so forms rendered there aren't checked.
+
 ## Layout
 
 Define a layout by subclassing `Sidereal::Components::Layout`. The base class overrides `head` and `body` to automatically inject the necessary Datastar wiring:
@@ -1708,6 +1757,91 @@ Sourced.register(TodoDecider)
 ```
 
 You don't write any publishing code — that's the auto-publish below.
+
+### State machines
+
+A `Sourced::Machine` is a Decider written as a statechart. You declare its states and, for each one, the commands it accepts and the state each command moves it to. A command the current state doesn't accept is refused. Each state is an event the machine appends when it enters that state, and a command block can append data events alongside it:
+
+```ruby
+class Order < Sourced::Machine
+  partition_by order_id: Sourced::Types::UUID::V4
+
+  PlaceOrder = Command(:place_order) do
+    attribute :order_id, Sourced::Types::AutoUUID
+    attribute :item, Sourced::Types::String
+  end
+  Ship = Command(:ship)
+  Cancel = Command(:cancel)
+
+  Placed = State(:placed)
+  Shipped = State(:shipped)
+  Cancelled = State(:cancelled)
+
+  ItemAdded = Event(:item_added) do
+    attribute :item, Sourced::Types::String
+  end
+
+  context { { items: [] } }
+
+  evolve ItemAdded do |order, evt|
+    order[:items] << evt.payload.item
+  end
+
+  initial do
+    command PlaceOrder => Placed do |_order, cmd|
+      event ItemAdded, item: cmd.payload.item
+    end
+  end
+
+  state Placed do
+    command Ship => Shipped
+    command Cancel => Cancelled
+  end
+
+  final Shipped
+  final Cancelled
+end
+
+Sourced.register(Order)
+```
+
+The App exposes its commands with `handle`, like any other. The integration publishes the events a machine appends, its states and its data events, so `on Order` on a page reloads it whenever the machine moves. Load the machine in the page with `Sourced.load`, ask it where it is with `machine.in?(state)`, and declare it with [`with_machine`](#forms-for-a-state-machine) so that only the forms its current state accepts can render:
+
+```ruby
+class OrderPage < Sidereal::Page
+  path '/orders/:order_id'
+
+  on Order
+  with_machine { @order }
+
+  def self.load(params, _ctx)
+    order, = Sourced.load(Order, order_id: params[:order_id])
+    new(params[:order_id], order)
+  end
+
+  def initialize(order_id, order)
+    @order_id = order_id
+    @order = order
+  end
+
+  def view_template
+    div(id: 'order', data: _d.signals(page_key: self.class.page_key, params: { order_id: @order_id }).to_h) do
+      p { @order.context[:items].join(', ') }
+
+      if @order.machine.in?(Order::Placed)
+        command Order::Ship do |f|
+          f.payload_fields(order_id: @order_id)
+          button(type: :submit) { 'Ship' }
+        end
+      end
+    end
+  end
+end
+```
+
+A machine's commands carry its partition attributes (`order_id` here) without declaring them. Rendering `command Order::Ship` while the order is shipped already would raise `Sidereal::CommandNotAvailableError`, which is why the form is behind `in?`.
+
+Machines also have parallel and nested regions, `done` transitions, timers (`after`) and child machines. The [Sourced docs](https://ismasan.github.io/sourced/#machines) cover everything a machine can do.
 
 ### Auto-publish
 

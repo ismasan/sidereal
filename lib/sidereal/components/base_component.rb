@@ -10,6 +10,61 @@ module Sidereal
       BLANK_HASH = {}.freeze
       include DatastarHelpers
 
+      # Fiber-local slot holding the machine that command forms rendered inside
+      # {#with_machine} must be valid for. Fiber-local for the same reason as
+      # {Page::RENDERING_KEY}.
+      MACHINE_KEY = :__sidereal_rendering_machine__
+
+      # The configuration of the machine set by the innermost {#with_machine}
+      # in this fiber, or +nil+.
+      #
+      # @return [Sourced::Machine::Configuration, nil]
+      def self.current_machine = Thread.current[MACHINE_KEY]
+
+      # Render every instance of this component, and its subclasses, inside
+      # {#with_machine}, with the machine +reader+ returns.
+      #
+      # @example
+      #   class BookingPage < Sidereal::Page
+      #     with_machine { @booking }
+      #   end
+      def self.with_machine(&reader)
+        raise ArgumentError, 'with_machine needs a block returning the machine' unless reader
+
+        @machine_reader = reader
+      end
+
+      def self.machine_reader
+        @machine_reader || (superclass.machine_reader if superclass.respond_to?(:machine_reader))
+      end
+
+      private def around_template(&block)
+        reader = self.class.machine_reader
+        return super unless reader
+
+        with_machine(instance_exec(&reader)) { super(&block) }
+      end
+
+      # Render the block with +machine+ as the current machine: a command form
+      # rendered inside it, for a command the machine handles, raises
+      # {Sidereal::CommandNotAvailableError} unless the machine accepts that
+      # command in its current state. Forms for commands the machine doesn't
+      # handle aren't checked. Restores the previous machine afterwards, so the
+      # innermost one wins.
+      #
+      # @param machine [#to_machine_config] a Sourced::Machine, or a
+      #   Sourced::Machine::Configuration
+      private def with_machine(machine)
+        configuration = machine.to_machine_config
+        previous = Thread.current[MACHINE_KEY]
+        Thread.current[MACHINE_KEY] = configuration
+        begin
+          yield
+        ensure
+          Thread.current[MACHINE_KEY] = previous
+        end
+      end
+
       private
 
       def params
