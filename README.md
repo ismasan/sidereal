@@ -1841,7 +1841,7 @@ end
 
 A machine's commands carry its partition attributes (`order_id` here) without declaring them. Rendering `command Order::Ship` while the order is shipped already would raise `Sidereal::CommandNotAvailableError`, which is why the form is behind `in?`.
 
-Machines also have parallel and nested regions, `done` transitions, timers (`after`) and child machines. The [`examples/machine`](examples/machine) app is a worked example, and the [Sourced docs](https://ismasan.github.io/sourced/#machines) cover everything a machine can do.
+Machines also have parallel and nested regions, `done` transitions, timers (`after`) and child machines. The [Sourced docs](https://ismasan.github.io/sourced/#machines) cover everything a machine can do.
 
 ### Auto-publish
 
