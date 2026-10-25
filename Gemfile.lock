@@ -8,15 +8,14 @@ GIT
 
 GIT
   remote: https://github.com/ismasan/sourced.git
-  revision: 34e76590ce2302185fd7db470b2e36ea4bff1319
-  branch: statecharts
+  revision: e2746aa47fca0eb88d921dddabd51729838945f4
   specs:
     sourced (0.0.1)
       async
       plumb (= 0.4.0)
       sequel
       sourced-component (~> 0.1, >= 0.1.1)
-      sourced-message (>= 0.5)
+      sourced-message (>= 0.5.1)
       sqlite3
 
 PATH

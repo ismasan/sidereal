@@ -19,5 +19,5 @@ gem 'falcon'
 
 group :development do
   gem 'docco', github: 'ismasan/docco'
-  gem 'sourced', github: 'ismasan/sourced', branch: 'statecharts'
+  gem 'sourced', github: 'ismasan/sourced'
 end

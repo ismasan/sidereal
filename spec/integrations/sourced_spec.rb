@@ -85,8 +85,8 @@ class IntgDoor < Sourced::Machine
   consumer_group 'intg_door'
   partition_by :door_id
 
-  Open   = Sourced::Command.define('intg_door.open')  { attribute :door_id, Sourced::Types::String }
-  Opened = Sourced::Event.define('intg_door.opened')  { attribute :door_id, Sourced::Types::String }
+  Open = Sourced::Command.define('intg_door.open') { attribute :door_id, Sourced::Types::String }
+  Opened = State(:opened)
 
   initial do
     command Open => Opened
@@ -100,18 +100,24 @@ class IntgVault < Sourced::Machine
   consumer_group 'intg_vault'
   partition_by :vault_id
 
-  Arm     = Sourced::Command.define('intg_vault.arm')   { attribute :vault_id, Sourced::Types::String }
-  Armed   = Sourced::Event.define('intg_vault.armed')   { attribute :vault_id, Sourced::Types::String }
-  Locked  = Sourced::Event.define('intg_vault.locked')  { attribute :vault_id, Sourced::Types::String }
-  Secured = Sourced::Event.define('intg_vault.secured') { attribute :vault_id, Sourced::Types::String }
+  Arm    = Sourced::Command.define('intg_vault.arm')  { attribute :vault_id, Sourced::Types::String }
+  Locked = Sourced::Event.define('intg_vault.locked') { attribute :vault_id, Sourced::Types::String }
+
+  Armed   = State(:armed)
+  Bolted  = State(:bolted)
+  Secured = State(:secured)
 
   initial do
     command Arm => Armed
   end
 
-  checkpoint Armed do
+  state Armed do
     region :lock do
-      final Locked
+      initial do
+        on Locked => Bolted
+      end
+
+      final Bolted
     end
 
     done Secured
@@ -190,7 +196,7 @@ RSpec.describe 'Sidereal::Commander on the Sourced runtime' do
     expect(IntgCommander.exclusive?).to be true
     expect(IntgCommander.handled_messages).to include(IntgDoThing, IntgDoNext)
 
-    row = db[:sourced_consumer_groups].where(group_id: 'IntgCommander').first
+    row = db[:sourced_consumer_groups].where(group_id: IntgCommander.group_id).first
     expect(JSON.parse(row[:partition_by])).to eq(['__id'])
   end
 
@@ -306,23 +312,30 @@ RSpec.describe 'Sidereal::Commander on the Sourced runtime' do
     end
 
     it 'injects into a machine, for its command blocks' do
+      named = Sourced::Event.define('intg_dep_door.named') do
+        attribute :door_id, Sourced::Types::String
+        attribute :name, Sourced::Types::String
+      end
+
       stub_const('IntgDepDoor', Class.new(Sourced::Machine) do
         consumer_group 'intg_dep_door'
         partition_by :door_id
         dep :naming
 
+        opened = State(:opened)
+
         initial do
-          command IntgDoor::Open => IntgDoor::Opened do |_state, cmd|
-            event IntgDoor::Opened, door_id: naming.call(cmd.payload.door_id)
+          command IntgDoor::Open => opened do |_state, cmd|
+            event named, name: naming.call(cmd.payload.door_id)
           end
         end
 
-        final IntgDoor::Opened
+        final opened
       end)
 
       with_reactor(IntgDepDoor, door_id: 'd1')
         .when(IntgDoor::Open, door_id: 'd1')
-        .then(IntgDoor::Opened, door_id: 'named-d1')
+        .then { |result| expect(result.messages.first.payload.to_h).to eq(door_id: 'd1', name: 'named-d1') }
     end
 
     it 'injects into a projector, for its load_context block' do
@@ -358,7 +371,7 @@ RSpec.describe 'Sidereal::Commander on the Sourced runtime' do
       expect(IntgThingProjector.sidereal_events).to eq([IntgThingProjector::Projected])
     end
 
-    it 'a machine stands for its checkpoints and the events it evolves' do
+    it 'a machine stands for its states and the events it evolves' do
       expect(IntgDoor.sidereal_events).to eq(IntgDoor.handled_messages_for_evolve)
       expect(IntgDoor.sidereal_events).to include(IntgDoor::Opened)
     end
@@ -403,7 +416,7 @@ RSpec.describe 'Sidereal::Commander on the Sourced runtime' do
     end
   end
 
-  describe 'Sourced::Machine auto-publishes the checkpoints it decides into' do
+  describe 'Sourced::Machine auto-publishes the states it decides into' do
     include Sourced::Testing::RSpec
 
     it 'publishes each emitted event via Sidereal.channels.for, correlated to the command' do
@@ -411,7 +424,8 @@ RSpec.describe 'Sidereal::Commander on the Sourced runtime' do
 
       with_reactor(IntgDoor, door_id: 'd1')
         .when(IntgDoor::Open, door_id: 'd1')
-        .then!(IntgDoor::Opened, door_id: 'd1')
+        .then!(IntgDoor::Opened, door_id: 'd1', trigger: IntgDoor::Open.type, source: 'initial', target: 'opened',
+                                 exited: [], entered: ['opened'])
 
       expect(pubsub.published.size).to eq(1)
       entry = pubsub.published.first
@@ -424,13 +438,13 @@ RSpec.describe 'Sidereal::Commander on the Sourced runtime' do
   describe 'Sourced::Machine auto-publishes the joins it decides on claim' do
     include Sourced::Testing::RSpec
 
-    it 'publishes the join completed by a checkpoint another reactor appended' do
+    it 'publishes the states it moves to on an event another reactor appended, the join included' do
       with_reactor(IntgVault, vault_id: 'v1')
-        .given(IntgVault::Armed, vault_id: 'v1')
+        .at(IntgVault::Armed)
         .when(IntgVault::Locked, vault_id: 'v1')
-        .then!(IntgVault::Secured, vault_id: 'v1')
+        .then! { |result| expect(result.messages.map(&:class)).to eq([IntgVault::Bolted, IntgVault::Secured]) }
 
-      expect(pubsub.published.map { |entry| entry[:message].class }).to eq([IntgVault::Secured])
+      expect(pubsub.published.map { |entry| entry[:message].class }).to eq([IntgVault::Bolted, IntgVault::Secured])
     end
   end
 

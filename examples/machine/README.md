@@ -15,7 +15,7 @@ A booking has two tabs sharing one frame (`web/ui/booking_frame.rb`: header, tab
 
 Both re-render on every event the machine appends (`on HolidayBooking`). On wide screens the history feed lists every command and event of the booking; each one links to either tab as the booking was at that step (`/bookings/:id/at/:step`, `/bookings/:id/diagram/at/:step`), rendered read-only from the first `step` messages. The Sourced dashboard is mounted at `/sourced`.
 
-Needs Sourced's `statecharts` branch (the Gemfile points at a local checkout).
+The Gemfile points Sourced at a local checkout; swap in the commented-out `github:` line to use Sourced's `main` instead.
 
 ## Run
 
