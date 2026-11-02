@@ -20,7 +20,7 @@ Sidereal is a Ruby gem for server-driven reactive web apps: a Rack router, typed
 | Falcon, workers, preload, custom backends, FS store | Running with Falcon |
 | Retries, dead letters, exception reporting | Failure handling, retries and dead-lettering |
 | JSON and forms codecs, custom types | Serialization |
-| Sourced integration, deciders, machines, auto-publish | Using Sourced as a backend |
+| Sourced integration, deciders, machines, auto-publish, sourced-ui dashboard | Using Sourced as a backend |
 
 [sourced-component](https://github.com/ismasan/sourced-component) (local checkout `../sourced-system`) has the config tree, and [Sourced](https://ismasan.github.io/sourced/) (`../sourced`) has deciders, machines and the store.
 

@@ -1943,6 +1943,38 @@ service "my-app" do
 end
 ```
 
+### Dashboard
+
+[sourced-ui](https://github.com/ismasan/sourced-ui) has a monitoring dashboard for Sourced apps. It shows the event store and recent messages, the causation tree of each message, your reactors and how they connect, and their consumer groups with offsets and errors. From it you can start, stop and reset consumer groups. It also draws each machine's statechart. It isn't on RubyGems yet, so install it from GitHub:
+
+```ruby
+gem 'sourced-ui', github: 'ismasan/sourced-ui'
+```
+
+`Sourced::UI::Dashboard` is a Rack app that reads from `Sourced.store`. With the integration applied, that is your app's store, so the dashboard shows your app's messages and reactors. Mount it next to your app in `config.ru`, after the app has booted:
+
+```ruby
+# config.ru
+require_relative 'boot'           # loads your app and applies the Sourced integration
+require 'sourced/ui/dashboard'
+
+Sourced::UI::Dashboard.configure do |config|
+  config.header_links([
+    { label: 'back to app', href: '/', url: false }
+  ])
+end
+
+map '/sourced' do
+  run Sourced::UI::Dashboard
+end
+
+map '/' do
+  run MyApp
+end
+```
+
+The dashboard has no authentication of its own, and it can stop and reset consumer groups, so in production mount it behind your app's authentication. It signs its session cookie with `ENV['SOURCED_DASHBOARD_SESSION_SECRET']`. Set that to a random string of at least 64 characters in production. See the [sourced-ui README](https://github.com/ismasan/sourced-ui) for the full set of options and its Phlex components, such as `Statechart`. `examples/sourced_donations` and `examples/chess` both mount it.
+
 ## Development
 
 After checking out the repo, run `bin/setup` to install dependencies. Then, run `bundle exec rspec` to run the tests. You can also run `bin/console` for an interactive prompt.
