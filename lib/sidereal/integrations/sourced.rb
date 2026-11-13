@@ -67,7 +67,7 @@ require 'sourced'
 
 module Sidereal
   # Teach Commanders the Sourced reactor protocol (duck-typed: Sourced only
-  # needs +handled_messages+ and +handle_claim+; the rest get defaults, but we
+  # needs +claim_selector+ and +handle_claim+; the rest get defaults, but we
   # override +exclusive?+ so commanders own and delete their command types).
   class Commander
     class << self
@@ -75,8 +75,10 @@ module Sidereal
       # commander per command) and delete each command on ack.
       def exclusive? = true
 
-      # The message types this reactor handles (Sourced protocol).
-      def handled_messages = handled_commands
+      # What Sourced claims for this reactor (Sourced protocol): its commands,
+      # one partition per command, by message id.
+      # @return [::Sourced::Selector]
+      def claim_selector = ::Sourced::Selector[*handled_commands].by_message_id
 
       # Process a claimed batch. For each command: run the commander, then emit
       # Sourced action signals to (1) append/schedule the dispatched follow-up
@@ -300,9 +302,8 @@ module Sidereal
       # reaction written for the signal itself.
       #
       module ProjectorSignals
-        def partition_by(*keys)
-          super
-          __define_projection_signal(partition_keys)
+        def partition_by(*keys, **typed)
+          super.tap { __define_projection_signal(partition_keys) }
         end
 
         # @param keys [Array<Symbol>] resolved partition keys (set by +super+)
@@ -336,13 +337,13 @@ end
 # +sidereal_events+ (see Sidereal::Page.on). A decider stands for the events
 # that change its state — its evolve list, its own events and any foreign ones
 # it evolves — since that is what a page showing that state wants to follow.
-# Sourced keeps no static record of what a decider emits, and the evolve list
-# is the better answer anyway. A projector stands for its Projected signal, the
+# Its declared command outputs aren't enough: it may evolve events other
+# reactors append. A projector stands for its Projected signal, the
 # one message that says its read model committed; reloading on the events it
 # consumes would read the model before the batch lands.
-::Sourced::Decider.define_singleton_method(:sidereal_events) { handled_messages_for_evolve }
+::Sourced::Decider.define_singleton_method(:sidereal_events) { evolve_selector.types }
 # A machine likewise: its states (always evolved) and its data events.
-::Sourced::Machine.define_singleton_method(:sidereal_events) { handled_messages_for_evolve }
+::Sourced::Machine.define_singleton_method(:sidereal_events) { evolve_selector.types }
 ::Sourced::Projector.define_singleton_method(:sidereal_events) do
   const_defined?(:Projected, false) ? [const_get(:Projected)] : []
 end
@@ -353,7 +354,7 @@ end
 # builds an instance per claimed batch with +new(partition_values)+, which the
 # injected +initialize+ passes through, so +dep+ readers work in +command+,
 # +reaction+, +sync+ and +load_context+ blocks. Not in +context+ / +evolve+ blocks:
-# those run in the reactor's Sourced::Projection, which has no dependencies.
+# those run in the reactor's inline projector, which has no dependencies.
 # Extending the base classes' singletons reaches every subclass, defined
 # before or after this.
 ::Sourced::Decider.extend(Sidereal::Deps)

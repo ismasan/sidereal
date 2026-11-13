@@ -38,4 +38,4 @@ The Sourced event-store dashboard is at http://localhost:9296/sourced.
 
 - Game state lives entirely in the event log — refreshing replays events to rebuild the board (the FEN is cached on the in-memory `GameView` projection).
 - The chess gem (`chess`) is wrapped by `domain/chess_engine.rb` so swapping engines is a one-file change.
-- Move history in the sidebar is read directly from the Sourced store via `read_partition`.
+- Move history in the sidebar is read directly from the Sourced store, through `Game.history_selector`.

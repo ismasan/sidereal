@@ -130,7 +130,7 @@ class Game < Sourced::Decider
 
   # ---- Command handlers ----
 
-  command(CreateGame) do |context, cmd|
+  command CreateGame => GameCreated | nil do |context, cmd|
     return if context.status                  # idempotent — re-create is a silent no-op
     raise 'login required' if cmd.payload.white_username.to_s.empty?
 
@@ -145,7 +145,7 @@ class Game < Sourced::Decider
   # and concurrent visitors. Sourced serializes commands per partition, so
   # a race between two visitors resolves with the second one becoming a
   # spectator.
-  command(JoinGame) do |context, cmd|
+  command JoinGame => PlayerJoined | nil do |context, cmd|
     return unless context.status                  # game not yet created — silent no-op
     return if cmd.payload.username == context.white_username
     return if context.black_username              # seat taken — visitor becomes spectator
@@ -156,7 +156,7 @@ class Game < Sourced::Decider
       color: 'black'
   end
 
-  command(MakeMove) do |context, cmd|
+  command MakeMove => MoveMade | GameEnded | nil do |context, cmd|
     # Empty payloads / wrong-state moves are silent no-ops so the consumer
     # group doesn't halt on rejected attempts (e.g. user clicks a target
     # before selecting a source). Only domain-rule violations raise.
@@ -193,7 +193,7 @@ class Game < Sourced::Decider
     end
   end
 
-  command(Resign) do |context, cmd|
+  command Resign => GameEnded | nil do |context, cmd|
     return unless context.status == 'in_progress'
     color = color_for(context, cmd.payload.username)
     return unless color                         # spectator click — no-op

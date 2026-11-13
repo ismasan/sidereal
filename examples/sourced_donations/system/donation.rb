@@ -121,12 +121,11 @@ class Donation < Sourced::Decider
 
   # ---- Display ----
 
-  # Message types shown in the DonationPage event-list sidebar. Union of
-  # all commands and events scoped to the donation stream (no Campaign
-  # messages — they're shared across donations). Also used as the filter
-  # for the partition read that drives the sidebar.
+  # Message classes shown in the DonationPage event-list sidebar: the
+  # commands it handles and the events it evolves. Also used to select the
+  # partition read that drives the sidebar.
   def self.display_types
-    (handled_messages + handled_messages_for_evolve).uniq.map(&:type)
+    (handled_messages + evolve_selector.types).uniq
   end
 
   # ---- State ----
@@ -215,7 +214,7 @@ class Donation < Sourced::Decider
   private def campaign_missing?(context) = context.campaign_status.nil?
   private def campaign_closed?(context) = context.campaign_status == 'closed'
 
-  command(StartDonation) do |context, cmd|
+  command StartDonation => DonationStarted | nil do |context, cmd|
     raise 'campaign not found' if campaign_missing?(context)
     return if campaign_closed?(context)
     raise 'donation already started' if context.status
@@ -225,7 +224,7 @@ class Donation < Sourced::Decider
       campaign_id: cmd.payload.campaign_id
   end
 
-  command(SelectAmount) do |context, cmd|
+  command SelectAmount => AmountSelected | nil do |context, cmd|
     raise 'campaign not found' if campaign_missing?(context)
     return if campaign_closed?(context)
     raise 'donation must be started first' unless context.status
@@ -239,7 +238,7 @@ class Donation < Sourced::Decider
       amount:
   end
 
-  command(EnterDonorDetails) do |context, cmd|
+  command EnterDonorDetails => DonorDetailsEntered | nil do |context, cmd|
     raise 'campaign not found' if campaign_missing?(context)
     return if campaign_closed?(context)
     raise 'amount must be selected first' unless context.amount
@@ -251,7 +250,7 @@ class Donation < Sourced::Decider
       email: cmd.payload.email
   end
 
-  command(SendVerificationEmail) do |context, cmd|
+  command SendVerificationEmail => EmailSent | nil do |context, cmd|
     raise 'campaign not found' if campaign_missing?(context)
     return if campaign_closed?(context)
     event EmailSent,
@@ -259,7 +258,7 @@ class Donation < Sourced::Decider
       campaign_id: cmd.payload.campaign_id
   end
 
-  command(DeliverVerificationEmail) do |context, cmd|
+  command DeliverVerificationEmail => VerificationEmailSent | nil do |context, cmd|
     raise 'campaign not found' if campaign_missing?(context)
     return if campaign_closed?(context)
     sleep 3 # demo: simulate slow email service
@@ -269,7 +268,7 @@ class Donation < Sourced::Decider
       token: SecureRandom.urlsafe_base64(18)
   end
 
-  command(VerifyEmailAddress) do |context, cmd|
+  command VerifyEmailAddress => EmailVerified | nil do |context, cmd|
     raise 'campaign not found' if campaign_missing?(context)
     return if campaign_closed?(context)
     event EmailVerified,
@@ -278,7 +277,7 @@ class Donation < Sourced::Decider
       verified_at: cmd.created_at
   end
 
-  command(ShowPaymentButton) do |context, cmd|
+  command ShowPaymentButton => PaymentReady | nil do |context, cmd|
     raise 'campaign not found' if campaign_missing?(context)
     return if campaign_closed?(context)
     event PaymentReady,
@@ -286,7 +285,7 @@ class Donation < Sourced::Decider
       campaign_id: cmd.payload.campaign_id
   end
 
-  command(StartPayment) do |context, cmd|
+  command StartPayment => PaymentStarted | nil do |context, cmd|
     raise 'campaign not found' if campaign_missing?(context)
     return if campaign_closed?(context)
     event PaymentStarted,
@@ -294,7 +293,7 @@ class Donation < Sourced::Decider
       campaign_id: cmd.payload.campaign_id
   end
 
-  command(ConfirmPayment) do |context, cmd|
+  command ConfirmPayment => PaymentConfirmed | nil do |context, cmd|
     raise 'campaign not found' if campaign_missing?(context)
     return if campaign_closed?(context)
     event PaymentConfirmed,
@@ -308,20 +307,20 @@ class Donation < Sourced::Decider
   # ---- Reactions: model "automations" ----
 
   # email_sender automation (Event Lanes model node `aut:email_sender`)
-  reaction(DonorDetailsEntered) do |_, evt|
+  reaction DonorDetailsEntered => SendVerificationEmail do |_, evt|
     dispatch SendVerificationEmail,
       donation_id: evt.payload.donation_id,
       campaign_id: evt.payload.campaign_id
   end
 
-  reaction(EmailSent) do |_, evt|
+  reaction EmailSent => DeliverVerificationEmail do |_, evt|
     dispatch DeliverVerificationEmail,
       donation_id: evt.payload.donation_id,
       campaign_id: evt.payload.campaign_id
   end
 
   # `aut:email_sender` chain implicitly continues into `ui:payment_screen` via `cmd:show_payment_button`
-  reaction(EmailVerified) do |_, evt|
+  reaction EmailVerified => ShowPaymentButton do |_, evt|
     dispatch ShowPaymentButton,
       donation_id: evt.payload.donation_id,
       campaign_id: evt.payload.campaign_id
@@ -331,7 +330,7 @@ class Donation < Sourced::Decider
   # ConfirmPayment with the resulting reference. Reactions run in their own
   # batch so the slow Stripe call doesn't block the PaymentStarted event
   # from reaching the UI.
-  reaction(PaymentStarted) do |context, evt|
+  reaction PaymentStarted => ConfirmPayment do |context, evt|
     payment_reference = MockPaymentService.charge(context)
     dispatch ConfirmPayment,
       donation_id: evt.payload.donation_id,

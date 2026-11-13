@@ -23,14 +23,13 @@ module UI
     # +upto+ param only affects which messages contribute to the projected
     # state, so the user can jump forward/backward from any historic snapshot.
     def self.load_donation_with_history(campaign_id, donation_id, upto: nil)
-      partition = { campaign_id: campaign_id, donation_id: donation_id }
       # Merge Donation's own messages (for display) with DonationView's evolve
       # types (for campaign context like name/target) so a single read covers
-      # both the sidebar list and state computation.
-      handled_types = (Donation.display_types +
-        DonationView.handled_messages_for_evolve.map(&:type)).uniq
-      result = Sourced.store.read_partition(partition, handled_types: handled_types)
-      all_messages = result.messages
+      # both the sidebar list and state computation. Campaign messages carry
+      # only campaign_id, so they're read into every donation of the campaign.
+      types = (Donation.display_types + DonationView.evolve_selector.types).uniq
+      selector = Sourced::Selector[*types].by(campaign_id:, donation_id:)
+      all_messages = Sourced.store.read(selector).messages
 
       display_messages = all_messages.reject { |m| campaign_message?(m) }
 

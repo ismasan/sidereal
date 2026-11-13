@@ -44,17 +44,22 @@ class Donation < Sourced::Decider
   evolve(AmountSelected) { |s, e| s.amount = e.payload.amount; s.status = 'amount_selected' }
   # ... one evolve per event
 
-  command(SelectAmount) do |context, cmd|
+  command SelectAmount => AmountSelected do |context, cmd|
     raise 'invalid' unless AMOUNTS.include?(cmd.payload.amount.to_i)
     event AmountSelected, donation_id: cmd.payload.donation_id, amount: cmd.payload.amount.to_i
   end
 
   # email_sender automation
-  reaction(DonorDetailsEntered) { |_, evt| dispatch SendVerificationEmail, donation_id: evt.payload.donation_id }
-  reaction(EmailSent)           { |_, evt| dispatch DeliverVerificationEmail, donation_id: evt.payload.donation_id }
+  reaction DonorDetailsEntered => SendVerificationEmail do |_, evt|
+    dispatch SendVerificationEmail, donation_id: evt.payload.donation_id
+  end
+
+  reaction EmailSent => DeliverVerificationEmail do |_, evt|
+    dispatch DeliverVerificationEmail, donation_id: evt.payload.donation_id
+  end
 
   # mock_payment_service automation
-  reaction(CardPresented) do |context, evt|
+  reaction CardPresented => ConfirmPayment do |context, evt|
     payment_reference = MockPaymentService.charge(context)
     dispatch ConfirmPayment, donation_id: evt.payload.donation_id, payment_reference:
   end

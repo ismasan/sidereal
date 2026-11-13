@@ -32,11 +32,7 @@ class GamePage < Sidereal::Page
   # +upto+, only the first N messages contribute to the projected state —
   # the full message list is still returned for the sidebar.
   def self.load_state_with_history(game_id, upto: nil)
-    result = Sourced.store.read_partition(
-      { game_id: game_id },
-      handled_types: Game.handled_messages_for_evolve.map(&:type)
-    )
-    messages = result.messages
+    messages = Sourced.store.read(Game.history_selector.bind(game_id: game_id)).messages
 
     if upto
       view = GameView.new({ game_id: game_id })

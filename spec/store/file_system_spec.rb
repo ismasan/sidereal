@@ -153,6 +153,11 @@ RSpec.describe Sidereal::Store::FileSystem do
   describe 'sweeper' do
     let(:store) { described_class.new(root: @root, sweep_interval: 0, stale_threshold: 1) }
 
+    # A message as the store writes it: through the codec it reads with.
+    def serialized(message)
+      JSON.dump(Sidereal.message_codec.compile!.encode(message))
+    end
+
     def stage_processing_file(content:, pid:, claim_ns:)
       original = "#{Process.clock_gettime(Process::CLOCK_REALTIME, :nanosecond)}-stale.json"
       processing_name = "#{original}__#{pid}__#{claim_ns}"
@@ -164,7 +169,7 @@ RSpec.describe Sidereal::Store::FileSystem do
     end
 
     it 'returns files claimed by a dead pid back to ready/' do
-      payload = JSON.dump(FsStoreCmd.new(payload: { name: 'abandoned' }).to_h)
+      payload = serialized(FsStoreCmd.new(payload: { name: 'abandoned' }))
       _path, original = stage_processing_file(
         content: payload,
         pid: 999_999,
@@ -179,7 +184,7 @@ RSpec.describe Sidereal::Store::FileSystem do
     end
 
     it 'returns files older than stale_threshold even if pid is alive' do
-      payload = JSON.dump(FsStoreCmd.new(payload: { name: 'hung' }).to_h)
+      payload = serialized(FsStoreCmd.new(payload: { name: 'hung' }))
       old_ns = Process.clock_gettime(Process::CLOCK_REALTIME, :nanosecond) - (2 * 1_000_000_000) # 2s old
       _path, _original = stage_processing_file(
         content: payload,
@@ -196,7 +201,7 @@ RSpec.describe Sidereal::Store::FileSystem do
       # Pin last_sweep to now so the next sweep is 60s away.
       slow_store.instance_variable_set(:@last_sweep, Time.now)
 
-      payload = JSON.dump(FsStoreCmd.new(payload: { name: 'stuck' }).to_h)
+      payload = serialized(FsStoreCmd.new(payload: { name: 'stuck' }))
       stage_processing_file(
         content: payload,
         pid: 999_999,

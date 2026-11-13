@@ -76,7 +76,7 @@ class IntgWidget < Sourced::Decider
     context[:created] = true
   end
 
-  command(Create) do |_state, cmd|
+  command Create => Created do |_state, cmd|
     event Created, widget_id: cmd.payload.widget_id
   end
 end
@@ -194,7 +194,8 @@ RSpec.describe 'Sidereal::Commander on the Sourced runtime' do
 
   it 'registers a Commander as an exclusive, id-partitioned Sourced reactor' do
     expect(IntgCommander.exclusive?).to be true
-    expect(IntgCommander.handled_messages).to include(IntgDoThing, IntgDoNext)
+    expect(IntgCommander.claim_selector.types).to include(IntgDoThing, IntgDoNext)
+    expect(IntgCommander.claim_selector).to be_id_partitioned
 
     row = db[:sourced_consumer_groups].where(group_id: IntgCommander.group_id).first
     expect(JSON.parse(row[:partition_by])).to eq(['__id'])
@@ -296,19 +297,23 @@ RSpec.describe 'Sidereal::Commander on the Sourced runtime' do
     include Sourced::Testing::RSpec
 
     it "injects into a decider, for its command blocks" do
+      named = Sourced::Event.define('intg_dep_widget.named') do
+        attribute :widget_id, Sourced::Types::String
+        attribute :name, Sourced::Types::String
+      end
       stub_const('IntgDepWidget', Class.new(Sourced::Decider) do
         consumer_group 'intg_dep_widget'
         partition_by :widget_id
         dep :naming
 
-        command(IntgWidget::Create) do |_state, cmd|
-          event IntgWidget::Created, widget_id: naming.call(cmd.payload.widget_id)
+        command IntgWidget::Create => named do |_state, cmd|
+          event named, widget_id: cmd.payload.widget_id, name: naming.call(cmd.payload.widget_id)
         end
       end)
 
       with_reactor(IntgDepWidget, widget_id: 'w1')
         .when(IntgWidget::Create, widget_id: 'w1')
-        .then(IntgWidget::Created, widget_id: 'named-w1')
+        .then(named, widget_id: 'w1', name: 'named-w1')
     end
 
     it 'injects into a machine, for its command blocks' do
@@ -363,7 +368,7 @@ RSpec.describe 'Sidereal::Commander on the Sourced runtime' do
 
   describe 'sidereal_events for Page.on' do
     it 'a decider stands for the events it evolves' do
-      expect(IntgWidget.sidereal_events).to eq(IntgWidget.handled_messages_for_evolve)
+      expect(IntgWidget.sidereal_events).to eq(IntgWidget.evolve_selector.types)
       expect(IntgWidget.sidereal_events).to include(IntgWidget::Created)
     end
 
@@ -372,7 +377,7 @@ RSpec.describe 'Sidereal::Commander on the Sourced runtime' do
     end
 
     it 'a machine stands for its states and the events it evolves' do
-      expect(IntgDoor.sidereal_events).to eq(IntgDoor.handled_messages_for_evolve)
+      expect(IntgDoor.sidereal_events).to eq(IntgDoor.evolve_selector.types)
       expect(IntgDoor.sidereal_events).to include(IntgDoor::Opened)
     end
 
@@ -513,6 +518,17 @@ RSpec.describe 'Sidereal::Commander on the Sourced runtime' do
       expect(entry[:channel]).to eq('enroll.s1.c1')
       expect(entry[:message].payload.to_h).to include(student_id: 's1', course_id: 'c1')
     end
+
+    it 'keeps typed partition keys, and partition_by still returns the projector' do
+      projector = Class.new(Sourced::Projector::StateStored) do
+        def self.name = 'IntgTypedProjector'
+      end
+
+      expect(projector.partition_by(:student_id, seat: Sourced::Types::Integer)).to be(projector)
+      expect(projector.partition_keys).to eq(%i[student_id seat])
+      signal = projector::Projected.new(payload: { student_id: 's1', seat: '2' })
+      expect(signal.payload.to_h).to eq(student_id: 's1', seat: '2')
+    end
   end
 end
 
@@ -629,7 +645,7 @@ RSpec.describe 'Sidereal.config.use(Sidereal::Integrations::Sourced)' do
     use_sourced
     config.build!
 
-    group = double('group', error_context: {}, fail: nil)
+    group = double('group', error_context: {}, fail: true)
     message = IntgDoThing.new(payload: { n: 1 })
     Sourced.config['error_strategy'].call(RuntimeError.new('boom'), message, group)
 

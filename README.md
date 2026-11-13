@@ -1083,8 +1083,8 @@ class OrdersProjector < Sourced::Projector::StateStored
   dep :db
   dep 'repos.orders' => 'orders'
 
-  sync do |state:, **|
-    db[:orders].insert_conflict(:replace).insert(state)
+  sync do |context:, **|
+    db[:orders].insert_conflict(:replace).insert(context)
   end
 end
 
@@ -1713,7 +1713,8 @@ The integration mounts Sourced's own configuration at `sourced`, next to Siderea
 - **Error toasts / reporting.** Sourced's retry and terminal-failure events are reported to `Sidereal.exceptions`, so the [default error toasts](#default-dev-ui-error-toasts) appear and any `on_retry` / `on_failure` / `on_fatal` subscribers (e.g. an APM hook) fire. When Sourced is the dispatcher it owns retry/fail orchestration, so Sidereal's *automatic* exception reporting doesn't run: this bridge is what surfaces failures in the UI. It's registered on whatever error strategy you implement.
 - **Leader-only runtime.** The integration defers `sourced.dispatcher`, makes it the runner's target and sets `sidereal.runner.process` to `:leader` (see [Custom backends](#custom-backends)), so only the elected process runs the Sourced runtime: commanders, deciders and projectors. SQLite serializes writers, so N runtimes on N workers would queue on each other; with one, the other workers serve pages and queries in parallel. Every worker still appends commands (a form post appends from whichever worker served it); it's the claiming, handling and projecting that runs in one place. When the leader is demoted the dispatcher stops, and the next leader starts its own. Implement `sidereal.runner.process` as `:all` after `use` to run a runtime on every worker again.
 - **Cross-process wake-ups.** Sourced's store announces appends through a notifier that its dispatcher listens on, so a worker picks new messages up at once rather than on the next catch-up poll. Sourced's default notifier is in-process, which a leader-only runtime would defeat: an append on another worker would wait for the poll. The integration implements `sourced.notifier` with `Sidereal::Integrations::Sourced::Notifier`, which carries those announcements over Sidereal's pubsub: with the unix-socket pubsub, an append on any worker wakes the leader immediately. Appends made outside an Async reactor (a rake task calling `Sidereal.dispatch!`) can't reach the socket and fall back to the catch-up poll, which stays the safety net in every case.
-- **Per-process setup.** Every process builds and starts Sourced's components, not only the leader, since every worker appends: Sourced's store compiles its codec when the configuration is prepared, and installs its tables when it starts. So message types must be loaded before the app boots. A rake task or console builds the configuration after loading the app (`Sidereal.config.build!`, which compiles the codec), and calls `Sourced.store.setup!` if the tables may not exist yet.
+- **Per-process setup.** Every process builds and starts Sourced's components, not only the leader, since every worker appends: Sourced's store compiles its codec when the configuration is prepared, and checks its tables when it starts. So message types must be loaded before the app boots. A rake task or console builds the configuration after loading the app (`Sidereal.config.build!`, which compiles the codec).
+- **Tables.** Sourced's tables come from a migration, which `Sourced.store.copy_migration_to { 'db/migrations/..._create_sourced_tables.rb' }` writes into your migrations directory (see `examples/chess/Rakefile`), and the store refuses to start without them. To have it create them on start instead, as a demo might, implement `sourced.store.install_tables` as `true` after `use`.
 
 Sourced's own components are configured through the same root, after `use` has mounted them:
 
@@ -1748,13 +1749,15 @@ end
 class TodoDecider < Sourced::Decider
   partition_by :todo_id
 
-  command AddTodo do |state, cmd|
+  command AddTodo => TodoAdded do |state, cmd|
     event TodoAdded, todo_id: cmd.payload.todo_id, title: cmd.payload.title
   end
 end
 
 Sourced.register(TodoDecider)
 ```
+
+A `command` declares the events its block may emit (`AddTodo => TodoAdded`, a union such as `=> Added | Rejected`, and `| nil` when it may emit nothing), and a `reaction` the messages it may dispatch (`reaction TodoAdded => NotifyOwner`). The [Sourced README](https://github.com/ismasan/sourced#deciders) covers the rest.
 
 You don't write any publishing code — that's the auto-publish below.
 
@@ -1858,7 +1861,7 @@ The integration publishes reactor output to Sidereal's PubSub for you, so Page r
       # update the read model...
     end
   
-    sync do |state:, **|
+    sync do |context:, **|
       # persist the read model...
     end
   end

@@ -58,7 +58,7 @@ class Campaign < Sourced::Decider
 
   # ---- Command handlers ----
 
-  command(CreateCampaign) do |context, cmd|
+  command CreateCampaign => CampaignCreated do |context, cmd|
     raise 'campaign already exists' if context.status
 
     raw_target = cmd.payload.target_amount.to_s.strip
@@ -70,7 +70,7 @@ class Campaign < Sourced::Decider
       target_amount:
   end
 
-  command(CloseCampaign) do |context, cmd|
+  command CloseCampaign => CampaignClosed do |context, cmd|
     raise 'campaign not found' unless context.status
     raise 'campaign already closed' if context.status == 'closed'
 
