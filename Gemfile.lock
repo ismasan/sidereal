@@ -8,7 +8,7 @@ GIT
 
 GIT
   remote: https://github.com/ismasan/sourced.git
-  revision: f8b61496285b063ff07457731fcdc1eae19bc518
+  revision: e37a8df879f1bebac2dcb1267dedb060f2df4d8d
   specs:
     sourced (0.0.1)
       async

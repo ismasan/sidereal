@@ -55,7 +55,6 @@ Sequel.migration do
       String :group_id, null: false, unique: true
       String :label
       String :status, null: false, default: 'active'
-      Integer :highest_position, null: false, default: 0
       Integer :discovery_position, null: false, default: 0
       Integer :last_nil_types_max_pos, null: false, default: 0
       String :partition_by
@@ -70,6 +69,12 @@ Sequel.migration do
       foreign_key :consumer_group_id, :sourced_consumer_groups, on_delete: :cascade
       String :partition_key, null: false
       Integer :last_position, null: false, default: 0
+      # Claims whose last message is at or below this are replays: it's where
+      # the partition's cursor was when its group was last reset.
+      Integer :replay_until, null: false, default: 0
+      # Bumped by every claim and by reset: acks and releases match it, so a
+      # claim that was reaped, re-claimed or reset can't move the cursor.
+      Integer :version, null: false, default: 0
       Integer :claimed, null: false, default: 0
       String :claimed_at
       String :claimed_by
@@ -104,8 +109,8 @@ Sequel.migration do
     # Triggers live in the database — not in Store code — so invalidation holds
     # for every writer: any process (including ones that never registered the
     # group), the scheduled-message promoter, stale-claim reaping, or raw SQL.
-    # Groups with NULL partition_by (legacy lazy-discovery) keep the column's
-    # original max-position watermark semantics and are excluded.
+    # Groups with NULL partition_by were registered without a claim selector,
+    # so they can't be claimed, and are excluded.
     #
     # 1. Any new message may create claimable work for any partitioned group.
     run <<~SQL
