@@ -10,7 +10,7 @@ module Sidereal
 
     AutoUUID = UUID::V4.default { SecureRandom.uuid }
 
-    # A file uploaded through a multipart form, in the shape Rack parses one into.
+    # A file uploaded through a multipart form, in the shape provided by Rack.
     # Declare a command attribute with it, refining it as any struct:
     #
     #   attribute :report, Sidereal::Types::UploadedFile.where(type: 'application/pdf')
@@ -24,8 +24,6 @@ module Sidereal
       attribute :name, String
       attribute :tempfile, ::Tempfile
       attribute :head, String
-
-      def self.node_name = :uploaded_file
     end
 
     # The JSON form of an {UploadedFile}: its fields, with +tempfile+ replaced by
