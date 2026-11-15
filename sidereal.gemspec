@@ -39,7 +39,8 @@ Gem::Specification.new do |spec|
   # Direct, not transitive. Sidereal requires plumb itself (Sidereal::Types),
   # and app authors register their own encoders on Plumb::Codec::JSON and
   # Plumb::Codec::Forms, so the codec API is part of Sidereal's public surface.
-  spec.add_dependency('plumb', '~> 0.4')
+  # 0.4.1 encodes refined structs, which Types::UploadedFile.where(...) needs.
+  spec.add_dependency('plumb', '~> 0.4', '>= 0.4.1')
   # Sidereal's configuration is a sourced-component tree (Sidereal.config).
   spec.add_dependency('sourced-component', '~> 0.1')
   spec.add_dependency('rack', '~> 3')

@@ -236,6 +236,23 @@ module Sidereal
         end
       end
 
+      # A file input bound to +command[payload][name]+, wrapped for error
+      # streaming. Declare the attribute as {Sidereal::Types::UploadedFile}, and
+      # render the form with +enctype: 'multipart/form-data'+ so the browser sends
+      # the file.
+      #
+      # A browser never prefills a file input, so this renders no value.
+      #
+      # @param name [Symbol, String] the payload attribute name
+      # @param args [Hash] extra attributes merged onto the +<input>+, such as
+      #   +accept: 'application/pdf'+
+      # @return [void]
+      def file_field(name, args = {})
+        with_errors(name) do |id|
+          input(**args.merge(id:, type: 'file', name: "command[payload][#{name}]"))
+        end
+      end
+
       # A checkbox bound to +command[payload][name]+, wrapped for error
       # streaming.
       #

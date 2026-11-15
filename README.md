@@ -1641,6 +1641,95 @@ noop types. Register an encoder for it, or declare it with .noop.
 
 A type can be representable in one format and not the other, and that is fine — it just means the command cannot be web-facing. `Types::Range` is the built-in example: `Plumb::Codec::JSON` encodes it as `{from:, to:, exclusive:}`, while `Plumb::Codec::Forms` deliberately does not register it, since a single form field has no sensible shape for it. Such a command serializes for transport, and raises at `handle` if you try to expose it to the browser.
 
+### File uploads
+
+`Sidereal::Types::UploadedFile` is a struct in the shape Rack parses a multipart file field into: `filename`, `type`, `name`, `head` and a `tempfile`. Both codecs know it, so a command can take a file like any other attribute, and refine it as any struct:
+
+```ruby
+UploadReport = Sidereal::Message.define('reports.upload') do
+  attribute :title, String
+  attribute :report, Sidereal::Types::UploadedFile.where(type: 'application/pdf')
+end
+```
+
+The form has to post as `multipart/form-data` for the browser to send the file:
+
+```ruby
+command UploadReport, enctype: 'multipart/form-data' do |f|
+  f.text_field :title
+  f.file_field :report, accept: 'application/pdf'
+end
+```
+
+In the handler, `cmd.payload.report.tempfile` is the uploaded file. A wrong content type fails decoding like any other constraint, and the error streams back to the field.
+
+#### Store the file, dispatch a reference
+
+An uploaded file is usually something to keep, not something to send through the async runtime. So handle the upload command in the web request, put the file in storage there, and dispatch a different command that carries only a reference to it:
+
+```ruby
+# Web-only. Only the handle block below ever sees it, so it holds the file.
+UploadReport = Sidereal::Message.define('reports.upload') do
+  attribute :title, String
+  attribute :report, Sidereal::Types::UploadedFile.where(type: 'application/pdf')
+end
+
+# What the async runtime processes: a reference to the stored file.
+AttachReport = Sidereal::Message.define('reports.attach') do
+  attribute :title, String
+  attribute :file_id, String
+  attribute :filename, String
+end
+
+class ReportsApp < Sidereal::App
+  handle UploadReport do |cmd|
+    report = cmd.payload.report
+    file_id = Uploads.put(report)
+
+    dispatch AttachReport, title: cmd.payload.title, file_id:, filename: report.filename
+    browser.patch_elements %(<p id="notice">Uploaded #{report.filename}</p>)
+  end
+
+  command AttachReport do |cmd|
+    File.open(Uploads.path(cmd.payload.file_id)) do |io|
+      # parse, index, thumbnail...
+    end
+  end
+end
+```
+
+`Uploads` stands for whatever storage the app uses. A local directory is enough to start with:
+
+```ruby
+module Uploads
+  DIR = File.expand_path('storage/uploads', __dir__)
+
+  # Copies the upload out of its Tempfile, which isn't kept after the request.
+  def self.put(file)
+    id = "#{SecureRandom.uuid}#{File.extname(file.filename)}"
+    FileUtils.mkdir_p(DIR)
+    FileUtils.cp(file.tempfile.path, File.join(DIR, id))
+    id
+  end
+
+  def self.path(id) = File.join(DIR, File.basename(id))
+end
+```
+
+The reference can just as well be a URL, for example to an object store like S3. Whatever it is, the process that runs `AttachReport` has to be able to reach it. A local directory works for Falcon workers on one host. Across hosts, use shared storage.
+
+`UploadReport` has a `handle` block that doesn't dispatch it, and no `command` block, so it never reaches the store or a worker. `AttachReport` is the reverse: it has no `handle`, so the browser can't submit it directly.
+
+#### Dispatching the upload itself
+
+`UploadReport` can also be dispatched as it is. JSON has no file type, so the store or pub/sub frame carries the file's bytes Base64-encoded, in a `data` field in place of `tempfile`. Decoding writes them to a new `Tempfile`:
+
+```json
+"report": { "filename": "report.pdf", "type": "application/pdf", "name": "...", "head": "...", "data": "JVBERi0xLjcK..." }
+```
+
+That puts the whole file into every stored message and pub/sub frame, and each decode writes a new temporary file. It's fine for small files. For anything larger, store the file and dispatch a reference, as above.
+
 ## How it works
 
 <img width="935" height="783" alt="CleanShot 2026-04-21 at 14 37 31" src="https://github.com/user-attachments/assets/cbe698e6-3343-4873-aabd-65959ceb9051" />
