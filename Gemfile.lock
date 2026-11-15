@@ -8,15 +8,15 @@ GIT
 
 GIT
   remote: https://github.com/ismasan/sourced.git
-  revision: e37a8df879f1bebac2dcb1267dedb060f2df4d8d
+  revision: 70349b73258f885ee78cab7762915582079a2240
   specs:
     sourced (0.0.1)
       async
-      plumb (= 0.4.0)
+      plumb (>= 0.4.1)
       sequel
       sourced-component (~> 0.1, >= 0.1.1)
       sourced-message (>= 0.5.3)
-      sqlite3
+      sqlite3 (>= 2.10.2)
 
 PATH
   remote: .
@@ -26,7 +26,7 @@ PATH
       brotli
       datastar (~> 1.0.6)
       phlex
-      plumb (~> 0.4)
+      plumb (~> 0.4, >= 0.4.1)
       rack (~> 3)
       rack-session
       sourced-component (~> 0.1)
@@ -126,7 +126,7 @@ GEM
     phlex (2.4.1)
       refract (~> 1.0)
       zeitwerk (~> 2.7)
-    plumb (0.4.0)
+    plumb (0.4.1)
       bigdecimal
       concurrent-ruby
     pp (0.6.3)
@@ -181,7 +181,7 @@ GEM
     rspec-support (3.13.7)
     samovar (2.5.1)
       console (~> 1.0)
-    sequel (5.109.0)
+    sequel (5.110.0)
       bigdecimal
     sourced-component (0.1.1)
       plumb (~> 0.4)
@@ -190,8 +190,8 @@ GEM
     sourced-message (0.5.3)
       fugit
       plumb (>= 0.4)
-    sqlite3 (2.10.1-arm64-darwin)
-    sqlite3 (2.10.1-x86_64-linux-gnu)
+    sqlite3 (2.10.2-arm64-darwin)
+    sqlite3 (2.10.2-x86_64-linux-gnu)
     string-format (0.2.0)
     stringio (3.2.0)
     tsort (0.2.0)
@@ -253,7 +253,7 @@ CHECKSUMS
   logger (1.7.0) sha256=196edec7cc44b66cfb40f9755ce11b392f21f7967696af15d274dde7edff0203
   openssl (4.0.2) sha256=1037ad2868ae58df9ad917891c0c0f9815a1172f6846d4bcdd508e4c2ee747c2
   phlex (2.4.1) sha256=e596717fbfe38b5271840266758779ebe75092e02629f0c170287e6290a70b12
-  plumb (0.4.0) sha256=10c256a6f98363fd535ebe812123f3555e0a557035435f3b9b43cd5fb3d87f72
+  plumb (0.4.1) sha256=b29badb4fea2076c428e80952cf6e16b5a1031134790253e733ea724b0950bdd
   pp (0.6.3) sha256=2951d514450b93ccfeb1df7d021cae0da16e0a7f95ee1e2273719669d0ab9df6
   prettyprint (0.2.0) sha256=2bc9e15581a94742064a3cc8b0fb9d45aae3d03a1baa6ef80922627a0766f193
   prism (1.9.0) sha256=7b530c6a9f92c24300014919c9dcbc055bf4cdf51ec30aed099b06cd6674ef85
@@ -279,13 +279,13 @@ CHECKSUMS
   rspec-mocks (3.13.8) sha256=086ad3d3d17533f4237643de0b5c42f04b66348c28bf6b9c2d3f4a3b01af1d47
   rspec-support (3.13.7) sha256=0640e5570872aafefd79867901deeeeb40b0c9875a36b983d85f54fb7381c47c
   samovar (2.5.1) sha256=8a9fc41eb8868084f0321eb41678c485cfbc7d282fb306c0be67c3284b1d2394
-  sequel (5.109.0) sha256=e0d1d474442d620c8497d7f4851c0cc3a277920519051b8014b2877aa55efffe
+  sequel (5.110.0) sha256=c316335b352adb4109bb02ade237b1a6dbd493493def34542ce05893f62138ae
   sidereal (0.1.0)
   sourced (0.0.1)
   sourced-component (0.1.1) sha256=61a0823a2f89e39dc08cdfaf1a6f565abed0a4edaad67241811da16004cdaa61
   sourced-message (0.5.3) sha256=3d3f961157628e468e18486b81c0893c37a29fa52fae4b47f45260f74510a19d
-  sqlite3 (2.10.1-arm64-darwin) sha256=45f74dad0a8ee57ae5fadfac39bf160d1f09fb0484a442223310d869cd957d92
-  sqlite3 (2.10.1-x86_64-linux-gnu) sha256=661ecede31e23a412059cd8c684ed84e332f64f167e4a90902cf99e8ea2c8718
+  sqlite3 (2.10.2-arm64-darwin) sha256=5b0d235ea037e6dcd1b8387a19d73be571917db9f93044d35741cf933a21a37d
+  sqlite3 (2.10.2-x86_64-linux-gnu) sha256=ca92731ab464df9cae503fa1a439a549e2724f6953c8c05a7769b59366e38f15
   string-format (0.2.0) sha256=bc981c14116b061f12134549f32fa2d61a17b5a35dd6fd36596c21722a789af6
   stringio (3.2.0) sha256=c37cb2e58b4ffbd33fe5cd948c05934af997b36e0b6ca6fdf43afa234cf222e1
   tsort (0.2.0) sha256=9650a793f6859a43b6641671278f79cfead60ac714148aabe4e3f0060480089f
