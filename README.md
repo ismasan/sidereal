@@ -417,13 +417,51 @@ class TodoPage < Sidereal::Page
 end
 ```
 
+### Page params
+
+`load` receives the page's path and query params decoded through its `query_schema`. Declare it with the types you want. It's compiled through `Plumb::Codec::Forms`, so values arrive as Strings and are cast to their declared types:
+
+```ruby
+class ExpensesPage < Sidereal::Page
+  path '/accounts/:id/expenses'
+  query_schema(
+    id: Types::UUID::V4,     # the :id path segment
+    from?: Types::Date,      # optional ?from=2026-11-01
+    archived?: Types::Boolean
+  )
+
+  def self.load(params, _ctx)
+    # params => { id: "0b6f…", from: #<Date 2026-11-01> }
+    new(Expenses.for(params[:id], from: params[:from]))
+  end
+end
+```
+
+- Only declared keys reach `load`. A query param the schema doesn't name is dropped, so declare every one the page reads.
+- A subclass inherits its superclass's schema, and its own `query_schema` merges into it, so a base page can declare shared params:
+
+  ```ruby
+  class ReportPage < Sidereal::Page
+    query_schema(from?: Types::Date, to?: Types::Date)
+  end
+
+  class ExpensesPage < ReportPage
+    path '/accounts/:id/expenses'
+    query_schema(id: Types::UUID::V4) # => Hash[from?: Date, to?: Date, id: UUID::V4]
+  end
+  ```
+- Each path segment is in the schema as a `String` unless you declare it. A page with no `query_schema` still gets one from its segments (`Types::Hash[id: String]`), or an empty one.
+- If the params fail the schema, the GET responds `400 Bad Request` and `load` isn't called. A blank `?from=` fails a `Types::Date`, so make a field `.nullable` if a form can submit it empty.
+- The same schema decodes the `params` signal on every SSE connect and reaction, so `params` in an `on` block is typed too. If signal params fail it, the page is neither rendered nor subscribed.
+- A custom type needs an encoder registered on `Plumb::Codec::Forms` before the page is defined (see [Serialization](#serialization)).
+
 ### SSE reactions
 
 Inside an `on` block, you have access to:
 
 - `browser` -- the SSE stream for pushing updates
 - `load(params)` -- re-instantiate the page with current data
-- `params` -- the current page params from Datastar signals
+- `params` -- the current page params from Datastar signals, decoded through the page's `query_schema`
 
 ```ruby
 on AddTodo do |evt|
@@ -1437,6 +1475,7 @@ Sidereal compiles a [codec](https://ismasan.github.io/plumb/#encoders-and-codecs
 |---|---|---|---|
 | `Sourced::Message::JSONCodec` | `Store::FileSystem` file bodies, `PubSub::Unix` frames | the **whole message**, envelope included | `Store#start` / `#append`, `PubSub#start` / `#publish` |
 | `Sidereal::FormsCodec` | `POST /commands` params, `<input value="...">` | the **payload alone**, every scalar a String | `App.handle` |
+| `Page.query_decoder` (`Plumb::Codec::Forms`) | page path and query params, the `params` signal | the page's **`query_schema`**, decode only | `Page.path` / `Page.query_schema` |
 
 Both are built on [Plumb](https://github.com/ismasan/plumb)'s codecs — `Plumb::Codec::JSON` and `Plumb::Codec::Forms` — which rewrite a schema into a decoder/encoder pair by resolving an encoder for every leaf type.
 

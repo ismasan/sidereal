@@ -122,7 +122,10 @@ module Sidereal
 
         Sidereal::Page.register(page_class)
         get(page_class.path) do
-          component page_class.load(params, self), layout:
+          page_params = page_class.parse_params(params)
+          halt 400, 'Bad Request' unless page_params.valid?
+
+          component page_class.load(page_params.value, self), layout:
         end
 
         self

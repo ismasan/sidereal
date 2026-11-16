@@ -183,6 +183,64 @@ RSpec.describe 'Sidereal::App.command_helpers' do
   end
 end
 
+RSpec.describe 'Sidereal::App.page' do
+  include Rack::Test::Methods
+
+  let(:loaded) { [] }
+
+  let(:page_app) do
+    loaded = self.loaded
+
+    Class.new(Sidereal::App) do
+      page '/accounts/:id/expenses' do
+        query_schema(id: Sidereal::Types::Integer, from?: Sidereal::Types::Date)
+
+        define_singleton_method(:load) do |params, _ctx|
+          loaded << params
+          new
+        end
+
+        def view_template = p { 'expenses' }
+      end
+    end
+  end
+
+  def app
+    page_app
+  end
+
+  it 'passes path and query params to load, typed by the query schema' do
+    get '/accounts/12/expenses?from=2026-11-01&other=x'
+
+    expect(last_response.status).to eq(200)
+    expect(loaded).to eq([{ id: 12, from: Date.new(2026, 11, 1) }])
+  end
+
+  it 'renders params signals that decode to the same params on SSE connect' do
+    get '/accounts/12/expenses?from=2026-11-01&other=x'
+    signals = JSON.parse(CGI.unescapeHTML(last_response.body[/data-signals="([^"]*)"/, 1]))
+    sse = double(:sse, signals:, patch_elements: nil)
+
+    Sidereal::Page.subscribe(double(:channel, start: nil), sse, nil)
+
+    expect(loaded).to eq([{ id: 12, from: Date.new(2026, 11, 1) }] * 2)
+  end
+
+  it 'responds 400 without loading the page when a path segment fails the schema' do
+    get '/accounts/nope/expenses'
+
+    expect(last_response.status).to eq(400)
+    expect(loaded).to be_empty
+  end
+
+  it 'responds 400 without loading the page when a query param fails the schema' do
+    get '/accounts/12/expenses?from=bad'
+
+    expect(last_response.status).to eq(400)
+    expect(loaded).to be_empty
+  end
+end
+
 RSpec.describe 'Sidereal::App#component' do
   include Rack::Test::Methods
 

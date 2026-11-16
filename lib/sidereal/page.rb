@@ -23,10 +23,13 @@ module Sidereal
     end
 
     class PageContext
-      def initialize(sse, ctx, page)
+      # @param params [Hash] the page's decoded params. Defaults to decoding
+      #   the +params+ signal through the page's {Page.query_schema}, raising
+      #   +Plumb::ParseError+ if they don't satisfy it.
+      def initialize(sse, ctx, page, params: page.query_decoder.parse(sse.signals['params'] || {}))
         @context = ctx
         @browser = sse
-        @params = Page.normalize_params(sse.signals['params'])
+        @params = params
         @page_id = sse.signals['page_id']
         @page_key = sse.signals['page_key']
         @page = page
@@ -78,9 +81,74 @@ module Sidereal
     private def session = context.session
 
     class << self
+      # The URL pattern the page is mounted on, with named segments
+      # (+/accounts/:id/expenses+). Setting it recompiles {.query_schema}, so
+      # the segments are picked up whether +path+ is declared before or after
+      # the schema.
+      #
+      # @param p [String, nil]
+      # @return [String, nil]
       def path(p = nil)
-        @path = p if p
+        if p
+          @path = p
+          compile_query_schema!
+        end
         @path
+      end
+
+      # The schema the page's path and query params are decoded through, on
+      # the GET request and on every SSE connect and reaction. Only its keys
+      # reach {.load}: anything a request carries that isn't declared is
+      # dropped.
+      #
+      # Declare the types in their decoded form. The schema is compiled
+      # through +Plumb::Codec::Forms+, so a +Types::Date+ field accepts
+      # +"2026-11-01"+ and a +Types::Boolean+ accepts +"true"+ or +"1"+. Each
+      # path segment is in the schema as a +String+ unless declared here.
+      #
+      #   path '/accounts/:id/expenses'
+      #   query_schema(
+      #     id: Types::UUID::V4,  # the path segment
+      #     from?: Types::Date    # an optional query param
+      #   )
+      #
+      # Each call merges into the schema declared so far, starting from the
+      # superclass's, and a field declared again takes its new type.
+      #
+      # Without arguments, returns the schema: the declared one merged over
+      # the path segments, or just the segments (+Types::Hash[id: String]+),
+      # or an empty one for a page with neither.
+      #
+      # @param schema [Plumb::HashClass, nil] a ready +Types::Hash[...]+
+      # @param fields [Hash{Symbol => Object}] field types, as given to +Types::Hash[]+
+      # @return [Plumb::HashClass]
+      # @raise [Plumb::TypeError] if a field's type has no Forms encoder
+      def query_schema(schema = nil, **fields)
+        if schema || fields.any?
+          schema ||= Types::Hash[fields]
+          @declared_query_schema = @declared_query_schema ? @declared_query_schema + schema : schema
+          compile_query_schema!
+        end
+        @query_schema || compile_query_schema!
+      end
+
+      # {.query_schema} compiled through +Plumb::Codec::Forms+: takes the
+      # String-valued params of a request or of the +params+ signal, with
+      # Symbol or String keys, and returns them typed and filtered.
+      #
+      # @return [Plumb::Composable]
+      def query_decoder
+        query_schema
+        @query_decoder
+      end
+
+      # Decode raw path and query params through the page's {.query_schema}.
+      #
+      # @param params [Hash, nil] String-valued params, Symbol or String keys
+      # @return [Plumb::Result] +#value+ is the decoded, filtered Hash when
+      #   +#valid?+; +#errors+ a +{key => message}+ Hash otherwise
+      def parse_params(params)
+        query_decoder.resolve(params || {})
       end
 
       def registry
@@ -102,10 +170,14 @@ module Sidereal
         page_class = registry[page_key]
         return unless page_class
 
-        # Build on connect
-        sse.patch_elements page_class.load(normalize_params(sse.signals['params']), ctx)
+        # Params a client tampered with into failing the schema get no page.
+        params = page_class.parse_params(sse.signals['params'])
+        return unless params.valid?
 
-        page_context = PageContext.new(sse, ctx, page_class)
+        # Build on connect
+        sse.patch_elements page_class.load(params.value, ctx)
+
+        page_context = PageContext.new(sse, ctx, page_class, params: params.value)
 
         channel.start do |evt, _channel|
           page_context.react(evt)
@@ -172,10 +244,6 @@ module Sidereal
         raise NotImplementedError
       end
 
-      def normalize_params(params)
-        (params || {}).transform_keys(&:to_sym)
-      end
-
       def interested?(sse)
         sse.signals['page_key'] == page_key
       end
@@ -222,10 +290,32 @@ module Sidereal
           subclass.reactions[message_class] = block
         end
         subclass.correlation_types.merge(correlation_types)
+        subclass.query_schema(@declared_query_schema) if @declared_query_schema
         subclass.disable_causal_reactivity! unless causal_reactivity?
       end
 
       private
+
+      # The names of the path's +:segment+s.
+      def path_segments
+        return [] unless path
+
+        path.split('/').filter_map { |segment| segment.delete_prefix(':').to_sym if segment.start_with?(':') }
+      end
+
+      # Build {.query_schema} and its decoder from the path segments and the
+      # declared schema. A schema with no keys would let any Hash through, so
+      # its decoder discards everything instead.
+      def compile_query_schema!
+        schema = Types::Hash[path_segments.to_h { |name| [name, Types::String] }]
+        schema += @declared_query_schema if @declared_query_schema
+        @query_decoder = if schema._schema.empty?
+          Types::Hash.transform(::Hash) { {} }
+        else
+          Plumb::Codec::Forms >> schema
+        end
+        @query_schema = schema
+      end
 
       # The message classes a source given to {.on} stands for.
       def expand_source(source)
