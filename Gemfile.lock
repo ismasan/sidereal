@@ -8,7 +8,7 @@ GIT
 
 GIT
   remote: https://github.com/ismasan/sourced.git
-  revision: 70349b73258f885ee78cab7762915582079a2240
+  revision: 45a677e5bb359d88d4b793532b90db2c1d965f16
   specs:
     sourced (0.0.1)
       async
@@ -29,6 +29,7 @@ PATH
       plumb (~> 0.4, >= 0.4.1)
       rack (~> 3)
       rack-session
+      samovar
       sourced-component (~> 0.1)
       sourced-message (>= 0.4.0)
       tsort

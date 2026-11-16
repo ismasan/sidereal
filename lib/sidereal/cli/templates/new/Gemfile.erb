@@ -1,0 +1,17 @@
+# frozen_string_literal: true
+
+source 'https://rubygems.org'
+
+<%= sidereal_gem %>
+gem 'falcon'
+gem 'zeitwerk'
+
+group :development do
+  gem 'irb'
+end
+<% if rspec? -%>
+
+group :test do
+  gem 'rspec'
+end
+<% end -%>

@@ -10,15 +10,15 @@ GIT
 
 GIT
   remote: https://github.com/ismasan/sourced.git
-  revision: e37a8df879f1bebac2dcb1267dedb060f2df4d8d
+  revision: 45a677e5bb359d88d4b793532b90db2c1d965f16
   specs:
     sourced (0.0.1)
       async
-      plumb (= 0.4.0)
+      plumb (>= 0.4.1)
       sequel
       sourced-component (~> 0.1, >= 0.1.1)
       sourced-message (>= 0.5.3)
-      sqlite3
+      sqlite3 (>= 2.10.2)
 
 PATH
   remote: ../..
@@ -28,9 +28,10 @@ PATH
       brotli
       datastar (~> 1.0.6)
       phlex
-      plumb (~> 0.4)
+      plumb (~> 0.4, >= 0.4.1)
       rack (~> 3)
       rack-session
+      samovar
       sourced-component (~> 0.1)
       sourced-message (>= 0.4.0)
       tsort
@@ -121,7 +122,7 @@ GEM
     phlex (2.4.1)
       refract (~> 1.0)
       zeitwerk (~> 2.7)
-    plumb (0.4.0)
+    plumb (0.4.1)
       bigdecimal
       concurrent-ruby
     pp (0.6.4)
@@ -240,7 +241,7 @@ CHECKSUMS
   logger (1.7.0) sha256=196edec7cc44b66cfb40f9755ce11b392f21f7967696af15d274dde7edff0203
   openssl (4.0.2) sha256=1037ad2868ae58df9ad917891c0c0f9815a1172f6846d4bcdd508e4c2ee747c2
   phlex (2.4.1) sha256=e596717fbfe38b5271840266758779ebe75092e02629f0c170287e6290a70b12
-  plumb (0.4.0) sha256=10c256a6f98363fd535ebe812123f3555e0a557035435f3b9b43cd5fb3d87f72
+  plumb (0.4.1) sha256=b29badb4fea2076c428e80952cf6e16b5a1031134790253e733ea724b0950bdd
   pp (0.6.4) sha256=dfcb0fce700c41456265922884f9fe195d7fbb0674a3578e6c0f69588e82b570
   prettyprint (0.2.1) sha256=d555d57ea6d7cf001d4774b693546a6bd88bec1e778ddffb5c60b68ceec4b7d4
   prism (2.1.0-arm64-darwin) sha256=2d0c2e3e011cfd89c041940907d3ff3def379d7b0f2ba158d1d42238e8ad8afc

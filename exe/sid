@@ -1,0 +1,6 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require 'sidereal/cli'
+
+exit Sidereal::CLI::Application.call(ARGV)

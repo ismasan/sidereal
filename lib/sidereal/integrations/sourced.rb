@@ -141,6 +141,9 @@ module Sidereal
       #   so this is what surfaces failures in the UI.
       # - Sidereal's commanders are registered with Sourced as the tree is
       #   prepared, once every app class has loaded.
+      # - `bin/sid sourced` and the sidereal-sourced agent skill are registered
+      #   with {Sidereal::CLI} and {Sidereal.skills}. The app's bin/sid loads it
+      #   before parsing the command line, so this is in time for either.
       #
       # @param config [Sourced::Component] the app's root, see {Sidereal.config}
       # @param db [String, Symbol, nil] the key of a component in +config+ whose
@@ -149,12 +152,20 @@ module Sidereal
       #   teardown. When nil, Sourced's own +db+ is used.
       # @return [Sourced::Component]
       def self.setup(config, db: nil)
+        register_cli_and_skills
         config.mount('sourced', ::Sourced)
         config.alias('sourced.db', db.to_s) if db
         config.config!('sourced.notifier', ['sidereal.pubsub', 'sidereal.exceptions']) do |pubsub, exceptions|
           Notifier.new(pubsub:, exceptions:)
         end
         config.alias('sidereal.store', 'sourced.store')
+
+        # The tables come from the app's migrations — `bin/sid sourced install`
+        # writes one and `bin/sid db migrations run` applies it — so the store
+        # checks they're there rather than creating them in every process that
+        # starts. Sourced's own default too; said here because it's the policy
+        # the CLI commands are built around.
+        config.config!('sourced.store.install_tables') { false }
 
         # Deferred, so booting doesn't start it in every process: Sidereal's runner
         # starts it by key on the leader, and stops it on demotion. It can start
@@ -177,6 +188,25 @@ module Sidereal
         # root.preparing is published just before, while it's still open.
         config.notifier.subscribe('root.preparing') { register_commanders }
         config
+      end
+
+      # The two things an app gets by configuring this integration that aren't
+      # components: `bin/sid sourced` and the skill describing it. Both land in
+      # process-global registries, so both are idempotent under a repeated
+      # +use+. The CLI file only defines command classes — it doesn't load
+      # Sourced, which the commands do for themselves via +boot_app!+.
+      # @return [void]
+      def self.register_cli_and_skills
+        require 'sidereal/integrations/sourced/cli'
+        # Fully qualified: inside this module a bare CLI is this integration's,
+        # which shadows Sidereal::CLI.
+        # Into Sidereal's own `sourced` namespace, beside its `install` — which
+        # is built in, since it has to run before Sourced is configured.
+        Sidereal::CLI::Sourced.register 'groups', Sidereal::Integrations::Sourced::CLI::Groups
+        Sidereal::CLI::Sourced.register 'messages', Sidereal::Integrations::Sourced::CLI::Messages
+        Sidereal::CLI::Sourced.register 'migration', Sidereal::Integrations::Sourced::CLI::Migration
+        Sidereal::CLI::Sourced.register 'topology', Sidereal::Integrations::Sourced::CLI::Topology
+        Sidereal.skills.add('sidereal-sourced', File.expand_path('sourced/skills/sidereal-sourced', __dir__))
       end
 
       # Register every Sidereal commander with Sourced, with its full command

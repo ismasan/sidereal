@@ -126,8 +126,14 @@ module Sidereal
         #
         # @param error [Exception]
         # @return [void] does not return
+        # The error is named in the message as well as attached: console (1.38)
+        # truncates an attached exception's message at its first "(", so
+        # `Sourced tables (prefix "sourced") are not installed: ...` reaches the
+        # log as `Sourced tables`. A boot failure stops the host, so it is worth
+        # saying twice.
         def boot_failed!(error)
-          Console.error(self, 'Sidereal failed to boot. Terminating host.', exception: error)
+          Console.error(self, "Sidereal failed to boot. Terminating host. #{error.class}: #{error.message}",
+                        exception: error)
           terminate_host!(1)
         end
 

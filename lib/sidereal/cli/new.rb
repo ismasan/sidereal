@@ -1,0 +1,155 @@
+# frozen_string_literal: true
+
+require_relative 'installer'
+
+module Sidereal
+  module CLI
+    # `sid new NAME`: generate a new Sidereal app.
+    class New < Command
+      TEMPLATES = File.expand_path('templates/new', __dir__)
+      NAME_FORMAT = /\A[a-z][a-z0-9_]*\z/
+      SIDEREAL_GITHUB = 'ismasan/sidereal'
+      PORT = 9292
+
+      # What the templates see: `<%= title %>`, `<% if sourced? %>`, etc.
+      Context = Data.define(:app_name, :title, :sidereal_path, :rspec, :sourced, :db) do
+        def rspec? = rspec
+        def sourced? = sourced
+        def db? = db
+        # Whether the app ends up with a database — `--db` installs one, and so
+        # does `--sourced`, since Sourced keeps its messages there. Not the same
+        # question as which install command `new` runs.
+        def database? = db || sourced
+        def port = PORT
+        def sidereal_gem
+          if sidereal_path
+            "gem 'sidereal', path: '#{sidereal_path}'"
+          else
+            "gem 'sidereal', github: '#{SIDEREAL_GITHUB}'"
+          end
+        end
+      end
+
+      self.description = 'Create a new Sidereal app'
+
+      # Not `name`: Samovar::Command#name is the command's own name.
+      one :path, 'Where to create the app. Its last part names it, e.g. my_app', pattern: /\A[^-]/
+
+      options do
+        option '-h/--help', 'Print usage'
+        option '--rspec', 'Set up RSpec'
+        option '--db', 'Set up a SQLite database (bin/sid db install)'
+        option '--sourced', 'Use Sourced for durable, event-sourced storage'
+        option '--sidereal-path <path>', "Use a local Sidereal checkout instead of GitHub's"
+        option '--skip-bundle', "Don't run bundle install"
+        option '--no-skills', "Don't install AI agent skills (bin/sid skills update)"
+        option '--force', 'Write into an existing, non-empty directory'
+      end
+
+      def call
+        return print_usage if @options[:help]
+        raise Error, 'Name the new app, e.g. `sid new my_app`' unless @path
+
+        app_name = File.basename(@path)
+        unless NAME_FORMAT.match?(app_name)
+          raise Error, "#{app_name.inspect} isn't a valid app name. Use lowercase letters, digits and underscores, starting with a letter."
+        end
+
+        root = File.expand_path(@path)
+        if Dir.exist?(root) && !Dir.empty?(root) && !@options[:force]
+          raise Error, "#{root} already exists and isn't empty. Use --force to write into it anyway."
+        end
+
+        context = Context.new(
+          app_name:,
+          title: app_name.split('_').map(&:capitalize).join(' '),
+          sidereal_path: @options[:sidereal_path] && File.expand_path(@options[:sidereal_path]),
+          rspec: !!@options[:rspec],
+          sourced: !!@options[:sourced],
+          db: !!@options[:db]
+        )
+
+        terminal.puts "Creating #{context.title} in #{root}", style: :title
+        Generator.new(TEMPLATES, root, context).generate do |_action, path|
+          terminal.print_line :key, '  create  ', :reset, path
+        end
+
+        if @options[:skip_bundle]
+          instructions(context, bundled: false)
+          return
+        end
+
+        run_in!(root, 'bundle', 'install')
+        # Each install is its own command, run in the app, so an app gets the
+        # same one whenever it asks. `sourced install` installs the database
+        # itself, since Sourced keeps its messages there.
+        run_sid!(root, context, 'db', 'install') if context.db?
+        run_sid!(root, context, 'sourced', 'install') if context.sourced?
+        if context.rspec?
+          run_in!(root, 'bundle', 'exec', 'rspec', '--init')
+          load_boot_in_spec_helper(root)
+        end
+        # The skills of Sidereal and the integrations the app requires.
+        run_sid!(root, context, 'skills', 'update') unless @options[:no_skills]
+
+        instructions(context, bundled: true)
+      end
+
+      private
+
+      # The app's own bin/sid, which runs with the app's gems — so it needs a
+      # Sidereal that has the command line. Until the gem is released that
+      # means a checkout, and the bare LoadError from the binstub says nothing
+      # about why.
+      def run_sid!(root, context, *command)
+        run_in!(root, 'bin/sid', *command)
+      rescue Error => e
+        raise e if context.sidereal_path
+
+        raise Error, "#{e.message}\n\n" \
+                     "bin/sid runs with the app's gems, and its Gemfile takes Sidereal from " \
+                     "#{SIDEREAL_GITHUB} on GitHub. If that version has no bin/sid yet, generate " \
+                     'the app against a local checkout instead: --sidereal-path <path>.'
+      end
+
+      def load_boot_in_spec_helper(root)
+        path = File.join(root, 'spec', 'spec_helper.rb')
+        File.write(path, <<~RUBY + File.read(path))
+          # Load the app (Zeitwerk, Sidereal's configuration) before every spec,
+          # and build its components, so classes can read the ones they inject.
+          # Building starts nothing: no pubsub, no workers.
+          require_relative '../boot'
+          Sidereal.config.build!
+
+        RUBY
+      end
+
+      def instructions(context, bundled:)
+        terminal.puts
+        terminal.puts "#{context.title} is ready.", style: :title
+        terminal.puts
+        terminal.puts 'Start the server:'
+        terminal.puts
+        terminal.print_line :key, "  cd #{@path}"
+        terminal.print_line :key, '  bundle install' unless bundled
+        terminal.print_line :key, '  bin/sid db install' if context.db? && !bundled
+        terminal.print_line :key, '  bin/sid sourced install' if context.sourced? && !bundled
+        terminal.print_line :key, '  bundle exec rspec --init' if context.rspec? && !bundled
+        terminal.print_line :key, '  bin/sid skills update' unless bundled || @options[:no_skills]
+        terminal.print_line :key, '  bin/dev'
+        terminal.puts
+        terminal.puts "Then open http://localhost:#{context.port} in two windows and say hello."
+        if context.rspec? && bundled
+          terminal.puts
+          terminal.puts 'Run the specs with:'
+          terminal.puts
+          terminal.print_line :key, '  bundle exec rspec'
+        end
+        if context.rspec? && !bundled
+          terminal.puts
+          terminal.puts "After `rspec --init`, add `require_relative '../boot'` to the top of spec/spec_helper.rb."
+        end
+      end
+    end
+  end
+end

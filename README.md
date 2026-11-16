@@ -33,6 +33,78 @@ Or install directly:
 gem install sidereal
 ```
 
+Check what's installed with `sid info`, which prints the Sidereal and Ruby versions:
+
+```bash
+sid info
+```
+
+## Setup
+
+Installing the gem gives you the `sid` command. Use it to generate a new app:
+
+```bash
+sid new my_app
+cd my_app
+bin/dev
+```
+
+`sid new` creates the `my_app` directory, runs `bundle install` and `bin/sid skills update` in it, and prints how to start the server. `bin/dev` starts it at <http://localhost:9292>. Open the page in two windows and say hello: every window sees every hello as it happens.
+
+`sid new` options:
+
+| Option | What it does |
+| --- | --- |
+| `--rspec` | Adds RSpec to the Gemfile and runs `rspec --init` |
+| `--db` | Sets up a SQLite database, by running [`bin/sid db install`](#database) in the new app |
+| `--sourced` | Uses [Sourced](https://github.com/ismasan/sourced) for durable, event-sourced storage, by running [`bin/sid sourced install`](#sourced), which installs a database too |
+| `--sidereal-path PATH` | Uses a local checkout of Sidereal in the Gemfile, instead of GitHub |
+| `--skip-bundle` | Doesn't run `bundle install`, or `bin/sid skills update`, which needs the bundle |
+| `--no-skills` | Doesn't install AI agent skills with `bin/sid skills update` (see [Agent skills](#agent-skills)) |
+| `--force` | Writes into a directory that isn't empty |
+
+The app's name comes before the options: `sid new my_app --rspec`.
+
+### What's in a new app
+
+```
+my_app/
+  boot.rb                     loads and configures the app
+  config.ru                   runs App
+  config/components/          the connections and services the app's classes use
+                              (db.rb and sourced.rb once their installs have run)
+  db/migrations/              database migrations, with --db or --sourced
+  falcon.rb                   Falcon settings: HOST, PORT and COUNT (worker processes)
+  bin/dev                     development server that reloads on code changes
+  bin/sid                     the sid command line, with this app loaded
+  .agents/skills/             skills that teach AI coding agents to use bin/sid
+  .claude/skills              link to .agents/skills, for Claude Code
+  system/                     backend code that doesn't know about the web
+    greetings.rb              messages for the hello demo
+  web/
+    app.rb                    App: the commands it accepts, their handlers, and pages
+    ui/                       pages, components and the layout (the UI namespace)
+      welcome_page.rb         UI::WelcomePage
+      layout.rb               UI::Layout
+      components/hello.rb     UI::Components::Hello
+    public/                   static files; config.ru serves web/public/css at /css
+  storage/                    runtime data: the command store, pubsub socket, databases
+```
+
+Classes are loaded by [Zeitwerk](https://github.com/fxn/zeitwerk), so there are no `require` statements: name a file after the class it defines. Classes in `system/` are top-level (`system/greetings.rb` defines `Greetings`), and each directory under `web/` is a namespace (`web/ui/welcome_page.rb` defines `UI::WelcomePage`).
+
+### Running the app in development
+
+`bin/dev` runs `bundle exec falcon host` and reloads the app whenever a Ruby file in `system/` or `web/` changes, or `boot.rb`, `config.ru` or `falcon.rb` does. Browsers reconnect by themselves.
+
+```bash
+bin/dev                  # http://localhost:9292
+PORT=9300 bin/dev        # another port
+COUNT=2 bin/dev          # two worker processes
+```
+
+Reloading needs a file watcher: [watchexec](https://github.com/watchexec/watchexec) (`brew install watchexec`) or [fswatch](https://github.com/emcrisostomo/fswatch). Without one, the server still runs, without reloading. In production, run `bundle exec falcon host` instead.
+
 ## Quick start
 
 A Sidereal app has three main parts: **commands** (typed data), **command handlers** (state changes), and **pages** (reactive UI).
@@ -762,6 +834,419 @@ end
 
 A `BasicLayout` with reset CSS and form styling is provided by default if no layout is specified.
 
+## The app's command line: `bin/sid`
+
+`bin/sid` in an app is `sid` with that app loaded. It runs with the app's gems and adds commands that only make sense inside an app. It finds the app from any directory, so `../bin/sid` works from a subdirectory too:
+
+```bash
+bin/sid --help
+```
+
+| Command | What it does |
+| --- | --- |
+| `bin/sid commands list` | Lists the app's commands |
+| `bin/sid commands info NAME` | Shows a command's payload attributes |
+| `bin/sid commands dispatch NAME --attribute value ...` | Sends a command to the app |
+| `bin/sid db install` | Sets up a SQLite database for the app |
+| `bin/sid db migrations add NAME` | Creates a timestamped migration |
+| `bin/sid db migrations run` | Applies every migration that hasn't run |
+| `bin/sid db migrations rollback` | Rolls back the migration that ran last |
+| `bin/sid sourced install` | Sets up the Sourced integration, and a database for it |
+| `bin/sid sourced migration` | Writes the migration for Sourced's tables |
+| `bin/sid sourced topology` | Shows how the app's commands, events and read models connect |
+| `bin/sid sourced groups list` | Lists the consumer groups, with status, partitions and position |
+| `bin/sid sourced groups stop NAME` | Stops a consumer group, so its reactor claims no more work |
+| `bin/sid sourced groups start NAME` | Starts a stopped or failed consumer group again |
+| `bin/sid sourced groups reset NAME` | Resets a consumer group, so its reactor reads everything again |
+| `bin/sid sourced messages list` | Lists the most recent messages in the store, with `--tail` to follow and `--types` / `--partition` to filter |
+| `bin/sid sourced messages correlation ID` | Draws the causal tree of one workflow |
+| `bin/sid system graph` | Prints the app's components and how they depend on each other |
+| `bin/sid system tree` | Prints the app's components as a tree, and who implemented each |
+| `bin/sid console` | Starts an IRB session with the app loaded |
+| `bin/sid info` | Prints the Sidereal and Ruby versions the app runs with |
+
+`NAME` is a command's class name (`Greetings::SayHello`) or its type (`my_app.greetings.say_hello`).
+
+`bin/sid` loads the app's `boot.rb` before it parses the command line, so integrations have registered their commands by the time a name is looked up. Loading declares and implements [components](#configuration) but builds none of them, so nothing is connected to yet — a command that needs component values builds them itself. That's why `--help` opens no database. If `boot.rb` raises, `bin/sid` says so and still prints usage, so the command line keeps working on an app that doesn't.
+
+### Extending the command line
+
+An integration adds its own commands from its `setup`, the same place it wires components (see [Custom backends](#custom-backends)). A command is a `Sidereal::CLI::Command` — a [Samovar](https://github.com/ioquatix/samovar) command — and can nest sub-commands of its own:
+
+```ruby
+# lib/my_integration.rb
+module MyIntegration
+  def self.setup(config, **opts)
+    require 'my_integration/cli'
+    Sidereal::CLI.register 'mine', MyIntegration::CLI::Namespace
+    # ... components, skills
+  end
+end
+```
+
+So a command exists exactly when the app configures the integration that provides it — the same rule as its components and its skills. Keep the file that defines the command classes light: it is loaded while the app loads, and a command should reach for the heavy parts of the integration from its own `#call`, after `Sidereal::CLI.boot_app!`.
+
+| Step | When | What it does |
+| --- | --- | --- |
+| `Sidereal::CLI.load_app(root)` | `bin/sid`, before parsing | Changes into the app root and requires `boot.rb`, so integrations' `setup` runs |
+| `Sidereal::CLI.boot_app!` | in a command's `#call` | `Sidereal.config.build!` — component values become readable. Opens connections; starts nothing |
+| `Sidereal.config.start_component!(key, Thread.current)` | in a command that needs a *started* component | Runs that component's `start` hook, and its dependencies' |
+
+An app can register commands of its own the same way, from `boot.rb` or a file under `config/components/`.
+
+### Database
+
+The migrations in `db/migrations/` are the database's definition: committed, and the way any checkout builds one, since `storage/` is not committed.
+
+`bin/sid db install` is the one thing that sets a database up, and nothing else does: `sid new --db` runs it in the new app, `bin/sid sourced install` runs it because Sourced keeps its messages in the app's database, and an app that started without one adds it later by running the same command. So there is only ever one `db` component to know about, wherever it came from.
+
+`bin/sid db install` gives an app a SQLite database. It adds `sequel` and `sqlite3` to the Gemfile, runs `bundle install`, creates `db/migrations/` and `storage/`, ignores `storage/` in `.gitignore`, and writes `config/components/db.rb`:
+
+```ruby
+Sidereal.config.tap do |c|
+  c.declare('db.filepath', Sidereal::Types::String) { 'storage/db.db' }
+  c.declare('db', Sequel::Database)
+  c.component!('db', ['db.filepath']) do
+    build do |filepath|
+      FileUtils.mkdir_p(File.dirname(filepath))
+      Sequel.sqlite(filepath)
+    end
+    teardown(&:disconnect)
+  end
+end
+```
+
+Two [components](#configuration): where the file lives, and the connection to it. Each process opens its own when it starts and disconnects on shutdown — a SQLite connection can't cross a fork. Classes reach it with [`dep :db`](#injecting-components-into-classes).
+
+The file it writes is yours to edit, and the generated comments show the two usual changes — pointing `db.filepath` at the environment, or re-implementing `db` for another database entirely. `db install` never overwrites a file that is already there; it reports `skip` and leaves it alone, so it's safe to re-run (pass `--force` to overwrite, `--skip-bundle` to skip `bundle install`).
+
+Then migrate:
+
+```bash
+bin/sid db migrations add create_things   # db/migrations/20260401120000_create_things.rb
+bin/sid db migrations run
+bin/sid db migrations rollback            # just the one that ran last
+```
+
+Migrations are plain [Sequel](https://sequel.jeremyevans.net/) migrations in `db/migrations/`, named with a 14-digit UTC timestamp:
+
+```ruby
+Sequel.migration do
+  change do
+    create_table(:things) do
+      primary_key :id
+      String :name, null: false
+    end
+  end
+end
+```
+
+`run` and `rollback` build the app's components to get the connection, so they need `config/components/db.rb` — without it they say to run `bin/sid db install`. `add` only writes a file, so it works before anything is configured.
+
+### Sourced
+
+`bin/sid sourced install` sets the [Sourced](#using-sourced-as-a-backend) integration up, and `sid new --sourced` runs it in the new app. It installs a database first — Sourced keeps the app's commands and events there — then adds the `sourced` gem and writes `config/components/sourced.rb`:
+
+```ruby
+require 'sidereal/integrations/sourced'
+
+Sidereal.config.use Sidereal::Integrations::Sourced, db: 'db'
+```
+
+The generated comments show what to re-implement: where to `Sourced.register` deciders and projectors, the worker count, the error strategy behind the retry toasts, and `sidereal.runner.process` to run a Sourced runtime in every worker rather than only the leader.
+
+Finally it writes the migration for Sourced's own tables into `db/migrations/` and applies it, so the app is ready to boot. Sourced's store expects its tables to be there rather than creating them, so they are a migration's job like any other table:
+
+```bash
+bin/sid db migrations run
+```
+
+A checkout of the app gets its database the same way, since `db/migrations/` is committed and `storage/` isn't — or by copying a database over, to keep the data. Starting without the tables stops the host with `Sourced::Store::NotInstalledError`, naming what's missing.
+
+`bin/sid sourced migration` writes that file on its own, for an app that needs it again — after changing `sourced.store.table_prefix`, say. It renders the migration from Sourced's template through the app's own store, so a configured prefix is honoured, and it leaves an existing one alone unless you pass `--force`. `sourced install` runs it in a separate process, because the gem it needs has only just been bundled.
+
+`boot.rb` says nothing about Sourced — the `require` lives in the generated component file too, so installing Sourced later works exactly like generating with it. Its order is load-bearing in two ways: `config/components/` loads **after** `Sidereal.config.use_file_system!`, because both implement `sidereal.store` and the last implementation of a key wins (the other way round a Sourced app would append its commands to files while Sourced's runtime watched its own tables); and `LOADER.eager_load` comes **after** the components, so that the `require` in `config/components/sourced.rb` has happened before Zeitwerk loads a `system/` class that subclasses `Sourced::Decider`.
+
+#### Topology
+
+The `topology`, `groups` and `messages` commands below come from the integration, so they appear only once the app has configured it; `sourced install` is built in and available before that.
+
+`bin/sid sourced topology` prints how the app's commands, events, read models and automations connect, as a tree starting from each command. Part of the output for the `sourced_donations` example:
+
+```
+$ bin/sid sourced topology
+command donations.enter_donor_details  Donation::EnterDonorDetails
+└─ event donations.donor_details_entered  Donation::DonorDetailsEntered
+   └─ automation reaction(Donation::DonorDetailsEntered)  in donations
+      └─ command donations.send_verification_email  Donation::SendVerificationEmail
+         └─ event donations.email_sent  Donation::EmailSent
+
+command donations.start_payment  Donation::StartPayment
+└─ event donations.payment_started  Donation::PaymentStarted
+   └─ automation reaction(Donation::PaymentStarted)  in donations
+      └─ command donations.confirm_payment  Donation::ConfirmPayment
+         └─ event donations.payment_confirmed  Donation::PaymentConfirmed
+            └─ read model campaigns_projector
+
+command campaigns.create_campaign  Campaign::CreateCampaign
+└─ event campaigns.campaign_created  Campaign::CampaignCreated
+   └─ read model campaigns_projector (see above)
+```
+
+Each command leads to the events it produces, each event to the read models (projectors) and automations (reactions) that consume it, and each automation to the commands it dispatches. Something that appears more than once is expanded the first time and marked `(see above)` after that. The tree comes from `Sourced.topology`, which reads the events and commands each handler produces from its source code.
+
+Add `--schemas` for a line under each command and event with its payload's JSON Schema, so one call shows what every message carries.
+
+[Machines](#state-machines) appear like deciders: each command leads to the states it moves the machine to, which are events named `<prefix>.runtime.<state>`, such as `order.runtime.placed` for the `Order` machine in that section. `bin/sid commands list` lists a machine's commands as handled by the machine. The tree doesn't show which states accept which commands. A command dispatched while no active state accepts it is acknowledged with no events, so it does nothing; check the machine's class for what it accepts when.
+
+Apps that use Sourced also get a `sidereal-sourced` skill (see [Agent skills](#agent-skills)), which points AI coding agents to `bin/sid sourced`.
+
+#### Consumer groups
+
+`bin/sid sourced groups list` shows the running side — a consumer group per reactor, how many partitions it has claimed, and the furthest position any of them has read:
+
+```
+1 group, store at position 42
+
+Group           Status  Partitions  Position
+App::Commander  active  3           40
+```
+
+A group can be taken out of service and put back:
+
+```bash
+bin/sid sourced groups stop App::Commander --message 'draining for deploy'
+bin/sid sourced groups start App::Commander
+```
+
+A stopped group is skipped when work is claimed, so its reactor stops consuming while the rest of the app carries on serving. Messages keep arriving in the store meanwhile; starting the group again picks up from where it left off, including everything that arrived while it was stopped. `start` also clears the error that stopped a failed group, which is the usual reason to reach for it.
+
+`bin/sid sourced groups reset NAME` drops a group's offsets so its reactor reads the whole store again — how a read model is rebuilt after its projector changes. Nothing is lost, since the messages are still there, but the work is redone, so it asks before going ahead; `--yes` answers for a script, and it refuses outright rather than guess when there's nobody to ask.
+
+It won't reset a group that handles its messages exclusively and deletes them as it acks them, such as a Sidereal commander: there is nothing to replay, and dropping the offsets would only orphan the partitions it holds. Sourced skips that case too, but decides it from the groups registered in the running process — which a command line never has — so the check is made against the reactor itself.
+
+All three go through the app's Sourced router rather than its store, so the reactor's `on_stop`, `on_start` and `on_reset` run as they would in the app.
+
+A group that isn't running says why underneath the table — the exception if it failed, or the `--message` if someone stopped it — and *Retries* and *Retry at* columns appear only once a group has retried: how many times, and when it tries next. Groups are registered when the app **starts**, not when the CLI builds it, so a store whose app has never run reports none.
+
+#### Messages
+
+`bin/sid sourced messages list` prints the log, newest hundred last, one message per line — position, id, time, type and payload:
+
+```
+     7  83085e7c-56af-4702-a674-c0927a3dd316  2026-10-07 00:08:25  s.todos.add    {"title":"Coffee"}
+     8  71178680-8a77-4d4c-bfdd-41ae7b1902f9  2026-10-07 00:08:28  s.todos.added  {"title":"Coffee"}
+```
+
+`--tail` keeps it running, polling once a second for whatever arrives next, and `--limit` changes the page size. A page that comes back full is one the limit truncated, so it reads the next one straight away rather than waiting — a burst catches up at once instead of trickling out a page a second. **Only the messages go to stdout** — the "Tailing from position N" notice and anything else goes to stderr — so either mode pipes cleanly:
+
+```bash
+bin/sid sourced messages list --tail | grep todos.added
+```
+
+`--types` and `--partition` narrow the log to what a [`Sourced::Selector`](https://github.com/ismasan/sourced) built from them selects, and `--tail` follows only those:
+
+```bash
+bin/sid sourced messages list --types todos.added,todos.removed
+bin/sid sourced messages list --types 'todos.*' --tail
+bin/sid sourced messages list --partition course_id=c1
+bin/sid sourced messages list --types courses.user_joined --partition course_id=c1,user_id=u1
+```
+
+`--types` takes message types, comma-separated, and `prefix.*` for every type in a namespace. A selector is made of message classes, so these are the types the app defines; a name that matches none is an error rather than an empty list.
+
+`--partition` takes `key=value` pairs and selects the messages that carry at least one of the keys, in payload or tags, with every key they carry at its value. So `course_id=c1,user_id=u1` lists course `c1`'s messages that are about no user or about `u1`, and also `u1`'s messages that are about no course. Without `--types` it looks in every type the app defines.
+
+`bin/sid sourced messages correlation <id>` traces one workflow — every message sharing a correlation, nested by what caused what. Any id in the chain will do:
+
+```
+Correlation 0f346b73-30eb-4627-82fb-940427b86711  5 messages
+
+s.todos.add  #3  00:40:26  0f346b73-30eb-4627-82fb-940427b86711  {"title":"Taxes"}
+└── s.todos.added  #4  00:40:26  7c2b1628-e533-4c03-8839-5348fd0da391  {"title":"Taxes"}
+    ├── s.todos.notify  #5  00:40:26  4631f909-c84d-41b2-ae78-bd909edb4440  {"title":"Taxes"}
+    │   └── s.todos.notified  #7  00:40:26  32b3d62f-0674-4d34-a49b-1ddbc3e7c103  {"title":"Taxes"}
+    └── s.todos.notify  #6  00:40:26  c02d2d86-c8a6-4916-9dbe-5c50b4e55074  {"title":"Taxes (audit)"}
+```
+
+Message types are coloured by kind — **commands cyan, events yellow**, the same colours `bin/sid sourced topology` gives them — so the shape of a workflow reads off the indentation and the colour together. A message of neither kind, such as a plain `Sidereal::Message`, keeps the default rather than being miscoloured as one.
+
+A chain whose first command has already been deleted — which is what an exclusive consumer such as a commander does on ack — still draws, rooted at the oldest message left.
+
+### The component graph
+
+`bin/sid system graph` prints the [components](#configuration) the app is made of, in the order they're built and started, each with what it depends on:
+
+```
+Sidereal.config  37 components, built
+
+Component                     Type                            State            Needs
+sidereal.elector              Interface[start, on_promote, …  built
+sidereal.pubsub               Interface[start, subscribe, p…  built            sidereal.elector
+db.filepath                   Sidereal::Types::String         built
+db                            Sequel::Database                built            db.filepath
+sourced.db                    Sequel::Database                built, alias     db
+sidereal.dispatcher           Interface[start, stop]          built, deferred  sidereal.store, sidereal.pubsub,
+                                                                               sidereal.channels, sidereal.exceptions
+```
+
+The *State* column carries the lifecycle status, the mode when it isn't the default singleton (`alias`, `dynamic`), and whether the component is [deferred](#custom-backends). Edges wrap into the last column, which sizes itself to the terminal — a component's key is never shortened, so the type column gives up room first. `--dependents` turns the edges around, showing what depends on each component rather than what it needs.
+
+A component tree is a DAG rather than a tree, so edges are listed per component instead of being nested — a component with two dependents would otherwise have to appear twice.
+
+It's most useful when the configuration is broken, so it prints the graph even then, and names the problem underneath:
+
+```
+UnimplementedComponentError: components are declared but not implemented: mailer
+```
+
+A dependency that was never declared is listed too, as `Not declared:`.
+
+`--mermaid` prints a [Mermaid](https://mermaid.js.org) flowchart of the same graph and nothing else, so it can go straight into a file:
+
+```bash
+bin/sid system graph --mermaid > graph.mmd
+```
+
+Edges point from each dependency to its dependents, nodes are shaped by mode and styled by status, and a configuration problem goes to stderr so the redirect stays clean.
+
+`bin/sid system tree` answers a different question — not what depends on what, but how the components **nest**, which are mounted, and who implemented each:
+
+```
+Sidereal.config  37 components, built
+
+(root)
+├── sidereal [mounted]
+│   ├── elector Interface[start, on_promote, on_demote, lea… (singleton, built) implemented by (root)
+│   ├── store Interface[append] (alias, built) implemented by (root)
+│   ├── workers
+│   │   └── count Integer[0..] (singleton, built)
+│   └── dispatcher Interface[start, stop] (singleton, built, deferred)
+├── db Sequel::Database (singleton, built)
+│   └── filepath Sidereal::Types::String (singleton, built)
+└── sourced [mounted]
+    └── db Sequel::Database (alias, built) implemented by (root)
+```
+
+`[mounted]` marks a library's own tree — Sourced's, under `sourced` — and *implemented by* marks a component the app implemented over the library that declared it, which is how `use` wires the two together. It takes `--mermaid` too, as a top-down flowchart.
+
+### Listing commands
+
+```
+$ bin/sid commands list
+Command                     Class                Handled by      Web
+my_app.greetings.say_hello  Greetings::SayHello  App::Commander  yes
+```
+
+This lists every command the app knows about:
+
+* **Handled by:** the commanders that handle the command. `App::Commander` is the app's own, for `command` blocks in `web/app.rb`. Commanders added with `commands` in the app appear by name, and with `--sourced`, so do Sourced deciders.
+* **Web:** whether the app accepts the command from forms, with `handle`. A command the web accepts but that nothing handles shows `none` under **Handled by**.
+
+Add `--schemas` for a line under each command with its payload's [JSON Schema](https://json-schema.org/). It's everything needed to dispatch any of the app's commands, in one call, which makes it the quickest way for scripts and AI agents to learn what the app can do:
+
+```
+$ bin/sid commands list --schemas
+Command                     Class                Handled by      Web
+my_app.greetings.say_hello  Greetings::SayHello  App::Commander  yes
+  {"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}
+```
+
+### Inspecting a command
+
+```
+$ bin/sid commands info Greetings::SayHello
+my_app.greetings.say_hello  Greetings::SayHello
+Handled by  App::Commander
+Web         yes
+
+Attribute  Type    Required
+name       string  yes
+```
+
+The table has a row per payload attribute. Nested attributes are listed as `address.city`, and attributes of objects inside an array as `items[].sku`. The **Default** and **Notes** columns appear when any attribute has a default, or options (`one of: "small", "large"`) or other rules.
+
+Add `--json` for the payload's [JSON Schema](https://json-schema.org/) instead, and nothing else, ready to pipe to other tools:
+
+```
+$ bin/sid commands info Greetings::SayHello --json
+{
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "name"
+  ]
+}
+```
+
+### Dispatching a command
+
+```
+$ bin/sid commands dispatch my_app.greetings.say_hello --name Sidereal
+Dispatched my_app.greetings.say_hello  Greetings::SayHello
+id  52c79eda-d348-4b88-b056-830bf60e7620
+  name  "Sidereal"
+```
+
+With `bin/dev` running, the hello appears on the welcome page, just as if it had been sent from the form. The command is appended to the app's store, so if the server isn't running, it's handled once it starts.
+
+Attributes follow the command's payload schema (see `bin/sid commands info`). `bin/sid commands dispatch --help` summarizes the syntax:
+
+| Command line | Payload |
+| --- | --- |
+| `--units 2` or `--units=2` | `units: "2"` |
+| `--gift` (a flag without a value) | `gift: "true"` |
+| `--address.city Paris` | `address: {city: "Paris"}` |
+| `--tags vegan --tags spicy` | `tags: ["vegan", "spicy"]`, for an array attribute |
+
+Values are converted to the types the payload declares, the same way form fields from the web are: `"2"` becomes `2` for an `Integer` attribute, and `"true"` becomes `true` for a `Boolean`. The command is validated before it's sent. If any attribute is invalid or missing, nothing is dispatched and every error is listed:
+
+```
+$ bin/sid commands dispatch Greetings::SayHello --name ""
+Not dispatched. Invalid attributes for my_app.greetings.say_hello:
+  --name: must be present
+```
+
+An unknown attribute, such as a typo, is an error too, and lists the attributes the command takes. So is a command that nothing handles, since it would never run.
+
+Commands dispatched from `bin/sid` don't go through the app's `before_command` hooks, which run for commands sent from the web.
+
+### Agent skills
+
+Sidereal and its integrations provide skills that teach AI coding agents to work with an app, such as `sidereal-cli`, for using `bin/sid`. `bin/sid skills update` writes them into the app's `.agents/skills/` directory, where agents look for skills, and links `.claude/skills` to it for Claude Code. `sid new` runs it for a new app, unless you pass `--no-skills`.
+
+Run it again after updating Sidereal or adding an integration:
+
+```bash
+bin/sid skills update
+```
+
+This writes the skills of Sidereal and of every integration the app configures. It rewrites those skills in `.agents/skills/` and leaves any other skills there alone. It connects to nothing: `bin/sid` has already loaded the app (see [Extending the command line](#extending-the-command-line)), so the skills are registered by the time the command runs.
+
+An integration registers its skills from its `setup`, with the path to a skill's `SKILL.md` or a directory holding it:
+
+```ruby
+# lib/my_integration.rb
+module MyIntegration
+  def self.setup(config, **opts)
+    Sidereal.skills.add('my-integration', File.expand_path('skills/my-integration', __dir__))
+    # ... components
+  end
+end
+```
+
+### Console
+
+```bash
+bin/sid console
+```
+
+Starts IRB with the app loaded, from the app's root directory, with its components built (`Sidereal.config.build!`) — so `Sidereal.store` and anything the app declared is readable. Nothing is started: no pubsub, no workers. For example, `Sidereal.dispatch!(Greetings::SayHello, name: 'Ada')` appends a command to the store from Ruby, for the running app's workers to pick up.
+
 ## Working with time
 
 ### Dynamically scheduled commands
@@ -1289,7 +1774,14 @@ Sidereal.config.use_file_system!                         # FS store + unix-socke
 Sidereal.config.config!('sidereal.store') { MyStore.new } # ...but your own store
 ```
 
-**Integrations.** Backends that provide several components at once (a store and a dispatcher, plus bridging) ship as *integrations*, applied with `Sidereal.config.use(SomeIntegration, **opts)`. It calls `SomeIntegration.setup(Sidereal.config, **opts)`, which mounts and implements components. `use_file_system!` is itself one. Integrations that implement the same component replace each other's: the last one wins. See [Using Sourced as a backend](#using-sourced-as-a-backend) for the canonical example.
+**Integrations.** Backends that provide several components at once (a store and a dispatcher, plus bridging) ship as *integrations*, applied with `Sidereal.config.use(SomeIntegration, **opts)`. It calls `SomeIntegration.setup(Sidereal.config, **opts)`, which mounts and implements components. Anything that responds to `setup` qualifies, so an integration can live in any gem — Sidereal needs no knowledge of it. `use_file_system!` is itself one. Integrations that implement the same component replace each other's: the last one wins. See [Using Sourced as a backend](#using-sourced-as-a-backend) for the canonical example.
+
+`setup` is also where an integration registers the things that aren't components: its [`bin/sid` commands](#extending-the-command-line) and its [agent skills](#agent-skills). One rule covers all three — they exist exactly when the app configures the integration. `setup` runs while `boot.rb` loads, before anything is prepared or built, so it can declare and implement freely.
+
+Two later hooks exist for work that needs to see the whole loaded app, both on the component tree's notifier:
+
+- `config.notifier.subscribe('root.preparing') { ... }` fires before the dependency order is resolved and before the tree locks, so it can still declare and implement components. The Sourced integration registers Sidereal's commanders as reactors there, once every app class has loaded.
+- A component's own `prepare` hook runs after the order is resolved. It can act, but anything it *declares* then is never built — use `root.preparing` for that.
 
 ### Filesystem store
 
