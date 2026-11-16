@@ -66,7 +66,7 @@ RSpec.describe Sidereal::CLI::Sourced do
 
       sid('sourced', 'install', '--skip-bundle')
 
-      expect(read('Gemfile')).to include("gem 'sourced', github: 'ismasan/sourced', branch: 'ccc'")
+      expect(read('Gemfile')).to include("gem 'sourced', github: 'ismasan/sourced', branch: 'main'")
     end
 
     # The gem is only bundled at the end of this command, so this process can't

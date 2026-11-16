@@ -14,7 +14,7 @@ module Sidereal
     class Sourced < Command
       TEMPLATES = File.expand_path('templates/sourced', __dir__)
       GITHUB = 'ismasan/sourced'
-      BRANCH = 'ccc'
+      BRANCH = 'main'
 
       # `sid sourced install`
       class Install < Command

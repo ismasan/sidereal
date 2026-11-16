@@ -631,7 +631,7 @@ RSpec.describe Sidereal::CLI::New do
             attribute :title, String
           end
 
-          command AddTodo do |_state, cmd|
+          command AddTodo => TodoAdded do |_state, cmd|
             event TodoAdded, title: cmd.payload.title
           end
         end
