@@ -20,7 +20,7 @@ It lists the commands for inspecting the app's Sourced setup. Every subcommand t
 
 Ask `bin/sid sourced` about the app's commands, events, read models and automations rather than reading every decider, machine and projector to piece it together. Then open the class it names (in `system/`) for the details. The topology is worked out from the handlers' source code, so a message a handler builds dynamically may be missing from it.
 
-Machines (`Sourced::Machine`) appear in the topology like deciders, and their states appear as events, such as `door.runtime.opened`. A machine accepts each of its commands only in some states, so a command can be rejected even when its payload is valid. The topology doesn't show which states accept which commands; the machine's class does.
+Machines (`Sourced::Machine`) appear in the topology like deciders, and their states appear as events, such as `door.runtime.opened`. A machine accepts each of its commands only in some states. A command dispatched while no active state accepts it is acknowledged with no events, so it does nothing even when its payload is valid; `messages correlation` shows that it produced nothing. The topology doesn't show which states accept which commands; the machine's class does.
 
 ## The data: what did happen
 

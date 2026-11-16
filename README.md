@@ -33,6 +33,12 @@ Or install directly:
 gem install sidereal
 ```
 
+Check what's installed with `sid info`, which prints the Sidereal and Ruby versions:
+
+```bash
+sid info
+```
+
 ## Setup
 
 Installing the gem gives you the `sid` command. Use it to generate a new app:
@@ -857,6 +863,7 @@ bin/sid --help
 | `bin/sid system graph` | Prints the app's components and how they depend on each other |
 | `bin/sid system tree` | Prints the app's components as a tree, and who implemented each |
 | `bin/sid console` | Starts an IRB session with the app loaded |
+| `bin/sid info` | Prints the Sidereal and Ruby versions the app runs with |
 
 `NAME` is a command's class name (`Greetings::SayHello`) or its type (`my_app.greetings.say_hello`).
 
@@ -960,6 +967,42 @@ A checkout of the app gets its database the same way, since `db/migrations/` is 
 
 `boot.rb` says nothing about Sourced — the `require` lives in the generated component file too, so installing Sourced later works exactly like generating with it. Its order is load-bearing in two ways: `config/components/` loads **after** `Sidereal.config.use_file_system!`, because both implement `sidereal.store` and the last implementation of a key wins (the other way round a Sourced app would append its commands to files while Sourced's runtime watched its own tables); and `LOADER.eager_load` comes **after** the components, so that the `require` in `config/components/sourced.rb` has happened before Zeitwerk loads a `system/` class that subclasses `Sourced::Decider`.
 
+#### Topology
+
+The `topology`, `groups` and `messages` commands below come from the integration, so they appear only once the app has configured it; `sourced install` is built in and available before that.
+
+`bin/sid sourced topology` prints how the app's commands, events, read models and automations connect, as a tree starting from each command. Part of the output for the `sourced_donations` example:
+
+```
+$ bin/sid sourced topology
+command donations.enter_donor_details  Donation::EnterDonorDetails
+└─ event donations.donor_details_entered  Donation::DonorDetailsEntered
+   └─ automation reaction(Donation::DonorDetailsEntered)  in donations
+      └─ command donations.send_verification_email  Donation::SendVerificationEmail
+         └─ event donations.email_sent  Donation::EmailSent
+
+command donations.start_payment  Donation::StartPayment
+└─ event donations.payment_started  Donation::PaymentStarted
+   └─ automation reaction(Donation::PaymentStarted)  in donations
+      └─ command donations.confirm_payment  Donation::ConfirmPayment
+         └─ event donations.payment_confirmed  Donation::PaymentConfirmed
+            └─ read model campaigns_projector
+
+command campaigns.create_campaign  Campaign::CreateCampaign
+└─ event campaigns.campaign_created  Campaign::CampaignCreated
+   └─ read model campaigns_projector (see above)
+```
+
+Each command leads to the events it produces, each event to the read models (projectors) and automations (reactions) that consume it, and each automation to the commands it dispatches. Something that appears more than once is expanded the first time and marked `(see above)` after that. The tree comes from `Sourced.topology`, which reads the events and commands each handler produces from its source code.
+
+Add `--schemas` for a line under each command and event with its payload's JSON Schema, so one call shows what every message carries.
+
+[Machines](#state-machines) appear like deciders: each command leads to the states it moves the machine to, which are events named `<prefix>.runtime.<state>`, such as `order.runtime.placed` for the `Order` machine in that section. `bin/sid commands list` lists a machine's commands as handled by the machine. The tree doesn't show which states accept which commands. A command dispatched while no active state accepts it is acknowledged with no events, so it does nothing; check the machine's class for what it accepts when.
+
+Apps that use Sourced also get a `sidereal-sourced` skill (see [Agent skills](#agent-skills)), which points AI coding agents to `bin/sid sourced`.
+
+#### Consumer groups
+
 `bin/sid sourced groups list` shows the running side — a consumer group per reactor, how many partitions it has claimed, how far it has read, and how far behind the store that leaves it:
 
 ```
@@ -985,6 +1028,8 @@ It won't reset a group that handles its messages exclusively and deletes them as
 All three go through the app's Sourced router rather than its store, so the reactor's `on_stop`, `on_start` and `on_reset` run as they would in the app.
 
 A group that isn't running says why underneath the table — the exception if it failed, or the `--message` if someone stopped it — and a *Retry at* column appears only while one is waiting to retry. Groups are registered when the app **starts**, not when the CLI builds it, so a store whose app has never run reports none.
+
+#### Messages
 
 `bin/sid sourced messages list` prints the log, newest hundred last, one message per line — position, id, time, type and payload:
 
@@ -1014,8 +1059,6 @@ s.todos.add  #3  00:40:26  0f346b73-30eb-4627-82fb-940427b86711  {"title":"Taxes
 Message types are coloured by kind — **commands cyan, events yellow**, the same colours `bin/sid sourced topology` gives them — so the shape of a workflow reads off the indentation and the colour together. A message of neither kind, such as a plain `Sidereal::Message`, keeps the default rather than being miscoloured as one.
 
 A chain whose first command has already been deleted — which is what an exclusive consumer such as a commander does on ack — still draws, rooted at the oldest message left.
-
-Once installed, `bin/sid sourced topology` describes the app — see [Sourced topology](#sourced-topology). That command comes from the integration, so it appears only once the app has configured it; `sourced install` is built in and available before that.
 
 ### The component graph
 
@@ -1158,36 +1201,6 @@ Not dispatched. Invalid attributes for my_app.greetings.say_hello:
 An unknown attribute, such as a typo, is an error too, and lists the attributes the command takes. So is a command that nothing handles, since it would never run.
 
 Commands dispatched from `bin/sid` don't go through the app's `before_command` hooks, which run for commands sent from the web.
-
-### Sourced topology
-
-In apps that use [Sourced](https://github.com/ismasan/sourced), `bin/sid` also has a `sourced` namespace. `bin/sid sourced topology` prints how the app's commands, events, read models and automations connect, as a tree starting from each command. Part of the output for the `sourced_donations` example:
-
-```
-$ bin/sid sourced topology
-command donations.enter_donor_details  Donation::EnterDonorDetails
-└─ event donations.donor_details_entered  Donation::DonorDetailsEntered
-   └─ automation reaction(Donation::DonorDetailsEntered)  in donations
-      └─ command donations.send_verification_email  Donation::SendVerificationEmail
-         └─ event donations.email_sent  Donation::EmailSent
-
-command donations.start_payment  Donation::StartPayment
-└─ event donations.payment_started  Donation::PaymentStarted
-   └─ automation reaction(Donation::PaymentStarted)  in donations
-      └─ command donations.confirm_payment  Donation::ConfirmPayment
-         └─ event donations.payment_confirmed  Donation::PaymentConfirmed
-            └─ read model campaigns_projector
-
-command campaigns.create_campaign  Campaign::CreateCampaign
-└─ event campaigns.campaign_created  Campaign::CampaignCreated
-   └─ read model campaigns_projector (see above)
-```
-
-Each command leads to the events it produces, each event to the read models (projectors) and automations (reactions) that consume it, and each automation to the commands it dispatches. Something that appears more than once is expanded the first time and marked `(see above)` after that. The tree comes from `Sourced.topology`, which reads the events and commands each handler produces from its source code.
-
-Add `--schemas` for a line under each command and event with its payload's JSON Schema, so one call shows what every message carries.
-
-Apps that use Sourced also get a `sidereal-sourced` skill (see [Agent skills](#agent-skills)), which points AI coding agents to `bin/sid sourced`.
 
 ### Agent skills
 
