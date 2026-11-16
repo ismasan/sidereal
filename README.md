@@ -858,7 +858,7 @@ bin/sid --help
 | `bin/sid sourced groups stop NAME` | Stops a consumer group, so its reactor claims no more work |
 | `bin/sid sourced groups start NAME` | Starts a stopped or failed consumer group again |
 | `bin/sid sourced groups reset NAME` | Resets a consumer group, so its reactor reads everything again |
-| `bin/sid sourced messages list` | Lists the most recent messages in the store, with `--tail` to follow |
+| `bin/sid sourced messages list` | Lists the most recent messages in the store, with `--tail` to follow and `--types` / `--partition` to filter |
 | `bin/sid sourced messages correlation ID` | Draws the causal tree of one workflow |
 | `bin/sid system graph` | Prints the app's components and how they depend on each other |
 | `bin/sid system tree` | Prints the app's components as a tree, and who implemented each |
@@ -1043,6 +1043,19 @@ A group that isn't running says why underneath the table — the exception if it
 ```bash
 bin/sid sourced messages list --tail | grep todos.added
 ```
+
+`--types` and `--partition` narrow the log to what a [`Sourced::Selector`](https://github.com/ismasan/sourced) built from them selects, and `--tail` follows only those:
+
+```bash
+bin/sid sourced messages list --types todos.added,todos.removed
+bin/sid sourced messages list --types 'todos.*' --tail
+bin/sid sourced messages list --partition course_id=c1
+bin/sid sourced messages list --types courses.user_joined --partition course_id=c1,user_id=u1
+```
+
+`--types` takes message types, comma-separated, and `prefix.*` for every type in a namespace. A selector is made of message classes, so these are the types the app defines; a name that matches none is an error rather than an empty list.
+
+`--partition` takes `key=value` pairs and selects the messages that carry at least one of the keys, in payload or tags, with every key they carry at its value. So `course_id=c1,user_id=u1` lists course `c1`'s messages that are about no user or about `u1`, and also `u1`'s messages that are about no course. Without `--types` it looks in every type the app defines.
 
 `bin/sid sourced messages correlation <id>` traces one workflow — every message sharing a correlation, nested by what caused what. Any id in the chain will do:
 

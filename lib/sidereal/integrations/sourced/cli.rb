@@ -433,11 +433,12 @@ module Sidereal
             end
           end
 
-          # `sid sourced messages list [--tail]`
+          # `sid sourced messages list [--types T,...] [--partition K=V,...] [--tail]`
           #
           # The log, one message per line. Only the messages go to stdout —
           # everything else is stderr — so `| grep` and `> file` get just the
-          # log, in either mode.
+          # log, in either mode. +--types+ and +--partition+ narrow it to what
+          # a {::Sourced::Selector} built from them selects, tail included.
           class List < Sidereal::CLI::Command
             include Payloads
 
@@ -445,6 +446,8 @@ module Sidereal
 
             options do
               option '--limit <n>', 'How many to show (default 100)', type: Integer, default: 100
+              option '--types <types>', 'Only these message types, comma-separated; prefix.* matches a namespace'
+              option '--partition <pairs>', 'Only messages carrying these attribute values, ex. course_id=c1,user_id=u1'
               option '--tail', 'Keep printing messages as they arrive'
             end
 
@@ -458,10 +461,11 @@ module Sidereal
 
               Sidereal::CLI.boot_app!
               store = Sidereal.config['sourced.store']
+              @selector = selector
 
               # Newest first, then reversed: read_all reads forward from the
               # start, so asking for a limit without :desc gives the oldest.
-              recent = store.read_all(limit: @options[:limit], order: :desc).to_a.reverse
+              recent = read_all(store, limit: @options[:limit], order: :desc).to_a.reverse
               @width = [recent.map { |message| message.type.length }.max.to_i, MIN_TYPE_WIDTH].max
               recent.each { |message| print_message(message) }
               output.flush
@@ -470,6 +474,59 @@ module Sidereal
             end
 
             private
+
+            def read_all(store, **options)
+              @selector ? store.read_all(@selector, **options) : store.read_all(**options)
+            end
+
+            # What +--types+ and +--partition+ select, or nil for the whole log.
+            # A selector is made of message classes, so without +--types+ a
+            # partition is looked for in every registered type: a message of a
+            # type the app doesn't define can't be selected.
+            #
+            # @return [::Sourced::Selector, nil]
+            def selector
+              return unless @options[:types] || @options[:partition]
+
+              types = @options[:types] ? types_named(@options[:types]) : ::Sourced::Message.registry.all.to_a
+              selector = ::Sourced::Selector[*types]
+              @options[:partition] ? selector.by(**partition) : selector
+            end
+
+            # @return [Array<Class>] the message classes +list+ names
+            # @raise [Sidereal::CLI::Error] for a name matching none
+            def types_named(list)
+              registered = ::Sourced::Message.registry.all.to_a
+              names = list.split(',').map(&:strip).reject(&:empty?)
+              raise Sidereal::CLI::Error, '--types needs at least one message type' if names.empty?
+
+              names.flat_map do |name|
+                matches = if name.end_with?('*')
+                            prefix = name.delete_suffix('*')
+                            registered.select { |klass| klass.type.start_with?(prefix) }
+                          else
+                            registered.select { |klass| klass.type == name }
+                          end
+                raise Sidereal::CLI::Error, "No message type matches #{name.inspect}" if matches.empty?
+
+                matches
+              end.uniq
+            end
+
+            # @return [Hash{Symbol => String}] +--partition+'s key=value pairs
+            # @raise [Sidereal::CLI::Error] for a pair without a key or value
+            def partition
+              @options[:partition].split(',').map(&:strip).reject(&:empty?).to_h do |pair|
+                key, value = pair.split('=', 2)
+                if key.to_s.strip.empty? || value.to_s.strip.empty?
+                  raise Sidereal::CLI::Error, "--partition takes key=value pairs, ex. course_id=c1; got #{pair.inspect}"
+                end
+
+                [key.strip.to_sym, value.strip]
+              end.tap do |pairs|
+                raise Sidereal::CLI::Error, '--partition needs at least one key=value pair' if pairs.empty?
+              end
+            end
 
             # From the last message printed, not the result's last_position:
             # that is the store's own maximum, which runs ahead of the page
@@ -480,7 +537,7 @@ module Sidereal
               warn "Tailing from position #{cursor}. Ctrl-C to stop."
 
               loop do
-                messages = store.read_all(from_position: cursor, limit: @options[:limit]).to_a
+                messages = read_all(store, from_position: cursor, limit: @options[:limit]).to_a
                 unless messages.empty?
                   messages.each { |message| print_message(message) }
                   output.flush

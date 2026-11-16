@@ -431,6 +431,117 @@ RSpec.describe Sidereal::Integrations::Sourced::CLI::Messages::List do
   end
 end
 
+CLIListCourseCreated = Sourced::Event.define('cli_list.course_created') do
+  attribute :course_id, String
+end
+CLIListUserJoined = Sourced::Event.define('cli_list.user_joined') do
+  attribute :course_id, String
+  attribute :user_id, String
+end
+CLIListUserRegistered = Sourced::Event.define('cli_list_users.user_registered') do
+  attribute :user_id, String
+end
+
+# Against a real store: what --types and --partition select is the Selector's
+# business, so the examples check what comes back rather than what was asked.
+RSpec.describe Sidereal::Integrations::Sourced::CLI::Messages::List, 'filtering' do
+  let(:db) { Sequel.sqlite }
+  let(:store) { Sourced::Store.new(db) }
+
+  before do
+    store.install!
+    store.message_codec.compile!
+    store.append([
+      CLIListCourseCreated.new(payload: { course_id: 'c1' }),
+      CLIListUserRegistered.new(payload: { user_id: 'u1' }),
+      CLIListUserJoined.new(payload: { course_id: 'c1', user_id: 'u1' }),
+      CLIListCourseCreated.new(payload: { course_id: 'c2' }),
+      CLIListUserJoined.new(payload: { course_id: 'c2', user_id: 'u1' })
+    ])
+    allow(Sidereal::CLI).to receive(:boot_app!)
+    allow(Sidereal.config).to receive(:[]).with('sourced.store').and_return(store)
+  end
+
+  after { db.disconnect }
+
+  def run(*arguments)
+    out = StringIO.new
+    command = described_class.new(arguments, name: 'list', output: out)
+    yield command if block_given?
+    command.call
+    out.string
+  end
+
+  # position, id, date, time, type, payload
+  def listed(output) = output.lines.map { |line| line.split.values_at(0, 4).join(' ') }
+
+  it 'lists only the types given' do
+    expect(listed(run('--types', 'cli_list.course_created'))).to eq([
+      '1 cli_list.course_created', '4 cli_list.course_created'
+    ])
+  end
+
+  it 'takes several types, and prefix.* for a namespace' do
+    expect(listed(run('--types', 'cli_list.*, cli_list_users.user_registered'))).to eq([
+      '1 cli_list.course_created', '2 cli_list_users.user_registered', '3 cli_list.user_joined',
+      '4 cli_list.course_created', '5 cli_list.user_joined'
+    ])
+    expect(listed(run('--types', 'cli_list_users.*'))).to eq(['2 cli_list_users.user_registered'])
+  end
+
+  it 'lists the messages of any type that carry the partition values' do
+    expect(listed(run('--partition', 'course_id=c1'))).to eq([
+      '1 cli_list.course_created', '3 cli_list.user_joined'
+    ])
+  end
+
+  # A message carrying only some of the keys is selected when those match.
+  it 'matches every key a message carries' do
+    expect(listed(run('--partition', 'course_id=c2,user_id=u1'))).to eq([
+      '2 cli_list_users.user_registered', '4 cli_list.course_created', '5 cli_list.user_joined'
+    ])
+  end
+
+  it 'combines types and partition' do
+    expect(listed(run('--types', 'cli_list.user_joined', '--partition', 'course_id=c2'))).to eq([
+      '5 cli_list.user_joined'
+    ])
+  end
+
+  it 'keeps the newest when the limit cuts the selection' do
+    expect(listed(run('--types', 'cli_list.course_created', '--limit', '1'))).to eq(['4 cli_list.course_created'])
+  end
+
+  it 'tails only what the filter selects' do
+    output = run('--types', 'cli_list.user_joined', '--tail') do |command|
+      allow(command).to receive(:warn)
+      calls = 0
+      allow(command).to receive(:sleep) do
+        calls += 1
+        raise Interrupt if calls > 1
+
+        store.append([
+          CLIListCourseCreated.new(payload: { course_id: 'c3' }),
+          CLIListUserJoined.new(payload: { course_id: 'c3', user_id: 'u2' })
+        ])
+      end
+    end
+
+    expect(listed(output)).to eq(['3 cli_list.user_joined', '5 cli_list.user_joined', '7 cli_list.user_joined'])
+  end
+
+  it 'says which type matches nothing' do
+    expect { run('--types', 'cli_list.course_created,nope.*') }
+      .to raise_error(Sidereal::CLI::Error, /No message type matches "nope\.\*"/)
+  end
+
+  it 'refuses a partition that is not key=value pairs' do
+    expect { run('--partition', 'course_id') }.to raise_error(Sidereal::CLI::Error, /key=value/)
+    expect { run('--partition', ',') }.to raise_error(Sidereal::CLI::Error, /at least one/)
+    expect { run('--types', ' , ') }.to raise_error(Sidereal::CLI::Error, /at least one/)
+  end
+end
+
 RSpec.describe Sidereal::Integrations::Sourced::CLI::Messages::Correlation do
   Correlated = Struct.new(:position, :id, :causation_id, :correlation_id, :type, :created_at, :payload)
 
