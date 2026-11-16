@@ -192,15 +192,15 @@ module Sidereal
         class Groups < Sidereal::CLI::Command
           # `sid sourced groups list`
           #
-          # A consumer group per reactor, with how far it has read and how far
-          # behind the store it is. Groups are registered when the app starts,
+          # A consumer group per reactor, with the furthest position any of its
+          # partitions has read. Groups are registered when the app starts,
           # not when it is built, so a store whose app has never run has none.
           class List < Sidereal::CLI::Command
             self.description = 'List the consumer groups, with their status, partitions and position'
 
-            # Retry at is dropped when no group is waiting to retry.
-            HEADERS = ['Group', 'Status', 'Partitions', 'Position', 'Lag', 'Retry at'].freeze
-            ALWAYS = 5
+            # Retries and Retry at are dropped when no group has retried.
+            HEADERS = ['Group', 'Status', 'Partitions', 'Position', 'Retries', 'Retry at'].freeze
+            ALWAYS = 4
 
             def call
               Sidereal::CLI.boot_app!
@@ -227,33 +227,45 @@ module Sidereal
                   group[:status].to_s,
                   group[:partition_count].to_s,
                   group[:newest_processed].to_s,
-                  (stats.max_position - group[:newest_processed]).to_s,
+                  retries(group),
                   group[:retry_at]&.strftime('%Y-%m-%d %H:%M:%S').to_s
                 ]
               end
+            end
+
+            # Blank for a group that hasn't retried, so the column only shows
+            # once one has.
+            def retries(group)
+              count = group[:error_context][:retry_count].to_i
+              count.zero? ? '' : count.to_s
             end
 
             # What the table can't carry: why a group isn't running. That is an
             # exception when it failed, and the operator's own words when
             # someone stopped it — `groups stop --message` keeps them here.
             def print_notes(stats)
-              noted = stats.groups.reject { |group| group[:error_context].empty? }
+              noted = stats.groups.filter_map do |group|
+                text = note(group[:error_context])
+                [group, text] if text
+              end
               return if noted.empty?
 
               terminal.puts
-              noted.each do |group|
+              noted.each do |group, text|
                 style = group[:status].to_s == 'failed' ? :error : :key
-                terminal.print_line style, "#{group[:group_id]}: ", :reset, note(group[:error_context])
+                terminal.print_line style, "#{group[:group_id]}: ", :reset, text
               end
             end
 
+            # @return [String, nil] nil when the context holds only the retry
+            #   count, which every group has and the table shows
             def note(context)
               exception = [context[:exception_class], context[:exception_message]].compact.join(': ')
               return exception unless exception.empty?
               return context[:message].to_s if context[:message]
 
-              # Never a blank line: say whatever is there.
-              context.inspect
+              rest = context.except(:retry_count)
+              rest.inspect unless rest.empty?
             end
           end
 

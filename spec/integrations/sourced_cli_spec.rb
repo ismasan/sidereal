@@ -127,16 +127,17 @@ RSpec.describe Sidereal::Integrations::Sourced::CLI::Groups::List do
     out.string
   end
 
+  # Sourced gives every group a retry count, healthy or not.
   def group(id, status: 'active', partitions: 1, newest: 42, retry_at: nil, error: {})
     { group_id: id, status:, partition_count: partitions, oldest_processed: 1,
-      newest_processed: newest, retry_at:, error_context: error }
+      newest_processed: newest, retry_at:, error_context: { retry_count: 0, **error } }
   end
 
-  it 'lists each group with its status, partitions and how far behind it is' do
+  it 'lists each group with its status, partitions and position' do
     out = list([group('Todos', partitions: 3, newest: 40)])
 
-    expect(out).to include('Group', 'Status', 'Partitions', 'Position', 'Lag')
-    expect(out).to match(/^Todos\s+active\s+3\s+40\s+2$/)
+    expect(out).to include('Group', 'Status', 'Partitions', 'Position')
+    expect(out).to match(/^Todos\s+active\s+3\s+40$/)
   end
 
   it 'counts the groups and says where the store is' do
@@ -171,12 +172,31 @@ RSpec.describe Sidereal::Integrations::Sourced::CLI::Groups::List do
     expect(out).to match(/Odd: .*something else/)
   end
 
-  it 'leaves the retry column out until a group is waiting to retry' do
-    expect(list([group('A')])).not_to include('Retry at')
+  it 'notes nothing for groups that only have a retry count' do
+    out = list([group('A'), group('B')])
 
-    out = list([group('A', retry_at: Time.new(2026, 4, 1, 12, 30, 0))])
+    expect(out.lines.last).to match(/^B\s+active/)
+  end
 
-    expect(out).to include('Retry at', '2026-04-01 12:30:00')
+  it 'leaves the retry columns out until a group has retried' do
+    out = list([group('A')])
+    expect(out).not_to include('Retries')
+    expect(out).not_to include('Retry at')
+
+    out = list([group('A'), group('B', retry_at: Time.new(2026, 4, 1, 12, 30, 0), error: { retry_count: 2 })])
+
+    expect(out).to include('Retries', 'Retry at')
+    expect(out).to match(/^A\s+active\s+1\s+42$/)
+    expect(out).to match(/^B\s+active\s+1\s+42\s+2\s+2026-04-01 12:30:00$/)
+  end
+
+  it 'shows how often a failed group retried beside its error' do
+    out = list([group('Broken', status: 'failed',
+                      error: { retry_count: 3, exception_class: 'RuntimeError', exception_message: 'boom' })])
+
+    expect(out).to match(/^Broken\s+failed\s+1\s+42\s+3$/)
+    expect(out).to include('Broken: RuntimeError: boom')
+    expect(out).not_to include('retry_count')
   end
 end
 

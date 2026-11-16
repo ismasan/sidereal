@@ -1003,13 +1003,13 @@ Apps that use Sourced also get a `sidereal-sourced` skill (see [Agent skills](#a
 
 #### Consumer groups
 
-`bin/sid sourced groups list` shows the running side — a consumer group per reactor, how many partitions it has claimed, how far it has read, and how far behind the store that leaves it:
+`bin/sid sourced groups list` shows the running side — a consumer group per reactor, how many partitions it has claimed, and the furthest position any of them has read:
 
 ```
 1 group, store at position 42
 
-Group           Status  Partitions  Position  Lag
-App::Commander  active  3           40        2
+Group           Status  Partitions  Position
+App::Commander  active  3           40
 ```
 
 A group can be taken out of service and put back:
@@ -1027,7 +1027,7 @@ It won't reset a group that handles its messages exclusively and deletes them as
 
 All three go through the app's Sourced router rather than its store, so the reactor's `on_stop`, `on_start` and `on_reset` run as they would in the app.
 
-A group that isn't running says why underneath the table — the exception if it failed, or the `--message` if someone stopped it — and a *Retry at* column appears only while one is waiting to retry. Groups are registered when the app **starts**, not when the CLI builds it, so a store whose app has never run reports none.
+A group that isn't running says why underneath the table — the exception if it failed, or the `--message` if someone stopped it — and *Retries* and *Retry at* columns appear only once a group has retried: how many times, and when it tries next. Groups are registered when the app **starts**, not when the CLI builds it, so a store whose app has never run reports none.
 
 #### Messages
 
