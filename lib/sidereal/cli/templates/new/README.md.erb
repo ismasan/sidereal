@@ -62,6 +62,6 @@ Sourced keeps the app's commands and events in the same database, in tables its 
 | `falcon.rb` | Falcon server settings |
 | `bin/dev` | Development server that reloads on code changes |
 | `bin/sid` | Sidereal's command line with this app loaded. `bin/sid --help` lists its commands, e.g. `bin/sid console` |
-| `skills/` | Skills that teach AI coding agents to work with this app, such as using `bin/sid`. `.claude/skills` and `.agents/skills` link here, where agents look for them. `bin/sid skills update` refreshes the ones Sidereal and its integrations provide |
+| `.agents/skills/` | Skills that teach AI coding agents to work with this app, such as using `bin/sid`. `.claude/skills` links here, for Claude Code. `bin/sid skills update` refreshes the ones Sidereal and its integrations provide |
 
 Classes in `system/` and `web/` are loaded by [Zeitwerk](https://github.com/fxn/zeitwerk): name a file after the class it defines and use the class anywhere, without `require`. Directories under `web/` are namespaces, so `web/ui/welcome_page.rb` defines `UI::WelcomePage`. Classes in `system/` are top-level.

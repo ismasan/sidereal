@@ -4,8 +4,8 @@ require 'fileutils'
 
 module Sidereal
   # Agent skills that Sidereal and its integrations provide to apps, by
-  # name. {#install} writes them into an app's skills/ directory, where
-  # agents find them through the .claude/skills and .agents/skills links.
+  # name. {#install} writes them into an app's {DIR}, where agents look for
+  # skills, and links Claude Code's .claude/skills to it.
   # `bin/sid skills update` installs {Sidereal.skills}.
   #
   #   Sidereal.skills.add('my-skill', File.expand_path('skills/my-skill', __dir__))
@@ -13,11 +13,12 @@ module Sidereal
     NAME_FORMAT = /\A[a-z0-9]+(-[a-z0-9]+)*\z/
     SKILL_FILE = 'SKILL.md'
 
-    # Claude Code finds skills in .claude/skills and other agents look in
-    # .agents/skills, so both link to the app's skills/ directory.
+    # Where agents other than Claude Code look for skills.
+    DIR = '.agents/skills'
+
+    # Claude Code finds skills in .claude/skills, so it links to {DIR}.
     LINKS = {
-      '.claude/skills' => '../skills',
-      '.agents/skills' => '../skills'
+      '.claude/skills' => '../.agents/skills'
     }.freeze
 
     include Enumerable
@@ -65,8 +66,8 @@ module Sidereal
     # @return [String, nil] a skill's path
     def [](name) = @paths[name]
 
-    # Write every skill into +root+/skills/<name>/, replacing what's there,
-    # and create the {LINKS}. Other skills in skills/ are left alone.
+    # Write every skill into +root+/{DIR}/<name>/, replacing what's there,
+    # and create the {LINKS}. Other skills in {DIR} are left alone.
     #
     # @param root [String] the app's root directory
     # @yieldparam action [Symbol] :write, :link or :skip
@@ -74,7 +75,7 @@ module Sidereal
     # @return [void]
     def install(root)
       each do |name, source|
-        target = File.join(root, 'skills', name)
+        target = File.join(root, DIR, name)
         FileUtils.rm_rf(target)
         FileUtils.mkdir_p(target)
         if File.directory?(source)
@@ -82,7 +83,7 @@ module Sidereal
         else
           FileUtils.cp(source, File.join(target, SKILL_FILE))
         end
-        yield :write, "skills/#{name}" if block_given?
+        yield :write, "#{DIR}/#{name}" if block_given?
       end
 
       LINKS.each do |path, target|

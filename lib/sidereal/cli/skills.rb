@@ -9,7 +9,7 @@ module Sidereal
     class SkillsCommand < Command
       # `sid skills update`
       class Update < Command
-        self.description = "Write Sidereal's and its integrations' skills into the app's skills/ directory"
+        self.description = "Write Sidereal's and its integrations' skills into the app's .agents/skills directory"
 
         def call
           # bin/sid has loaded the app, so its integrations have registered

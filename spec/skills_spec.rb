@@ -61,7 +61,7 @@ RSpec.describe Sidereal::Skills do
   end
 
   describe '#install' do
-    it "writes each skill into the app's skills/ directory, and links to it" do
+    it "writes each skill into the app's .agents/skills directory, and links .claude/skills to it" do
       skills.add('file-skill', File.join(skill_source('file-skill'), 'SKILL.md'))
       skills.add('dir-skill', skill_source('dir-skill', 'SKILL.md' => 'dir', 'reference/notes.md' => 'notes'))
       root = app_root
@@ -69,13 +69,13 @@ RSpec.describe Sidereal::Skills do
       reported = []
       skills.install(root) { |action, path| reported << [action, path] }
 
-      expect(File.read(File.join(root, 'skills/file-skill/SKILL.md'))).to eq("---\nname: file-skill\n---\n")
-      expect(File.read(File.join(root, 'skills/dir-skill/reference/notes.md'))).to eq('notes')
-      expect(File.readlink(File.join(root, '.claude/skills'))).to eq('../skills')
-      expect(File.readlink(File.join(root, '.agents/skills'))).to eq('../skills')
+      expect(File.read(File.join(root, '.agents/skills/file-skill/SKILL.md'))).to eq("---\nname: file-skill\n---\n")
+      expect(File.read(File.join(root, '.agents/skills/dir-skill/reference/notes.md'))).to eq('notes')
+      expect(File.readlink(File.join(root, '.claude/skills'))).to eq('../.agents/skills')
+      expect(File.file?(File.join(root, '.claude/skills/dir-skill/SKILL.md'))).to be(true)
       expect(reported).to eq([
-        [:write, 'skills/file-skill'], [:write, 'skills/dir-skill'],
-        [:link, '.claude/skills'], [:link, '.agents/skills']
+        [:write, '.agents/skills/file-skill'], [:write, '.agents/skills/dir-skill'],
+        [:link, '.claude/skills']
       ])
     end
 
@@ -83,18 +83,18 @@ RSpec.describe Sidereal::Skills do
       skills.add('one', skill_source('one'))
       root = app_root
       skills.install(root)
-      File.write(File.join(root, 'skills/one/SKILL.md'), 'edited')
-      File.write(File.join(root, 'skills/one/stale.md'), 'stale')
-      FileUtils.mkdir_p(File.join(root, 'skills/mine'))
-      File.write(File.join(root, 'skills/mine/SKILL.md'), 'mine')
+      File.write(File.join(root, '.agents/skills/one/SKILL.md'), 'edited')
+      File.write(File.join(root, '.agents/skills/one/stale.md'), 'stale')
+      FileUtils.mkdir_p(File.join(root, '.agents/skills/mine'))
+      File.write(File.join(root, '.agents/skills/mine/SKILL.md'), 'mine')
 
       reported = []
       skills.install(root) { |action, path| reported << [action, path] }
 
-      expect(Dir.children(File.join(root, 'skills/one'))).to eq(['SKILL.md'])
-      expect(File.read(File.join(root, 'skills/one/SKILL.md'))).to eq("---\nname: one\n---\n")
-      expect(File.read(File.join(root, 'skills/mine/SKILL.md'))).to eq('mine')
-      expect(reported).to eq([[:write, 'skills/one']])
+      expect(Dir.children(File.join(root, '.agents/skills/one'))).to eq(['SKILL.md'])
+      expect(File.read(File.join(root, '.agents/skills/one/SKILL.md'))).to eq("---\nname: one\n---\n")
+      expect(File.read(File.join(root, '.agents/skills/mine/SKILL.md'))).to eq('mine')
+      expect(reported).to eq([[:write, '.agents/skills/one']])
     end
 
     it 'skips a link whose place is taken by a real directory' do
@@ -105,7 +105,7 @@ RSpec.describe Sidereal::Skills do
       skills.install(root) { |action, path| reported << [action, path] }
 
       expect(File.symlink?(File.join(root, '.claude/skills'))).to be(false)
-      expect(reported).to eq([[:skip, '.claude/skills'], [:link, '.agents/skills']])
+      expect(reported).to eq([[:skip, '.claude/skills']])
     end
   end
 end

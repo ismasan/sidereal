@@ -586,35 +586,33 @@ RSpec.describe Sidereal::CLI::New do
       out, status = bin_sid(root, 'skills', 'update')
 
       expect(status).to be_success, out
-      expect(out).to include('write   skills/sidereal-cli', 'link    .claude/skills -> ../skills')
-      expect(Dir.children(File.join(root, 'skills'))).to eq(['sidereal-cli'])
-      skill = read(root, 'skills/sidereal-cli/SKILL.md')
+      expect(out).to include('write   .agents/skills/sidereal-cli', 'link    .claude/skills -> ../.agents/skills')
+      expect(Dir.children(File.join(root, '.agents/skills'))).to eq(['sidereal-cli'])
+      skill = read(root, '.agents/skills/sidereal-cli/SKILL.md')
       expect(front_matter(skill)['name']).to eq('sidereal-cli')
       expect(skill).to include('bin/sid --help')
-      %w[.claude/skills .agents/skills].each do |link|
-        expect(File.readlink(File.join(root, link))).to eq('../skills')
-        expect(File.file?(File.join(root, link, 'sidereal-cli/SKILL.md'))).to be(true), link
-      end
+      expect(File.readlink(File.join(root, '.claude/skills'))).to eq('../.agents/skills')
+      expect(File.file?(File.join(root, '.claude/skills/sidereal-cli/SKILL.md'))).to be(true)
     end
 
     it "installs the skills of the integrations the app configures, keeping the app's own" do
       root = generate('app', '--sourced')
       out, status = bin_sid(root, 'sourced', 'install', '--skip-bundle')
       expect(status).to be_success, out
-      FileUtils.mkdir_p(File.join(root, 'skills/my-skill'))
-      File.write(File.join(root, 'skills/my-skill/SKILL.md'), 'mine')
-      FileUtils.mkdir_p(File.join(root, 'skills/sidereal-cli'))
-      File.write(File.join(root, 'skills/sidereal-cli/SKILL.md'), 'edited')
+      FileUtils.mkdir_p(File.join(root, '.agents/skills/my-skill'))
+      File.write(File.join(root, '.agents/skills/my-skill/SKILL.md'), 'mine')
+      FileUtils.mkdir_p(File.join(root, '.agents/skills/sidereal-cli'))
+      File.write(File.join(root, '.agents/skills/sidereal-cli/SKILL.md'), 'edited')
 
       out, status = bin_sid(root, 'skills', 'update')
 
       expect(status).to be_success, out
-      expect(out).to include('write   skills/sidereal-cli', 'write   skills/sidereal-sourced')
-      expect(front_matter(read(root, 'skills/sidereal-cli/SKILL.md'))['name']).to eq('sidereal-cli')
-      skill = read(root, 'skills/sidereal-sourced/SKILL.md')
+      expect(out).to include('write   .agents/skills/sidereal-cli', 'write   .agents/skills/sidereal-sourced')
+      expect(front_matter(read(root, '.agents/skills/sidereal-cli/SKILL.md'))['name']).to eq('sidereal-cli')
+      skill = read(root, '.agents/skills/sidereal-sourced/SKILL.md')
       expect(front_matter(skill)['name']).to eq('sidereal-sourced')
       expect(skill).to include('bin/sid sourced --help', 'bin/sid sourced topology --schemas')
-      expect(read(root, 'skills/my-skill/SKILL.md')).to eq('mine')
+      expect(read(root, '.agents/skills/my-skill/SKILL.md')).to eq('mine')
     end
 
     it 'lists commands handled by Sourced deciders' do

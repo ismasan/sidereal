@@ -71,8 +71,8 @@ my_app/
   falcon.rb                   Falcon settings: HOST, PORT and COUNT (worker processes)
   bin/dev                     development server that reloads on code changes
   bin/sid                     the sid command line, with this app loaded
-  skills/                     skills that teach AI coding agents to use bin/sid
-  .claude/skills, .agents/skills   links to skills/, where agents look for them
+  .agents/skills/             skills that teach AI coding agents to use bin/sid
+  .claude/skills              link to .agents/skills, for Claude Code
   system/                     backend code that doesn't know about the web
     greetings.rb              messages for the hello demo
   web/
@@ -1191,7 +1191,7 @@ Apps that use Sourced also get a `sidereal-sourced` skill (see [Agent skills](#a
 
 ### Agent skills
 
-Sidereal and its integrations provide skills that teach AI coding agents to work with an app, such as `sidereal-cli`, for using `bin/sid`. `bin/sid skills update` writes them into the app's `skills/` directory, which `.claude/skills` and `.agents/skills` link to, where agents look for skills. `sid new` runs it for a new app, unless you pass `--no-skills`.
+Sidereal and its integrations provide skills that teach AI coding agents to work with an app, such as `sidereal-cli`, for using `bin/sid`. `bin/sid skills update` writes them into the app's `.agents/skills/` directory, where agents look for skills, and links `.claude/skills` to it for Claude Code. `sid new` runs it for a new app, unless you pass `--no-skills`.
 
 Run it again after updating Sidereal or adding an integration:
 
@@ -1199,7 +1199,7 @@ Run it again after updating Sidereal or adding an integration:
 bin/sid skills update
 ```
 
-This writes the skills of Sidereal and of every integration the app configures. It rewrites those skills in `skills/` and leaves any other skills there alone. It connects to nothing: `bin/sid` has already loaded the app (see [Extending the command line](#extending-the-command-line)), so the skills are registered by the time the command runs.
+This writes the skills of Sidereal and of every integration the app configures. It rewrites those skills in `.agents/skills/` and leaves any other skills there alone. It connects to nothing: `bin/sid` has already loaded the app (see [Extending the command line](#extending-the-command-line)), so the skills are registered by the time the command runs.
 
 An integration registers its skills from its `setup`, with the path to a skill's `SKILL.md` or a directory holding it:
 
