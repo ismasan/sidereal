@@ -36,6 +36,124 @@ RSpec.describe Sidereal::Page do
     end
   end
 
+  describe '.query_schema' do
+    it 'is empty for a page with no path segments and no schema' do
+      page_class = Class.new(Sidereal::Page) { path '/todos' }
+
+      expect(page_class.query_schema._schema).to be_empty
+      expect(page_class.parse_params({ q: 'x' }).value).to eq({})
+    end
+
+    it 'types path segments as Strings by default' do
+      page_class = Class.new(Sidereal::Page) { path '/accounts/:account_id/expenses/:id' }
+
+      expect(page_class.query_schema.inspect).to eq('Hash[account_id: Sidereal::Types::String, id: Sidereal::Types::String]')
+      expect(page_class.parse_params({ account_id: 'a', id: 'b', q: 'x' }).value).to eq({ account_id: 'a', id: 'b' })
+    end
+
+    it 'decodes declared params from their String form and drops undeclared ones' do
+      page_class = Class.new(Sidereal::Page) do
+        path '/accounts/:id/expenses'
+        query_schema(
+          id: Sidereal::Types::UUID::V4,
+          from?: Sidereal::Types::Date,
+          archived?: Sidereal::Types::Boolean
+        )
+      end
+      id = SecureRandom.uuid
+
+      result = page_class.parse_params({ 'id' => id, 'from' => '2026-11-01', 'archived' => 'true', 'other' => 'x' })
+
+      expect(result).to be_valid
+      expect(result.value).to eq({ id:, from: Date.new(2026, 11, 1), archived: true })
+    end
+
+    it 'leaves optional params out when absent' do
+      page_class = Class.new(Sidereal::Page) do
+        path '/expenses'
+        query_schema(from?: Sidereal::Types::Date)
+      end
+
+      expect(page_class.parse_params(nil).value).to eq({})
+    end
+
+    it 'keeps undeclared path segments as Strings alongside the declared schema' do
+      page_class = Class.new(Sidereal::Page) do
+        path '/accounts/:id/expenses'
+        query_schema(from?: Sidereal::Types::Date)
+      end
+
+      expect(page_class.parse_params({ id: '1', from: '2026-11-01' }).value).to eq({ id: '1', from: Date.new(2026, 11, 1) })
+    end
+
+    it 'picks up path segments declared after the schema' do
+      page_class = Class.new(Sidereal::Page) do
+        query_schema(page?: Sidereal::Types::Integer)
+        path '/items/:id'
+      end
+
+      expect(page_class.parse_params({ id: '1', page: '2' }).value).to eq({ id: '1', page: 2 })
+    end
+
+    it 'accepts a ready Hash schema' do
+      page_class = Class.new(Sidereal::Page) do
+        path '/items/:id'
+        query_schema Sidereal::Types::Hash[id: Sidereal::Types::Integer]
+      end
+
+      expect(page_class.parse_params({ id: '3' }).value).to eq({ id: 3 })
+    end
+
+    it 'reports invalid params as errors keyed by param' do
+      page_class = Class.new(Sidereal::Page) do
+        path '/items/:id'
+        query_schema(id: Sidereal::Types::Integer, from?: Sidereal::Types::Date)
+      end
+
+      result = page_class.parse_params({ id: 'nope', from: 'bad' })
+
+      expect(result).not_to be_valid
+      expect(result.errors.keys).to contain_exactly(:id, :from)
+    end
+
+    it 'merges a subclass schema into its superclass schema' do
+      parent = Class.new(Sidereal::Page) { query_schema(from: Sidereal::Types::Date) }
+      child = Class.new(parent) { query_schema(id: Sidereal::Types::UUID::V4) }
+
+      expect(child.query_schema.inspect).to eq('Hash[from: Sidereal::Types::Date, id: Sidereal::Types::UUID::V4]')
+      expect(parent.query_schema.inspect).to eq('Hash[from: Sidereal::Types::Date]')
+    end
+
+    it 'inherits the superclass schema, merged with the subclass path segments' do
+      parent = Class.new(Sidereal::Page) { query_schema(from?: Sidereal::Types::Date) }
+      child = Class.new(parent) { path '/items/:id' }
+
+      expect(child.parse_params({ id: '1', from: '2026-11-01' }).value).to eq({ id: '1', from: Date.new(2026, 11, 1) })
+    end
+
+    it 'lets a subclass redeclare an inherited field' do
+      parent = Class.new(Sidereal::Page) { query_schema(page: Sidereal::Types::String) }
+      child = Class.new(parent) { query_schema(page: Sidereal::Types::Integer) }
+
+      expect(child.parse_params({ page: '2' }).value).to eq({ page: 2 })
+    end
+
+    it 'merges repeated declarations in one class' do
+      page_class = Class.new(Sidereal::Page) do
+        query_schema(from?: Sidereal::Types::Date)
+        query_schema(page?: Sidereal::Types::Integer)
+      end
+
+      expect(page_class.parse_params({ from: '2026-11-01', page: '2' }).value).to eq({ from: Date.new(2026, 11, 1), page: 2 })
+    end
+
+    it 'raises at definition for a type the Forms codec cannot carry' do
+      expect {
+        Class.new(Sidereal::Page) { query_schema(at: Class.new) }
+      }.to raise_error(Plumb::TypeError)
+    end
+  end
+
   describe '.page_key' do
     it 'returns the path when set' do
       page_class = Class.new(Sidereal::Page) { path '/items' }
@@ -329,7 +447,7 @@ RSpec.describe Sidereal::Page do
     it 'reloads and patches the page when registered without a block' do
       loaded_with = :unset
       blockless_page = Class.new(Sidereal::Page) do
-        path '/blockless'
+        path '/blockless/:id'
 
         def initialize(params)
           @params = params
@@ -346,7 +464,7 @@ RSpec.describe Sidereal::Page do
         new(params)
       end
 
-      sse = FakeSSE.new('page_key' => '/blockless', 'params' => { 'id' => '7' })
+      sse = FakeSSE.new('page_key' => '/blockless/:id', 'params' => { 'id' => '7' })
       page_context = page_context_class.new(sse, nil, blockless_page)
 
       page_context.react(PageTestItemAdded.new(payload: { title: 'hello' }))
@@ -438,21 +556,25 @@ RSpec.describe Sidereal::Page do
       expect(sse.patches.size).to eq(1)
     end
 
-    it 'symbolizes param keys from signals' do
+    it 'decodes signal params through the query schema' do
       captured_params = nil
       page_with_params = Class.new(Sidereal::Page) do
-        path '/with-params'
+        path '/with-params/:id'
+        query_schema(id: Sidereal::Types::Integer, filter?: Sidereal::Types::String)
         on PageTestItemAdded do |evt|
           captured_params = params
         end
       end
 
-      sse = FakeSSE.new('page_key' => '/with-params', 'params' => { 'id' => '42', 'filter' => 'active' })
+      sse = FakeSSE.new(
+        'page_key' => '/with-params/:id',
+        'params' => { 'id' => '42', 'filter' => 'active', 'other' => 'x' }
+      )
       page_context = page_context_class.new(sse, nil, page_with_params)
 
       page_context.react(PageTestItemAdded.new(payload: { title: 'test' }))
 
-      expect(captured_params).to eq({ id: '42', filter: 'active' })
+      expect(captured_params).to eq({ id: 42, filter: 'active' })
     end
 
     it 'provides an empty params hash when signal params are missing' do
@@ -498,10 +620,11 @@ RSpec.describe Sidereal::Page do
       expect(captured_params).to eq({})
     end
 
-    it 'symbolizes signal params before passing them to load' do
+    it 'decodes signal params through the query schema before passing them to load' do
       captured_params = nil
       page_class = Class.new(Sidereal::Page) do
-        path '/subscribe-params'
+        path '/subscribe-params/:id'
+        query_schema(from?: Sidereal::Types::Date)
 
         define_singleton_method(:load) do |params, _ctx|
           captured_params = params
@@ -514,12 +637,34 @@ RSpec.describe Sidereal::Page do
       end
 
       Sidereal::Page.register(page_class)
-      sse = FakeSSE.new('page_key' => '/subscribe-params', 'params' => { 'id' => '42' })
+      sse = FakeSSE.new(
+        'page_key' => '/subscribe-params/:id',
+        'params' => { 'id' => '42', 'from' => '2026-11-01', 'other' => 'x' }
+      )
       channel = double(:channel, start: nil)
 
       Sidereal::Page.subscribe(channel, sse, nil)
 
-      expect(captured_params).to eq({ id: '42' })
+      expect(captured_params).to eq({ id: '42', from: Date.new(2026, 11, 1) })
+    end
+
+    it 'neither renders nor subscribes when signal params fail the query schema' do
+      page_class = Class.new(Sidereal::Page) do
+        path '/subscribe-invalid/:id'
+        query_schema(id: Sidereal::Types::Integer)
+
+        def self.load(_params, _ctx) = new
+        def view_template = div { 'loaded' }
+      end
+
+      Sidereal::Page.register(page_class)
+      sse = FakeSSE.new('page_key' => '/subscribe-invalid/:id', 'params' => { 'id' => 'nope' })
+      channel = double(:channel)
+      expect(channel).not_to receive(:start)
+
+      Sidereal::Page.subscribe(channel, sse, nil)
+
+      expect(sse.patches).to be_empty
     end
   end
 
