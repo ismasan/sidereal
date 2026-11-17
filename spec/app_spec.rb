@@ -49,7 +49,7 @@ RSpec.describe 'Sidereal::App.commander' do
         backtrace: []
       }
     )
-    app.commander.handle(cmd, pubsub: Sidereal::PubSub::Memory.new)
+    app.commander.handle(cmd, broadcaster: Sidereal::Broadcaster.new(pubsub: Sidereal::PubSub::Memory.new, channels: Sidereal.channels))
 
     expect(captured).to eq([cmd])
   end
@@ -178,7 +178,7 @@ RSpec.describe 'Sidereal::App.command_helpers' do
       end
     end
 
-    app.commander.handle(CommandHelperCmd.new, pubsub: Sidereal::PubSub::Memory.new)
+    app.commander.handle(CommandHelperCmd.new, broadcaster: Sidereal::Broadcaster.new(pubsub: Sidereal::PubSub::Memory.new, channels: Sidereal.channels))
     expect(captured).to eq(['hello from helper'])
   end
 end
@@ -679,7 +679,7 @@ RSpec.describe 'Sidereal::App.dep' do
   end
 
   it "is available in command blocks, through the app's commander" do
-    test_app.commander.handle(HandleTestCmd.new(payload: { title: 'hello' }), pubsub: Sidereal::PubSub::Memory.new)
+    test_app.commander.handle(HandleTestCmd.new(payload: { title: 'hello' }), broadcaster: Sidereal::Broadcaster.new(pubsub: Sidereal::PubSub::Memory.new, channels: Sidereal.channels))
 
     expect(todos).to eq([[:processed, 'hello']])
   end
@@ -687,7 +687,7 @@ RSpec.describe 'Sidereal::App.dep' do
   it 'supports aliases' do
     aliased = Class.new(Sidereal::App) { dep 'todos' => 'items' }
 
-    expect(aliased.commander.new(pubsub: nil).items).to be(todos)
+    expect(aliased.commander.new(broadcaster: nil).items).to be(todos)
   end
 
   it "refuses a name the app already uses, such as #store" do

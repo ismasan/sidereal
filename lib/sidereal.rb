@@ -201,6 +201,7 @@ module Sidereal
   end
 
   def self.pubsub = config['sidereal.pubsub']
+  def self.broadcaster = config['sidereal.broadcaster']
   def self.store = config['sidereal.store']
   def self.elector = config['sidereal.elector']
 
@@ -330,6 +331,7 @@ require_relative 'sidereal/show_exceptions'
 require_relative 'sidereal/components/layout'
 require_relative 'sidereal/page'
 require_relative 'sidereal/pubsub/memory'
+require_relative 'sidereal/broadcaster'
 require_relative 'sidereal/store'
 require_relative 'sidereal/store/memory'
 require_relative 'sidereal/registry'

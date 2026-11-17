@@ -70,8 +70,10 @@ module Sidereal
         cmd_class.new(data)
       end
 
-      def handle(msg, pubsub:)
-        new(pubsub:).handle(msg)
+      # @param msg [Sidereal::Message] the command to handle
+      # @param broadcaster [#broadcast] where {#broadcast} publishes
+      def handle(msg, broadcaster: Sidereal.broadcaster)
+        new(broadcaster:).handle(msg)
       end
 
       # Decide what to do with a failed command. Called by the dispatcher
@@ -98,8 +100,13 @@ module Sidereal
       end
     end
 
-    def initialize(pubsub:)
-      @pubsub = pubsub
+    # Takes the broadcaster as a keyword with a default rather than through
+    # +dep+: an injector binds to the config tree current when the class is
+    # defined, and this class is defined once, when Sidereal loads.
+    #
+    # @param broadcaster [#broadcast] where {#broadcast} publishes
+    def initialize(broadcaster: Sidereal.broadcaster)
+      @broadcaster = broadcaster
       @__current_msg = nil
     end
 
@@ -119,10 +126,10 @@ module Sidereal
 
     private
 
+    # Publish a message right away, correlated to the command being handled.
+    # See {Sidereal::Broadcaster}.
     def broadcast(msg_class, payload = {})
-      msg = msg_class.new(payload: payload.to_h)
-      msg = @__current_msg.correlate(msg)
-      @pubsub.publish Sidereal.channels.for(msg), msg
+      @broadcaster.broadcast(msg_class.new(payload: payload.to_h), from: @__current_msg)
       self
     end
 
