@@ -993,11 +993,11 @@ command campaigns.create_campaign  Campaign::CreateCampaign
    └─ read model campaigns_projector (see above)
 ```
 
-Each command leads to the events it produces, each event to the read models (projectors) and automations (reactions) that consume it, and each automation to the commands it dispatches. Something that appears more than once is expanded the first time and marked `(see above)` after that. The tree comes from `Sourced.topology`, which reads the events and commands each handler produces from its source code.
+Each command leads to the events it produces, each event to the read models (projectors) and automations (reactions) that consume it, and each automation to the commands it dispatches. Something that appears more than once is expanded the first time and marked `(see above)` after that. The tree comes from `Sourced.topology`, which lists the events and commands each handler declares it produces. Sourced refuses to append or dispatch anything undeclared, so the tree shows everything that can happen, except a machine's data events.
 
 Add `--schemas` for a line under each command and event with its payload's JSON Schema, so one call shows what every message carries.
 
-[Machines](#state-machines) appear like deciders: each command leads to the states it moves the machine to, which are events named `<prefix>.runtime.<state>`, such as `order.runtime.placed` for the `Order` machine in that section. `bin/sid commands list` lists a machine's commands as handled by the machine. The tree doesn't show which states accept which commands. A command dispatched while no active state accepts it is acknowledged with no events, so it does nothing; check the machine's class for what it accepts when.
+[Machines](#state-machines) appear like deciders: each command leads to the states it moves the machine to, the events named `<prefix>.runtime.<state>` and labelled `state`, such as `state order.runtime.placed` for the `Order` machine in that section. What the machine does in a state (entry and exit actions, timers, starting and stopping child machines) appears as automations that name the state, such as `automation actions(placed)  in order, state placed`. `bin/sid commands list` lists a machine's commands as handled by the machine. The tree doesn't show which states accept which commands. A command dispatched while no active state accepts it is acknowledged with no events, so it does nothing; check the machine's class for what it accepts when.
 
 Apps that use Sourced also get a `sidereal-sourced` skill (see [Agent skills](#agent-skills)), which points AI coding agents to `bin/sid sourced`.
 

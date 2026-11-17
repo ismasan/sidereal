@@ -5,16 +5,19 @@ require 'sidereal/integrations/sourced'
 require 'sidereal/integrations/sourced/cli'
 
 RSpec.describe Sidereal::Integrations::Sourced::CLI::TopologyTree do
-  SourcedCLISpecNode = Struct.new(:type, :id, :name, :group_id, :produces, :consumes, :schema, keyword_init: true)
+  SourcedCLISpecNode = Struct.new(:type, :id, :name, :group_id, :produces, :consumes, :schema, :transition, :state,
+                                  keyword_init: true)
 
   def command(id, name, produces: [], schema: nil)
     SourcedCLISpecNode.new(type: 'command', id:, name:, produces:, schema:)
   end
 
-  def event(id, name, schema: nil) = SourcedCLISpecNode.new(type: 'event', id:, name:, produces: [], schema:)
+  def event(id, name, schema: nil, transition: false)
+    SourcedCLISpecNode.new(type: 'event', id:, name:, produces: [], schema:, transition:)
+  end
 
-  def automation(id, name, consumes:, produces: [], group: 'orders')
-    SourcedCLISpecNode.new(type: 'automation', id:, name:, group_id: group, consumes:, produces:)
+  def automation(id, name, consumes:, produces: [], group: 'orders', state: nil)
+    SourcedCLISpecNode.new(type: 'automation', id:, name:, group_id: group, consumes:, produces:, state:)
   end
 
   def read_model(id, name, consumes:, produces: [])
@@ -104,6 +107,24 @@ RSpec.describe Sidereal::Integrations::Sourced::CLI::TopologyTree do
       '└─ event orders.placed  Placed (see above)'
     ])
     expect(described_class.new(nodes).lines).not_to include(a_string_including('schema'))
+  end
+
+  it "labels a machine's state events as states, and names the state its automations run in" do
+    lines = tree(
+      command('order.pay', 'Pay', produces: ['order.runtime.paid', 'order.charged']),
+      event('order.runtime.paid', 'Order::Paid', transition: true),
+      event('order.charged', 'Order::Charged'),
+      automation('paid-aut', 'actions(paid)', consumes: ['order.runtime.paid'], produces: ['order.ship'],
+                                              group: 'Order', state: 'paid')
+    )
+
+    expect(lines).to eq([
+      'command order.pay  Pay',
+      '├─ state order.runtime.paid  Order::Paid',
+      '│  └─ automation actions(paid)  in Order, state paid',
+      '│     └─ command order.ship',
+      '└─ event order.charged  Order::Charged'
+    ])
   end
 
   it 'shows messages without a node of their own by type' do

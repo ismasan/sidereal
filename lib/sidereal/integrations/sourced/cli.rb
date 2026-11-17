@@ -28,7 +28,9 @@ module Sidereal
           # @param nodes [Array<#type, #id, #name, #group_id>] topology nodes.
           #   Commands, automations and read models also answer +produces+;
           #   automations and read models answer +consumes+; commands and
-          #   events answer +schema+, their payload's JSON Schema.
+          #   events answer +schema+, their payload's JSON Schema. An event
+          #   may answer +transition+, true for a machine's state event, and
+          #   an automation +state+, the path of the machine state it runs in.
           # @param schemas [Boolean] add a +schema+ line under each command
           #   and event, the first time it's shown
           def initialize(nodes, schemas: false)
@@ -41,8 +43,8 @@ module Sidereal
           # with its tree prefix.
           #
           # @yieldparam prefix [String] tree drawing before the node
-          # @yieldparam kind [String] command, event, automation, read model,
-          #   or schema for a schema line
+          # @yieldparam kind [String] command, event, state (a machine's state
+          #   event), automation, read model, or schema for a schema line
           # @yieldparam text [String]
           # @return [void]
           def each_line(&block)
@@ -121,7 +123,11 @@ module Sidereal
                     .new(type, id, nil, nil, [], [])
           end
 
-          def label(node) = LABELS.fetch(node.type, node.type)
+          def label(node)
+            return 'state' if node.type == 'event' && node.respond_to?(:transition) && node.transition
+
+            LABELS.fetch(node.type, node.type)
+          end
 
           def schema_of(node)
             schema = node.schema if node.respond_to?(:schema)
@@ -133,7 +139,8 @@ module Sidereal
             when 'command', 'event'
               [node.id, node.name].compact.join('  ')
             when 'automation'
-              "#{node.name}  in #{node.group_id}"
+              state = node.state if node.respond_to?(:state)
+              state ? "#{node.name}  in #{node.group_id}, state #{state}" : "#{node.name}  in #{node.group_id}"
             when 'readmodel'
               node.name.to_s
             else
@@ -712,6 +719,7 @@ module Sidereal
           STYLES = {
             'command' => :key,
             'event' => :event,
+            'state' => :event,
             'automation' => :automation,
             'read model' => :read_model,
             'schema' => :schema
