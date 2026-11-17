@@ -14,7 +14,8 @@ module Sidereal
       registry: Sidereal.registry,
       pubsub: Sidereal.pubsub,
       channels: Sidereal.channels,
-      exceptions: Sidereal.exceptions
+      exceptions: Sidereal.exceptions,
+      broadcaster: Broadcaster.new(pubsub:, channels:)
     )
       @worker_count = worker_count
       @store = store
@@ -22,6 +23,7 @@ module Sidereal
       @pubsub = pubsub
       @channels = channels
       @exceptions = exceptions
+      @broadcaster = broadcaster
       @workers = []
     end
 
@@ -38,7 +40,7 @@ module Sidereal
             next Sidereal::Store::Result::Ack if commander.nil?
 
             begin
-              result = commander.handle(msg, pubsub: @pubsub)
+              result = commander.handle(msg, broadcaster: @broadcaster)
               publish(result)
               Sidereal::Store::Result::Ack
             rescue StandardError => ex

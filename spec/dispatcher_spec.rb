@@ -126,6 +126,46 @@ RSpec.describe Sidereal::Dispatcher do
     expect(followups.size).to eq(1)
   end
 
+  it "publishes a commander's broadcasts through its pubsub and channels" do
+    broadcasting = Class.new(Sidereal::Commander) do
+      command DispatchCmd do |cmd|
+        broadcast DispatchEvt, title: "working on #{cmd.payload.title}"
+      end
+    end
+    cmd = DispatchCmd.new(payload: { title: 'hello' })
+    store.append(cmd)
+
+    received = run_and_collect('ch1', store: store, registry: registry_for(broadcasting), pubsub: pubsub) {}
+
+    note = received.find { |m| m.is_a?(DispatchEvt) }
+    expect(note.payload.title).to eq('working on hello')
+    expect(note.causation_id).to eq(cmd.id)
+  end
+
+  it 'hands commanders the broadcaster it is given' do
+    captured = []
+    broadcaster = Class.new do
+      define_method(:broadcast) { |msg, from:| captured << [msg, from] }
+    end.new
+    broadcasting = Class.new(Sidereal::Commander) do
+      command(DispatchCmd) { |_cmd| broadcast DispatchEvt, title: 'working' }
+    end
+    cmd = DispatchCmd.new(payload: { title: 'hello' })
+    store.append(cmd)
+
+    Sync do |task|
+      Sidereal::Dispatcher.new(
+        worker_count: 1, store:, registry: registry_for(broadcasting),
+        pubsub:, channels:, exceptions:, broadcaster:
+      ).start(task)
+      sleep 0.05
+      task.stop
+    end
+
+    expect(captured.map { |msg, _| msg.payload.title }).to eq(['working'])
+    expect(captured.map(&:last)).to eq([cmd])
+  end
+
   it '#stop cancels the worker fibers, leaving later commands unclaimed' do
     received = []
     claimed = nil

@@ -72,7 +72,7 @@ RSpec.describe Sidereal::Deps do
       commander.command(add_todo) { |cmd| todos << cmd.payload.title }
       Sidereal.config.build!
 
-      commander.handle(add_todo.new(payload: { title: 'Buy milk' }), pubsub: Sidereal::PubSub::Memory.new)
+      commander.handle(add_todo.new(payload: { title: 'Buy milk' }), broadcaster: Sidereal::Broadcaster.new(pubsub: Sidereal::PubSub::Memory.new, channels: Sidereal.channels))
 
       expect(saved).to eq(['Buy milk'])
     end
@@ -81,7 +81,7 @@ RSpec.describe Sidereal::Deps do
       parent = Class.new(Sidereal::Commander) { dep :db }
       Sidereal.config.build!
 
-      expect(Class.new(parent).new(pubsub: nil).db).to eq(:db)
+      expect(Class.new(parent).new(broadcaster: nil).db).to eq(:db)
     end
   end
 end

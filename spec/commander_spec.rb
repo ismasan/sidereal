@@ -36,6 +36,7 @@ end
 
 RSpec.describe Sidereal::Commander do
   let(:pubsub) { FakePubSub.new }
+  let(:broadcaster) { Sidereal::Broadcaster.new(pubsub:, channels: Sidereal.channels) }
 
   describe '.command' do
     it 'registers a message class in the command registry' do
@@ -73,7 +74,7 @@ RSpec.describe Sidereal::Commander do
       end
 
       cmd = TestAddItem.new(payload: { title: 'test' })
-      expect { cmdr_class.handle(cmd, pubsub: pubsub) }.not_to raise_error
+      expect { cmdr_class.handle(cmd, broadcaster: broadcaster) }.not_to raise_error
     end
   end
 
@@ -191,7 +192,7 @@ RSpec.describe Sidereal::Commander do
       end
 
       cmd = TestAddItem.new(payload: { title: 'buy milk' })
-      cmdr_class.handle(cmd, pubsub: pubsub)
+      cmdr_class.handle(cmd, broadcaster: broadcaster)
       expect(called_with).to eq(cmd)
     end
 
@@ -201,7 +202,7 @@ RSpec.describe Sidereal::Commander do
       end
 
       cmd = TestAddItem.new(payload: { title: 'x' })
-      result = cmdr_class.handle(cmd, pubsub: pubsub)
+      result = cmdr_class.handle(cmd, broadcaster: broadcaster)
 
       expect(result).to be_a(Sidereal::Commander::Result)
       expect(result.msg).to eq(cmd)
@@ -215,7 +216,7 @@ RSpec.describe Sidereal::Commander do
       end
 
       cmd = TestAddItem.new(payload: { title: 'hello' })
-      result = cmdr_class.handle(cmd, pubsub: pubsub)
+      result = cmdr_class.handle(cmd, broadcaster: broadcaster)
 
       expect(result.events.size).to eq(1)
       evt = result.events.first
@@ -234,7 +235,7 @@ RSpec.describe Sidereal::Commander do
       end
 
       cmd = TestAddItem.new(payload: { title: 'x' })
-      result = cmdr_class.handle(cmd, pubsub: pubsub)
+      result = cmdr_class.handle(cmd, broadcaster: broadcaster)
 
       expect(result.commands.size).to eq(1)
       expect(result.commands.first).to be_a(TestSendEmail)
@@ -251,7 +252,7 @@ RSpec.describe Sidereal::Commander do
       end
 
       cmd = TestAddItem.new(payload: { title: 'x' })
-      result = cmdr_class.handle(cmd, pubsub: pubsub)
+      result = cmdr_class.handle(cmd, broadcaster: broadcaster)
 
       expect(result.events.map(&:class)).to eq([TestItemAdded])
       expect(result.commands.map(&:class)).to eq([TestSendEmail])
@@ -265,7 +266,7 @@ RSpec.describe Sidereal::Commander do
       end
 
       cmd = TestAddItem.new(payload: { title: 'x' })
-      expect { cmdr_class.handle(cmd, pubsub: pubsub) }.to raise_error('boom')
+      expect { cmdr_class.handle(cmd, broadcaster: broadcaster) }.to raise_error('boom')
     end
 
     describe 'scheduling dispatched messages' do
@@ -279,7 +280,7 @@ RSpec.describe Sidereal::Commander do
         end
 
         cmd = TestAddItem.new(payload: { title: 'x' })
-        result = cmdr_class.handle(cmd, pubsub: pubsub)
+        result = cmdr_class.handle(cmd, broadcaster: broadcaster)
 
         expect(result.commands.size).to eq(1)
         expect(result.commands.first).to be_a(TestSendEmail)
@@ -295,7 +296,7 @@ RSpec.describe Sidereal::Commander do
         end
 
         cmd = TestAddItem.new(payload: { title: 'x' })
-        result = cmdr_class.handle(cmd, pubsub: pubsub)
+        result = cmdr_class.handle(cmd, broadcaster: broadcaster)
 
         expect(result.events.first.created_at).to be_within(0.001).of(future)
       end
@@ -310,7 +311,7 @@ RSpec.describe Sidereal::Commander do
         end
 
         cmd = TestAddItem.new(payload: { title: 'x' })
-        result = cmdr_class.handle(cmd, pubsub: pubsub)
+        result = cmdr_class.handle(cmd, broadcaster: broadcaster)
 
         expect(result.commands.first.created_at).to be_within(0.5).of(before + 60)
       end
@@ -324,7 +325,7 @@ RSpec.describe Sidereal::Commander do
         end
 
         cmd = TestAddItem.new(payload: { title: 'x' })
-        result = cmdr_class.handle(cmd, pubsub: pubsub)
+        result = cmdr_class.handle(cmd, broadcaster: broadcaster)
 
         scheduled = result.commands.first
         expect(scheduled.causation_id).to eq(cmd.id)
@@ -396,7 +397,7 @@ RSpec.describe Sidereal::Commander do
       end
 
       cmd = TestAddItem.new(payload: { title: 'hi' })
-      result = cmdr_class.handle(cmd, pubsub: pubsub)
+      result = cmdr_class.handle(cmd, broadcaster: broadcaster)
 
       expect(result.msg).to eq(cmd)
       expect(result.events.size).to eq(1)
@@ -414,7 +415,7 @@ RSpec.describe Sidereal::Commander do
       end
 
       cmd = TestAddItem.new(payload: { title: 'x' })
-      cmdr_class.handle(cmd, pubsub: pubsub)
+      cmdr_class.handle(cmd, broadcaster: broadcaster)
 
       expect(pubsub.published.size).to eq(1)
       pub = pubsub.published.first
@@ -431,7 +432,7 @@ RSpec.describe Sidereal::Commander do
       end
 
       cmd = TestAddItem.new(payload: { title: 'x' })
-      cmdr_class.handle(cmd, pubsub: pubsub)
+      cmdr_class.handle(cmd, broadcaster: broadcaster)
 
       msg = pubsub.published.first[:message]
       expect(msg.causation_id).to eq(cmd.id)
@@ -447,7 +448,7 @@ RSpec.describe Sidereal::Commander do
       end
 
       cmd = TestAddItem.new(payload: { title: 'x' })
-      result = cmdr_class.handle(cmd, pubsub: pubsub)
+      result = cmdr_class.handle(cmd, broadcaster: broadcaster)
 
       expect(result.events.size).to eq(1)
       expect(result.events.first).to be_a(TestItemAdded)

@@ -343,6 +343,61 @@ RSpec.describe 'Sidereal::Commander on the Sourced runtime' do
         .then { |result| expect(result.messages.first.payload.to_h).to eq(door_id: 'd1', name: 'named-d1') }
     end
 
+    it "lets a decider broadcast through sidereal.broadcaster, correlated to its command" do
+      working = Sidereal::Message.define('intg_broadcast_widget.working') do
+        attribute :widget_id, Sidereal::Types::String
+      end
+      stub_const('IntgBroadcastWidget', Class.new(Sourced::Decider) do
+        consumer_group 'intg_broadcast_widget'
+        partition_by :widget_id
+        dep 'sidereal.broadcaster'
+
+        command IntgWidget::Create => IntgWidget::Created do |_state, cmd|
+          broadcaster.broadcast(working.new(payload: { widget_id: cmd.payload.widget_id }), from: cmd)
+          event IntgWidget::Created, widget_id: cmd.payload.widget_id
+        end
+      end)
+
+      # .then (not .then!) skips after_sync, so the only publish is the broadcast.
+      with_reactor(IntgBroadcastWidget, widget_id: 'w1')
+        .when(IntgWidget::Create, widget_id: 'w1')
+        .then(IntgWidget::Created, widget_id: 'w1')
+
+      expect(pubsub.published.map { |p| p[:message] }).to contain_exactly(an_instance_of(working))
+      note = pubsub.published.first[:message]
+      expect(note.payload.widget_id).to eq('w1')
+      expect(note.correlation_type).to eq(IntgWidget::Create.type)
+      expect(pubsub.published.first[:channel]).to eq(Sidereal.channels.for(note))
+    end
+
+    it 'lets a machine broadcast through sidereal.broadcaster' do
+      working = Sidereal::Message.define('intg_broadcast_door.working') do
+        attribute :door_id, Sidereal::Types::String
+      end
+      stub_const('IntgBroadcastDoor', Class.new(Sourced::Machine) do
+        consumer_group 'intg_broadcast_door'
+        partition_by :door_id
+        dep 'sidereal.broadcaster'
+
+        opened = State(:opened)
+
+        initial do
+          command IntgDoor::Open => opened do |_state, cmd|
+            broadcaster.broadcast(working.new(payload: { door_id: cmd.payload.door_id }), from: cmd)
+          end
+        end
+
+        final opened
+      end)
+
+      with_reactor(IntgBroadcastDoor, door_id: 'd1')
+        .when(IntgDoor::Open, door_id: 'd1')
+        .then { |_result| }
+
+      expect(pubsub.published.map { |p| p[:message] }).to contain_exactly(an_instance_of(working))
+      expect(pubsub.published.first[:message].correlation_type).to eq(IntgDoor::Open.type)
+    end
+
     it 'injects into a projector, for its load_context block' do
       stub_const('IntgDepProjector', Class.new(Sourced::Projector::StateStored) do
         consumer_group 'intg_dep_projector'

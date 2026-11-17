@@ -86,7 +86,7 @@ module Sidereal
       # the store transaction commits, and (3) delete the handled command.
       def handle_claim(claim)
         claim.messages.map do |cmd|
-          result = handle(cmd, pubsub: Sidereal.pubsub)
+          result = handle(cmd)
           # build_for splits follow-ups by created_at: immediate :append vs
           # future :schedule (a .at/.in command carries a future created_at).
           signals = ::Sourced::Actions.build_for(result.commands, source: cmd)

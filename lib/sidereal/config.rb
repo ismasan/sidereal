@@ -17,6 +17,8 @@ module Sidereal
   #   store               Store::Memory: where commands are appended
   #   channels            Sidereal.channels. Locked on start
   #   exceptions          Sidereal.exceptions. Locked on start
+  #   broadcaster         Sidereal::Broadcaster: publishes transient messages on
+  #                       the pubsub, on their resolved channel
   #   workers.count       worker fibers the default dispatcher runs
   #   dispatcher          consumes the store: Sidereal::Dispatcher. Deferred: the
   #                       runner starts and stops it by key, possibly several times
@@ -48,6 +50,7 @@ module Sidereal
     StoreWriterInterface = T::Interface[:append]
     ChannelsInterface = T::Interface[:for, :lock!]
     ExceptionsInterface = T::Interface[:report_retry, :report_failure, :report_fatal, :lock!]
+    BroadcasterInterface = T::Interface[:broadcast]
     # Started and stopped by the runner, possibly more than once per process
     DispatcherInterface = T::Interface[:start, :stop]
     SchedulerInterface = T::Interface[:start]
@@ -122,13 +125,18 @@ module Sidereal
           start { |exceptions, _| exceptions.lock! }
         end
 
+        c.declare('broadcaster', BroadcasterInterface)
+        c.component!('broadcaster', %w[pubsub channels]) do
+          build { |pubsub, channels| Broadcaster.new(pubsub:, channels:) }
+        end
+
         c.declare('workers.count', T::Integer[0..]) { 25 }
 
         # Deferred, so the root's start doesn't start it in every process: the runner does
         c.declare('dispatcher', DispatcherInterface)
-        c.component!('dispatcher', %w[store pubsub channels exceptions workers.count]) do
-          build do |store, pubsub, channels, exceptions, count|
-            Dispatcher.new(worker_count: count, store:, pubsub:, channels:, exceptions:, registry: Sidereal.registry)
+        c.component!('dispatcher', %w[store pubsub channels exceptions broadcaster workers.count]) do
+          build do |store, pubsub, channels, exceptions, broadcaster, count|
+            Dispatcher.new(worker_count: count, store:, pubsub:, channels:, exceptions:, broadcaster:, registry: Sidereal.registry)
           end
           start { |dispatcher, task| dispatcher.start(task) }
           stop(&:stop)

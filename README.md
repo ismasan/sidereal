@@ -281,6 +281,23 @@ command AskLLM do |cmd|
 end
 ```
 
+The message is correlated to the command being handled, so it goes out on that command's channel and reaches the pages reacting to its chain. It isn't stored, and it's published before anything the handler dispatches, which is what a progress indicator needs. Don't use it for anything that has to agree with what's stored.
+
+`broadcast` goes through the `sidereal.broadcaster` component, a `Sidereal::Broadcaster`. Other classes can inject the broadcaster with [`dep`](#injecting-components-into-classes) and pass the message they're handling as `from:`. For example, a [Sourced](#using-sourced-as-a-backend) decider:
+
+```ruby
+class Orders < Sourced::Decider
+  dep 'sidereal.broadcaster'
+
+  command PlaceOrder => OrderPlaced do |state, cmd|
+    broadcaster.broadcast(Working.new, from: cmd)
+    event OrderPlaced, order_id: cmd.payload.order_id
+  end
+end
+```
+
+Without `from:`, the message is published uncorrelated, on whatever channel its own resolver gives.
+
 ### Command helpers
 
 Define helper methods available inside command handlers:
@@ -1557,6 +1574,7 @@ Sidereal.config.config!('sidereal.workers.count') { 10 }
 | `sidereal.pubsub` | `PubSub::Memory` | carries updates to browsers. Depends on the elector, so it starts after it |
 | `sidereal.store` | `Store::Memory` | where commands are appended. `Sidereal.store` reads it |
 | `sidereal.channels`, `sidereal.exceptions` | `Sidereal.channels`, `Sidereal.exceptions` | the [channel](#per-page-channels) and [exception](#exception-reporting) registries. Locked when they start |
+| `sidereal.broadcaster` | `Sidereal::Broadcaster` | publishes transient messages on the pubsub, on their resolved channel. What [`broadcast`](#broadcast) uses |
 | `sidereal.workers.count` | `25` | worker fibers of the default dispatcher |
 | `sidereal.dispatcher` | `Sidereal::Dispatcher` | consumes the store. Deferred: the runner starts it |
 | `sidereal.runner.targets` | `['sidereal.dispatcher']` | what the runner starts |
