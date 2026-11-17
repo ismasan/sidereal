@@ -556,6 +556,8 @@ end
 
 See more about this [here](https://github.com/starfederation/datastar-ruby#datastar-methods).
 
+A page handles its messages one at a time, in arrival order. Every `on` block runs for each message it matches, because it may read the payload. A reload, from a block-less `on` or a command form, reads only current state, so reloads are coalesced. If a reload is still waiting to run when a newer one arrives, only the newer one renders. A reload with nothing queued ahead of it renders straight away. A burst arriving while a render is in flight produces one more render once that render finishes, however long the burst. This covers, for example, a Sourced projector replaying its history. It publishes a `Projected` signal for every batch, but an open page renders at most twice.
+
 ### Causal reactivity
 
 A page that renders a form for a command almost always wants to re-render when that command comes back over pubsub. You don't have to write that reaction: every `command` form rendered inside a page, at any depth of its component tree, registers `on CommandClass` on that page. `on` without a block means "reload the page", so the two pages below react the same way:

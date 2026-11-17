@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'set'
+require 'async/queue'
 require_relative 'components/base_component'
 require_relative 'components/system_notify'
 
@@ -47,6 +48,50 @@ module Sidereal
           self.instance_exec(evt, &handler)
         elsif @page.reloads_on?(evt)
           self.instance_exec(evt, &DEFAULT_HANDLER)
+        end
+      end
+
+      # React to every message on +channel+ until it stops, coalescing reloads.
+      #
+      # A fiber reads the channel into a local queue, and this fiber runs the
+      # reactions from it, in arrival order. Messages with a handler of their
+      # own each run it: the handler may read the payload. Reloads read only
+      # current state, so a reload still waiting in the queue when a newer one
+      # arrives is skipped, and the newer one renders in its place. A burst
+      # of reloads arriving while a render is in flight therefore yields one
+      # more render once it finishes, however long the burst, and a lone
+      # reload renders as soon as it arrives.
+      #
+      # Exceptions raised by a reaction propagate from here, as they do from
+      # {#react}.
+      #
+      # @param channel [#start] a pubsub channel
+      # @return [void]
+      def run(channel)
+        Sync do |task|
+          pending = Async::Queue.new
+          latest_reload = 0
+          reader = task.async do
+            channel.start do |evt, _channel|
+              if @page.reactions[evt.class]
+                pending << [evt, nil]
+              elsif @page.reloads_on?(evt)
+                pending << [evt, latest_reload += 1]
+              end
+            end
+          ensure
+            pending.close
+          end
+
+          begin
+            while (evt, reload = pending.pop)
+              next if reload && reload != latest_reload
+
+              react(evt)
+            end
+          ensure
+            reader.stop
+          end
         end
       end
 
@@ -179,9 +224,7 @@ module Sidereal
 
         page_context = PageContext.new(sse, ctx, page_class, params: params.value)
 
-        channel.start do |evt, _channel|
-          page_context.react(evt)
-        end
+        page_context.run(channel)
       end
 
       # Handlers keyed by message class, matched on the exact class of an
