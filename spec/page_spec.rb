@@ -668,6 +668,110 @@ RSpec.describe Sidereal::Page do
     end
   end
 
+  describe 'PageContext#run' do
+    let(:pubsub) { Sidereal::PubSub::Memory.new }
+    let(:sse) { FakeSSE.new('page_key' => '/coalescing', 'params' => {}) }
+    # load announces each render on +started+, then parks until +gate+ lets it finish.
+    let(:started) { Async::Queue.new }
+    let(:gate) { Async::Queue.new }
+
+    let(:page_class) do
+      started = self.started
+      gate = self.gate
+      Class.new(Sidereal::Page) do
+        path '/coalescing'
+
+        define_singleton_method(:load) do |_params, _ctx|
+          started << :render
+          gate.pop
+          new
+        end
+
+        def view_template = div { 'page' }
+
+        on PageTestItemAdded
+        on PageTestNotification do |evt|
+          browser.patch_elements evt.payload.text
+        end
+      end
+    end
+
+    def item = PageTestItemAdded.new(payload: { title: 'x' })
+    def note(text) = PageTestNotification.new(payload: { text: })
+
+    # Runs the page against a channel. The block publishes and steers renders;
+    # afterwards every remaining render is released and the channel stopped.
+    def run_page
+      Sync do |task|
+        channel = pubsub.subscribe('coalescing')
+        page_context = Sidereal::Page::PageContext.new(sse, nil, page_class)
+        runner = task.async { page_context.run(channel) }
+        yield ->(msg) { pubsub.publish('coalescing', msg) }
+        gate.close
+        channel.stop
+        runner.wait
+      end
+    end
+
+    def renders = sse.patches.count { |patch| patch[:component].is_a?(page_class) }
+
+    it 'reloads once for a single message' do
+      run_page do |publish|
+        publish.(item)
+        started.pop
+      end
+
+      expect(renders).to eq(1)
+    end
+
+    it 'renders once more for a burst of reloads arriving during a render' do
+      run_page do |publish|
+        publish.(item)
+        started.pop # first render in flight
+        5.times { publish.(item) }
+        gate << :go
+        started.pop # the trailing render
+      end
+
+      expect(renders).to eq(2)
+    end
+
+    it 'runs every handler in order and keeps the latest reload in its place' do
+      run_page do |publish|
+        publish.(item)
+        started.pop
+        publish.(item)
+        publish.(note('a'))
+        publish.(note('b'))
+        publish.(item)
+        gate << :go
+        started.pop
+      end
+
+      sequence = sse.patches.map { |patch| patch[:component].is_a?(page_class) ? :render : patch[:component] }
+      expect(sequence).to eq([:render, 'a', 'b', :render])
+    end
+
+    it 'propagates an exception raised by a reaction' do
+      failing = Class.new(Sidereal::Page) do
+        path '/coalescing-failing'
+        def self.load(_params, _ctx) = raise('boom')
+        def view_template = div { 'page' }
+        on PageTestItemAdded
+      end
+
+      expect {
+        Sync do |task|
+          channel = pubsub.subscribe('failing')
+          page_context = Sidereal::Page::PageContext.new(sse, nil, failing)
+          runner = task.async { page_context.run(channel) }
+          pubsub.publish('failing', item)
+          runner.wait
+        end
+      }.to raise_error(RuntimeError, 'boom')
+    end
+  end
+
   describe 'default system notification reactions' do
     let(:page_context_class) { Sidereal::Page::PageContext }
 
