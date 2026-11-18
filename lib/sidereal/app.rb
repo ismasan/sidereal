@@ -386,11 +386,12 @@ module Sidereal
       cmd_class = self.class.handled_commands[params[:type]]
       halt 404, 'unknown command' unless cmd_class
 
-      result = self.class.forms_codec.resolve(params[:type], params[:payload])
-      if result.valid?
+      # {#reject} throws +:reject+ with its error stream, which is the response.
+      catch(:reject) do
+        result = self.class.forms_codec.resolve(params[:type], params[:payload])
+        reject(result.errors) unless result.valid?
+
         handle_local_command(cmd_class.new(payload: result.value))
-      else
-        patch_command_errors(result.errors)
       end
     end
 
@@ -485,31 +486,30 @@ module Sidereal
       cmd
     end
 
-    # Stream field-level validation errors back to the browser via SSE.
+    # Reject the current command: stream field-level validation errors back
+    # to the browser via SSE and stop handling it.
     #
     # For each error, patches the matching error-message element and adds
     # an +errors+ CSS class to the field wrapper. Expects the form to use
     # the {Components::Command} component, which generates the matching
     # element IDs from the command's +_cid+ value.
     #
-    # Called automatically for invalid commands, but can also be used
-    # directly inside a +handle+ block for custom validation logic.
+    # Called automatically for invalid commands. Inside a +handle+ block it
+    # halts the block: nothing after the +reject+ runs, and the error stream
+    # is the response.
     #
     # @param errors [Hash{Symbol => String}] field name to error message pairs
     #
     # @example Custom validation in a handle block
     #   handle PlaceOrder do |cmd|
-    #     errors = validate_stock(cmd.payload)
-    #     if errors.any?
-    #       patch_command_errors(errors)
-    #     else
-    #       dispatch ConfirmOrder, order_id: cmd.payload.order_id
-    #       browser.patch_elements OrderConfirmation.new(cmd.payload)
-    #     end
+    #     reject(email: 'invalid domain') if cmd.payload.email.end_with?('@invalid.com')
+    #
+    #     dispatch ConfirmOrder, order_id: cmd.payload.order_id
+    #     browser.patch_elements OrderConfirmation.new(cmd.payload)
     #   end
-    private def patch_command_errors(errors)
+    private def reject(errors)
       cid = datastar.request.params['command']['_cid']
-      datastar.stream(heartbeat: false) do |sse|
+      response = datastar.stream(heartbeat: false) do |sse|
         errors.each do |field, error|
           field_id = [cid, field].join('-')
           sse.patch_elements Components::Command::ErrorMessages.new(field_id, error)
@@ -517,6 +517,7 @@ module Sidereal
           sse.execute_script %(document.getElementById("#{wrapper_id}").classList.add('errors'))
         end
       end
+      throw :reject, response
     end
   end
 end

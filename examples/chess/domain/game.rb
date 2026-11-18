@@ -30,7 +30,7 @@ class Game < Sourced::Decider
   # post even when no source is selected (Plumb validation will pass
   # and the decider's command handler raises 'no source selected'
   # which routes to the on_fail logger). Avoids the
-  # `patch_command_errors` JS path that expects wrapper divs we don't
+  # `reject` JS path that expects wrapper divs we don't
   # render around hidden inputs.
   MakeMove = Sourced::Command.define('chess.make_move') do
     attribute :game_id, Sourced::Types::UUID::V4

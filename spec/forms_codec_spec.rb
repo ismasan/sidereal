@@ -69,7 +69,7 @@ RSpec.describe Sidereal::FormsCodec do
       expect(result).not_to be_valid
       expect(result.errors[:course_name]).to eq('must be present')
       expect(result.errors[:seats]).to include('Must match')
-      # flat, so App#patch_command_errors can address each field by name
+      # flat, so App#reject can address each field by name
       expect(result.errors.keys).to contain_exactly(:course_name, :seats)
     end
 
