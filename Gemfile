@@ -20,5 +20,4 @@ gem 'falcon'
 group :development do
   gem 'docco', github: 'ismasan/docco'
   gem 'sourced', path: '../sourced'
-  gem 'sourced-component', path: '../sourced-component'
 end
