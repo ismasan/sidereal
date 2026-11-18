@@ -359,7 +359,7 @@ Inside a `handle` block you have access to:
 
 - `browser` — the SSE stream for pushing DOM updates (see [SSE reactions](#sse-reactions) for the full API)
 - `dispatch(MessageClass, payload)` — correlate and append a follow-up command to the async store
-- `patch_command_errors(errors)` — stream field-level validation errors back to the form
+- `reject(errors)` — stream field-level validation errors back to the form and stop handling the command
 - `store`, `pubsub`, `params`, `session` — the usual App instance helpers
 
 #### Streaming DOM updates
@@ -404,17 +404,14 @@ end
 
 #### Custom validation with error streaming
 
-Use `patch_command_errors` to stream field-level errors back to the form. This works with the `command` form component, which generates the matching element IDs:
+Use `reject` to stream field-level errors back to the form. This works with the `command` form component, which generates the matching element IDs. `reject` halts the handler, so nothing after it runs:
 
 ```ruby
 handle PlaceOrder do |cmd|
-  errors = validate_stock(cmd.payload)
-  if errors.any?
-    patch_command_errors(errors)
-  else
-    ORDERS[cmd.id] = cmd.payload.to_h
-    browser.patch_elements OrderConfirmation.new(cmd.payload)
-  end
+  reject(email: 'invalid domain') if cmd.payload.email =~ /@invalid\.com/
+
+  ORDERS[cmd.id] = cmd.payload.to_h
+  browser.patch_elements OrderConfirmation.new(cmd.payload)
 end
 ```
 

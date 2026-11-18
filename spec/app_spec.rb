@@ -593,6 +593,38 @@ RSpec.describe 'Sidereal::App.handle' do
       expect(last_response.body).to include('app_test_typed-cmd-seats-wrapper')
     end
 
+    describe '#reject in a handle block' do
+      let(:after_reject) { [] }
+
+      let(:test_app) do
+        ran = after_reject
+        Class.new(Sidereal::App) do
+          session secret: 'a' * 64
+          handle(HandleTestTypedCmd) do |cmd|
+            reject(title: 'already taken') if cmd.payload.title == 'Taken'
+            ran << cmd
+            status 200
+          end
+        end
+      end
+
+      it 'streams the errors and halts the handler' do
+        post_payload(title: 'Taken', seats: '30', starts_on: '2026-09-01', published: '1')
+
+        expect(after_reject).to be_empty
+        expect(last_response.headers['content-type']).to include('text/event-stream')
+        expect(last_response.body).to include('id="app_test_typed-cmd-title-errors"')
+        expect(last_response.body).to include('already taken')
+      end
+
+      it 'lets the handler run when it does not reject' do
+        post_payload(title: 'Ruby 101', seats: '30', starts_on: '2026-09-01', published: '1')
+
+        expect(last_response.status).to eq(200)
+        expect(after_reject.size).to eq(1)
+      end
+    end
+
     # The envelope is built server-side, so a request cannot date a command into
     # the future and have the store schedule it.
     it 'ignores envelope fields posted by the client' do

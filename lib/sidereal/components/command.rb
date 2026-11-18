@@ -12,7 +12,7 @@ module Sidereal
     # Field helpers ({#text_field}, {#number_field}, {#check_box}) wrap each
     # input in a +.command-field+ div alongside an empty error +<span>+, so the
     # server can stream Plumb validation errors back to the exact field (see
-    # +Sidereal::App#patch_command_errors+).
+    # +Sidereal::App#reject+).
     #
     # == Stable element ids
     #

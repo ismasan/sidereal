@@ -14,7 +14,7 @@ module Sidereal
   # follow, and both are the point:
   #
   # - Decode errors are a flat +{attribute => message}+ hash, which is what
-  #   +App#patch_command_errors+ streams back to a field.
+  #   +App#reject+ streams back to a field.
   # - The envelope (+id+, +created_at+, +metadata+, +correlation_id+) is never
   #   read from the request. A browser cannot date a command into the future
   #   and have it land in the store's +scheduled/+ directory.
