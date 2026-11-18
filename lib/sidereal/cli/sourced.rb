@@ -66,8 +66,8 @@ module Sidereal
             terminal.print_line :key, '  bin/sid sourced migration'
             terminal.print_line :key, '  bin/sid db migrations run'
           else
-            terminal.puts "Sourced's tables are migrated. Register deciders and projectors in " \
-                          'config/components/sourced.rb, and see what it does with:'
+            terminal.puts "Sourced's tables are migrated. Deciders and projectors in system/ are " \
+                          'registered as the app boots. See what it does with:'
             terminal.puts
             terminal.print_line :key, '  bin/sid sourced topology'
           end

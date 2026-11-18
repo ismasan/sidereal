@@ -86,4 +86,4 @@ class App < Sidereal::App
 end
 ```
 
-One process builds one instance, when it starts. A file directly in `system/`, like `greetings.rb`, can't be a component. Each directory owns its key, so don't declare `mailers.*` components in `config/components/` too: they're dropped. And a class loaded from `config/components/`, such as a decider passed to `Sourced.register`, loads before the `system/` components are declared, so it can't `dep` one.
+One process builds one instance, when it starts. A file directly in `system/`, like `greetings.rb`, can't be a component. Each directory owns its key, so don't declare `mailers.*` components in `config/components/` too: they're dropped. And a class loaded from `config/components/`, such as a decider passed to `Sourced.register`, loads before the `system/` components are declared, so it can't `dep` one. With Sourced installed, the deciders and projectors in `system/` are registered by the same scan that declares those components, so they can.

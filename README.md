@@ -95,7 +95,7 @@ my_app/
 
 Classes are loaded by [Zeitwerk](https://github.com/fxn/zeitwerk), so there are no `require` statements: name a file after the class it defines. Classes in `system/` are top-level (`system/greetings.rb` defines `Greetings`), and each directory under `web/` is a namespace (`web/ui/welcome_page.rb` defines `UI::WelcomePage`).
 
-`boot.rb` declares components from `system/` with sourced-component's [`from_dir`](https://github.com/ismasan/sourced-component#components-from-a-directory): a class in a directory there that includes `Sourced::Component::Installable` is a component, keyed by its path and built with the components it asks for with `dep`. So `system/mailers/client.rb`, defining `Mailers::Client`, is the `mailers.client` component, and a class that wants it says `dep 'mailers.client'` (a `client` reader). Files directly in `system/` can't be components. Two limits follow from the boot order. Each top-level directory owns its key, so a `mailers.*` component declared in `config/components/` is dropped. And a class that a `config/components/` file loads (`Sourced.register(Todos)`) loads before the `system/` components are declared, so it can't `dep` one.
+`boot.rb` declares components from `system/` with sourced-component's [`from_dir`](https://github.com/ismasan/sourced-component#components-from-a-directory): a class in a directory there that includes `Sourced::Component::Installable` is a component, keyed by its path and built with the components it asks for with `dep`. So `system/mailers/client.rb`, defining `Mailers::Client`, is the `mailers.client` component, and a class that wants it says `dep 'mailers.client'` (a `client` reader). Files directly in `system/` can't be components. Two limits follow from the boot order. Each top-level directory owns its key, so a `mailers.*` component declared in `config/components/` is dropped. And a class that a `config/components/` file loads, such as a decider passed to `Sourced.register`, loads before the `system/` components are declared, so it can't `dep` one. The Sourced reactors in `system/` are registered by the same scan that declares those components, so they can (see [Registering reactors](#registering-reactors)).
 
 ### Running the app in development
 
@@ -973,7 +973,7 @@ require 'sidereal/integrations/sourced'
 Sidereal.config.use Sidereal::Integrations::Sourced, db: 'db'
 ```
 
-The generated comments show what to re-implement: where to `Sourced.register` deciders and projectors, the worker count, the error strategy behind the retry toasts, and `sidereal.runner.process` to run a Sourced runtime in every worker rather than only the leader.
+The integration registers the deciders, projectors and machines in `system/` (see [Registering reactors](#registering-reactors)). The generated comments show what to re-implement: the worker count, the error strategy behind the retry toasts, and `sidereal.runner.process` to run a Sourced runtime in every worker rather than only the leader.
 
 Finally it writes the migration for Sourced's own tables into `db/migrations/` and applies it, so the app is ready to boot. Sourced's store expects its tables to be there rather than creating them, so they are a migration's job like any other table:
 
@@ -2366,6 +2366,30 @@ Sidereal.config.config!('sourced.error_strategy') do
 end
 ```
 
+### Registering reactors
+
+The integration registers the Sourced reactors among the classes that `from_dir` loads: in a generated app, `system/`. It's the same scan that declares the components there (see [Configuration](#configuration)), through sourced-component's `on_dir_load`, so `system/` is scanned once, for both, and a reload updates both. Apply the integration before the directories install, as a `config/components/` file is; `reactors: false` leaves registering to `Sourced.register`.
+
+- **What's registered.** Each file's own constant, as Zeitwerk names it (`system/todos.rb` defines `Todos`, `system/billing/invoices.rb` defines `Billing::Invoices`), if it's a reactor: a decider, projector or machine, anything with `claim_selector` and `handle_claim`, or a group of reactors returned by `to_sourced_reactors`. Two kinds are skipped: Sidereal commanders, which the integration registers itself, and reactors that handle no messages, such as an abstract `ApplicationDecider` that the others subclass. Other constants a file defines aren't looked at.
+- **When.** As the directories install, ex. on `install_dirs!` in `boot.rb`, so before the router is first built. Files there can `dep` each other's components whichever loads first, so a reactor can `dep` a `system/` component. A reactor in a directory of `system/` can be a component itself, ex. a projector used as a repository, registered as the class with class-level query methods:
+
+  ```ruby
+  # system/catalog/books.rb
+  class Catalog::Books < Sourced::Projector::StateStored
+    def self.__install_component(c) = c.declare(Class).config { self }
+    def self.titles = ... # query what it projected
+
+    # ...
+  end
+
+  class Shelf
+    extend Sidereal::Deps
+    dep 'catalog.books' # a `books` reader, which returns Catalog::Books
+  end
+  ```
+- **Reloading.** When the loader reloads and the components are reconfigured, in one change to `Sourced.registry`, the reactors the last scan found are unregistered and the reloaded classes registered: the router is rebuilt with the dispatcher stopped, recompiling the store's codec as it is, and Sidereal's codec is recompiled after, so messages decode into the reloaded message classes, and a message pending during the reload is handled by the old classes or the new ones, never acked unhandled. A file that raises leaves both the components and the registry as they were. A set the registry rejects, such as two reactors with one `group_id`, leaves the registry as it was, with the components reconfigured. Either prints the directory's reload warning. Commanders aren't reloaded: they keep running the code they booted with. The generated `boot.rb` doesn't enable reloading.
+- **Anywhere else.** A reactor no `from_dir` loads is registered with `Sourced.register(Todos)`, at any time. One registered from `config/components/` loads before the `system/` components are declared, so it can't `dep` one. One the scan also finds is replaced like the others when it reloads.
+
 > **Multi-process:** `use_file_system!` (cross-process pubsub + file-lock election) is required whenever you run more than one worker, otherwise the in-process pubsub/elector can't fan SSE updates across processes. If you start multiple workers with the default in-process components, Sidereal **refuses to boot** with a loud error telling you to add it (see [Running with Falcon](#running-with-falcon)).
 
 ### Defining messages and Deciders
@@ -2395,6 +2419,7 @@ class TodoDecider < Sourced::Decider
   end
 end
 
+# In system/todo_decider.rb, the integration registers it. Anywhere else:
 Sourced.register(TodoDecider)
 ```
 

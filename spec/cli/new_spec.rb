@@ -525,6 +525,72 @@ RSpec.describe Sidereal::CLI::New do
       expect(out).to include('tick')
     end
 
+    it 'registers the Sourced reactors in system/, which can inject system/ components and be components' do
+      root = generate('app', '--sourced')
+      out, status = bin_sid(root, 'sourced', 'install', '--skip-bundle')
+      expect(status).to be_success, out
+      FileUtils.mkdir_p(File.join(root, 'system/clocks'))
+      File.write(File.join(root, 'system/clocks/now.rb'), <<~RUBY)
+        class Clocks::Now
+          include Sourced::Component::Installable
+
+          def call = 'tick'
+        end
+      RUBY
+      # Top level: a reactor, not a component. Injects a component from a
+      # directory that loads after it.
+      File.write(File.join(root, 'system/ledger.rb'), <<~RUBY)
+        class Ledger < Sourced::Decider
+          extend Sidereal::Deps
+          dep 'clocks.now'
+
+          Record = Sourced::Command.define('app.ledger.record') { attribute :entry_id, String }
+          Recorded = Sourced::Event.define('app.ledger.recorded') { attribute :entry_id, String }
+
+          partition_by :entry_id
+
+          command Record => Recorded do |_state, cmd|
+            event Recorded, entry_id: cmd.payload.entry_id
+          end
+        end
+      RUBY
+      # A base class, which handles no messages, and a reactor that's also a
+      # component: the class itself, with a query method.
+      File.write(File.join(root, 'system/application_decider.rb'), "class ApplicationDecider < Sourced::Decider; end\n")
+      FileUtils.mkdir_p(File.join(root, 'system/catalog'))
+      File.write(File.join(root, 'system/catalog/books.rb'), <<~RUBY)
+        class Catalog::Books < ApplicationDecider
+          Add = Sourced::Command.define('app.catalog.add') { attribute :book_id, String }
+          Added = Sourced::Event.define('app.catalog.added') { attribute :book_id, String }
+
+          partition_by :book_id
+
+          def self.__install_component(c) = c.declare(Class).config { self }
+          def self.titles = ['Dune']
+
+          command Add => Added do |_state, cmd|
+            event Added, book_id: cmd.payload.book_id
+          end
+        end
+      RUBY
+      File.write(File.join(root, 'web/shelf.rb'), <<~RUBY)
+        class Shelf
+          extend Sidereal::Deps
+          dep 'catalog.books'
+        end
+      RUBY
+
+      script = <<~RUBY
+        puts Sidereal.config['sourced.router'].reactors.map(&:name).sort.join(',')
+        puts Ledger.new.now.call
+        puts Shelf.new.books.titles.join
+      RUBY
+      out, status = bin_sid(root, 'console', stdin_data: script)
+
+      expect(status).to be_success, out
+      expect(out.lines(chomp: true)).to include('App::Commander,Catalog::Books,Ledger', 'tick', 'Dune')
+    end
+
     it "lists the app's commands" do
       out, status = bin_sid(generate, 'commands', 'list')
 
@@ -699,7 +765,6 @@ RSpec.describe Sidereal::CLI::New do
           end
         end
       RUBY
-      File.write(File.join(root, 'boot.rb'), "Sourced.register(Todos)\n", mode: 'a')
 
       # `sourced install` configures the integration and installs the database
       # it needs; until then there is no `db` component to build.

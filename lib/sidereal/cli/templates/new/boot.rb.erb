@@ -29,7 +29,8 @@ LOADER.setup
 # classes get with `dep 'mailers.client'` (a `client` reader). Only files in a
 # directory: one directly in system/ can't be a component. Each directory owns
 # its key: don't declare `mailers.*` anywhere else, or it's dropped. See
-# config/components/example.rb.
+# config/components/example.rb. With Sourced installed, the same scan
+# registers the deciders and projectors here, and a reload updates both.
 Sidereal.config.loader = LOADER
 Sidereal.config.from_dir(File.expand_path('system/**/*.rb', __dir__), root: File.expand_path('system', __dir__))
 
@@ -47,15 +48,15 @@ Dir[File.join(__dir__, 'config/components/**/*.rb')].sort.each { |file| require 
 
 # Declare the system/ components now, after the ones above, which they may
 # use, and before the classes load below, which may use them. So a class that
-# a file in config/components/ loads, as `Sourced.register(Todos)` does, can't
-# `dep` a system/ component: it loads before they're declared.
+# a file in config/components/ loads, ex. by passing it to `Sourced.register`,
+# can't `dep` a system/ component: it loads before they're declared.
 Sidereal.config.install_dirs!
 
 # Load every class up front, after the components: a file above may require a
 # library the classes are written against — `bin/sid sourced install` writes
 # one that requires Sourced, which system/ classes then subclass — and it can
-# refer to a class of its own (`Sourced.register(Todos)`), which LOADER.setup
-# has already made autoloadable. Loading them all now matters because message
+# refer to a class of its own, which LOADER.setup has already made
+# autoloadable. Loading them all now matters because message
 # classes register their types as they load, and every process must know every
 # type before it can decode messages from another.
 LOADER.eager_load

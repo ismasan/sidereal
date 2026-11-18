@@ -690,7 +690,7 @@ RSpec.describe 'Sidereal.config.use(Sidereal::Integrations::Sourced)' do
     use_sourced
     config.build!
 
-    expect(Sourced.config).to be_declared(Sourced::Config.reactor_key(IntgCommander))
+    expect(Sourced.registry).to be_registered(IntgCommander)
     expect(Sourced.router.reactors).to include(IntgCommander)
   end
 
