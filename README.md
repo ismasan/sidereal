@@ -79,7 +79,9 @@ my_app/
   bin/sid                     the sid command line, with this app loaded
   .agents/skills/             skills that teach AI coding agents to use bin/sid
   .claude/skills              link to .agents/skills, for Claude Code
-  system/                     backend code that doesn't know about the web
+  system/                     backend code that doesn't know about the web, and
+                              the app's own components (system/mailers/client.rb
+                              is the mailers.client component)
     greetings.rb              messages for the hello demo
   web/
     app.rb                    App: the commands it accepts, their handlers, and pages
@@ -92,6 +94,8 @@ my_app/
 ```
 
 Classes are loaded by [Zeitwerk](https://github.com/fxn/zeitwerk), so there are no `require` statements: name a file after the class it defines. Classes in `system/` are top-level (`system/greetings.rb` defines `Greetings`), and each directory under `web/` is a namespace (`web/ui/welcome_page.rb` defines `UI::WelcomePage`).
+
+`boot.rb` declares components from `system/` with sourced-component's [`from_dir`](https://github.com/ismasan/sourced-component#components-from-a-directory): a class in a directory there that includes `Sourced::Component::Installable` is a component, keyed by its path and built with the components it asks for with `dep`. So `system/mailers/client.rb`, defining `Mailers::Client`, is the `mailers.client` component, and a class that wants it says `dep 'mailers.client'` (a `client` reader). Files directly in `system/` can't be components. Two limits follow from the boot order. Each top-level directory owns its key, so a `mailers.*` component declared in `config/components/` is dropped. And a class that a `config/components/` file loads (`Sourced.register(Todos)`) loads before the `system/` components are declared, so it can't `dep` one.
 
 ### Running the app in development
 
@@ -981,7 +985,7 @@ A checkout of the app gets its database the same way, since `db/migrations/` is 
 
 `bin/sid sourced migration` writes that file on its own, for an app that needs it again — after changing `sourced.store.table_prefix`, say. It renders the migration from Sourced's template through the app's own store, so a configured prefix is honoured, and it leaves an existing one alone unless you pass `--force`. `sourced install` runs it in a separate process, because the gem it needs has only just been bundled.
 
-`boot.rb` says nothing about Sourced — the `require` lives in the generated component file too, so installing Sourced later works exactly like generating with it. Its order is load-bearing in two ways: `config/components/` loads **after** `Sidereal.config.use_file_system!`, because both implement `sidereal.store` and the last implementation of a key wins (the other way round a Sourced app would append its commands to files while Sourced's runtime watched its own tables); and `LOADER.eager_load` comes **after** the components, so that the `require` in `config/components/sourced.rb` has happened before Zeitwerk loads a `system/` class that subclasses `Sourced::Decider`.
+`boot.rb` says nothing about Sourced — the `require` lives in the generated component file too, so installing Sourced later works exactly like generating with it. Its order is load-bearing in two ways: `config/components/` loads **after** `Sidereal.config.use_file_system!`, because both implement `sidereal.store` and the last implementation of a key wins (the other way round a Sourced app would append its commands to files while Sourced's runtime watched its own tables); and `LOADER.eager_load` comes **after** the components, so that the `require` in `config/components/sourced.rb` has happened before Zeitwerk loads a `system/` class that subclasses `Sourced::Decider`. In between, `Sidereal.config.install_dirs!` declares the `system/` components: after `config/components/`, whose components they may inject, and before `eager_load`, whose classes may inject them.
 
 #### Topology
 

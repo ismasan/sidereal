@@ -213,6 +213,17 @@ RSpec.describe Sidereal::CLI::New do
       expect(boot.index('LOADER.eager_load')).to be > boot.index('config/components/**')
     end
 
+    # system/ components are declared after config/components, whose
+    # components they may inject (and which may require the libraries they
+    # subclass), and before eager_load, whose classes may inject them.
+    it 'declares the system/ components between config/components and eager loading' do
+      boot = read(generate, 'boot.rb')
+
+      expect(boot).to include('Sidereal.config.loader = LOADER', "Sidereal.config.from_dir(File.expand_path('system/**/*.rb', __dir__)")
+      expect(boot.index('Sidereal.config.install_dirs!')).to be > boot.index('config/components/**')
+      expect(boot.index('LOADER.eager_load')).to be > boot.index('Sidereal.config.install_dirs!')
+    end
+
     it 'leaves requiring the integration to `sourced install` as well' do
       expect(read(generate('app', '--sourced'), 'boot.rb')).not_to include('integrations/sourced')
     end
@@ -223,7 +234,7 @@ RSpec.describe Sidereal::CLI::New do
 
       expect(code).to eq([])
       expect(example).to include("declare('mailer'", "component!('mailer')", "config!('sidereal.workers.count')", 'dep :mailer')
-      expect(read(generate('plain'), 'config/components/example.rb')).not_to include('Sourced')
+      expect(read(generate('plain'), 'config/components/example.rb')).not_to include('Sourced deciders')
     end
 
     it 'uses the file system backend' do
@@ -458,6 +469,60 @@ RSpec.describe Sidereal::CLI::New do
 
       expect(status).to be_success, out
       expect(out).to include('hello from greeter')
+    end
+
+    it 'declares components from system/, which classes there and in web/ inject as they load' do
+      root = generate
+      FileUtils.mkdir_p(File.join(root, 'system/mailers'))
+      File.write(File.join(root, 'system/mailers/templates.rb'), <<~RUBY)
+        class Mailers::Templates
+          include Sourced::Component::Installable
+
+          def welcome = 'Welcome!'
+        end
+      RUBY
+      # Injects a sibling, which loads after it
+      File.write(File.join(root, 'system/mailers/client.rb'), <<~RUBY)
+        class Mailers::Client
+          include Sourced::Component::Installable
+          extend Sidereal::Deps
+          dep 'mailers.templates'
+
+          def deliver = "sent: \#{templates.welcome}"
+        end
+      RUBY
+      File.write(File.join(root, 'web/signup.rb'), <<~RUBY)
+        class Signup
+          extend Sidereal::Deps
+          dep 'mailers.client'
+        end
+      RUBY
+
+      out, status = bin_sid(root, 'console', stdin_data: "puts Signup.new.client.deliver\n",
+        chdir: File.join(root, 'web'))
+
+      expect(status).to be_success, out
+      expect(out).to include('sent: Welcome!')
+    end
+
+    it 'declares components from system/ in a Sourced app' do
+      root = generate('app', '--sourced')
+      out, status = bin_sid(root, 'sourced', 'install', '--skip-bundle')
+      expect(status).to be_success, out
+      FileUtils.mkdir_p(File.join(root, 'system/clocks'))
+      File.write(File.join(root, 'system/clocks/now.rb'), <<~RUBY)
+        class Clocks::Now
+          include Sourced::Component::Installable
+
+          def call = 'tick'
+        end
+      RUBY
+
+
+      out, status = bin_sid(root, 'console', stdin_data: "puts Sidereal.config['clocks.now'].call\n")
+
+      expect(status).to be_success, out
+      expect(out).to include('tick')
     end
 
     it "lists the app's commands" do
