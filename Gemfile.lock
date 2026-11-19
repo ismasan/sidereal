@@ -6,8 +6,9 @@ GIT
       kramdown
       kramdown-parser-gfm
 
-PATH
-  remote: ../sourced
+GIT
+  remote: https://github.com/ismasan/sourced.git
+  revision: 2a2b94963099e87efb1eebc73212be2ba27a2ad4
   specs:
     sourced (0.0.1)
       async
