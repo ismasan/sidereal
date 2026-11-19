@@ -209,10 +209,10 @@ module Sidereal
         config.on_dir_load { |source, constants| sync.call(source, constants) }
       end
 
-      # The two things an app gets by configuring this integration that aren't
-      # components: `bin/sid sourced` and the skill describing it. Both land in
-      # process-global registries, so both are idempotent under a repeated
-      # +use+. The CLI file only defines command classes — it doesn't load
+      # What an app gets by configuring this integration that isn't a
+      # component: `bin/sid sourced`, the skill describing it, and its reactors'
+      # commands in `bin/sid commands`. They land in process-global registries,
+      # so they're idempotent under a repeated +use+. The CLI file only defines command classes — it doesn't load
       # Sourced, which the commands do for themselves via +boot_app!+.
       # @return [void]
       def self.register_cli_and_skills
@@ -226,6 +226,20 @@ module Sidereal
         Sidereal::CLI::Sourced.register 'migration', Sidereal::Integrations::Sourced::CLI::Migration
         Sidereal::CLI::Sourced.register 'topology', Sidereal::Integrations::Sourced::CLI::Topology
         Sidereal.skills.add('sidereal-sourced', File.expand_path('sourced/skills/sidereal-sourced', __dir__))
+        Sidereal::CLI::Commands.handlers('sourced') { command_handlers }
+      end
+
+      # +[command_class, reactor]+ for each command a registered Sourced reactor
+      # handles, ex. a decider's, for `bin/sid commands`. Sidereal commanders
+      # are left out: it lists them from {Sidereal.registry}.
+      # @return [Array<(Class, Class)>]
+      def self.command_handlers
+        ::Sourced.registry.reactors.flat_map do |reactor|
+          next [] unless reactor.respond_to?(:handled_commands)
+          next [] if reactor.is_a?(Class) && reactor <= Sidereal::Commander
+
+          reactor.handled_commands.map { |cmd| [cmd, reactor] }
+        end
       end
 
       # Register every Sidereal commander with Sourced, with its full command

@@ -685,6 +685,19 @@ RSpec.describe 'Sidereal.config.use(Sidereal::Integrations::Sourced)' do
     expect(config['sourced.dispatcher']).not_to be_running
   end
 
+  it "adds its reactors' commands to `bin/sid commands`, leaving out Sidereal commanders" do
+    Sidereal.register(IntgCommander)
+    use_sourced
+    Sourced.register(IntgWidget)
+    config.prepare!
+
+    entry = Sidereal::CLI::Commands.catalog.entries.find { |e| e.command_class == IntgWidget::Create }
+    commander_entry = Sidereal::CLI::Commands.catalog.entries.find { |e| e.command_class == IntgDoThing }
+
+    expect(entry.handlers).to eq([IntgWidget])
+    expect(commander_entry.handlers).to eq([IntgCommander])
+  end
+
   it 'registers Sidereal commanders with Sourced as the config is prepared' do
     Sidereal.register(IntgCommander)
     use_sourced

@@ -1160,7 +1160,9 @@ my_app.greetings.say_hello  Greetings::SayHello  App::Commander  yes
 
 This lists every command the app knows about:
 
-* **Handled by:** the commanders that handle the command. `App::Commander` is the app's own, for `command` blocks in `web/app.rb`. Commanders added with `commands` in the app appear by name, and with `--sourced`, so do Sourced deciders.
+* **Handled by:** the commanders that handle the command. `App::Commander` is the app's own, for `command` blocks in `web/app.rb`. Commanders added with `commands` in the app appear by name, and with `--sourced`, so do Sourced deciders and machines: the Sourced integration adds its reactors' commands with `Sidereal::CLI::Commands.handlers`, which another integration can call too.
+
+`list` and `info` prepare the app's components without building them, so they open no database connection.
 * **Web:** whether the app accepts the command from forms, with `handle`. A command the web accepts but that nothing handles shows `none` under **Handled by**.
 
 Add `--schemas` for a line under each command with its payload's [JSON Schema](https://json-schema.org/). It's everything needed to dispatch any of the app's commands, in one call, which makes it the quickest way for scripts and AI agents to learn what the app can do:
