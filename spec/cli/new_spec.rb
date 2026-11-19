@@ -717,8 +717,13 @@ RSpec.describe Sidereal::CLI::New do
       out, status = bin_sid(root, 'skills', 'update')
 
       expect(status).to be_success, out
-      expect(out).to include('write   .agents/skills/sidereal-cli', 'link    .claude/skills -> ../.agents/skills')
-      expect(Dir.children(File.join(root, '.agents/skills'))).to eq(['sidereal-cli'])
+      expect(out).to include(
+        'write   .agents/skills/sidereal-cli',
+        'write   .agents/skills/sidereal-components',
+        'link    .claude/skills -> ../.agents/skills'
+      )
+      expect(Dir.children(File.join(root, '.agents/skills')).sort).to eq(%w[sidereal-cli sidereal-components])
+      expect(front_matter(read(root, '.agents/skills/sidereal-components/SKILL.md'))['name']).to eq('sidereal-components')
       skill = read(root, '.agents/skills/sidereal-cli/SKILL.md')
       expect(front_matter(skill)['name']).to eq('sidereal-cli')
       expect(skill).to include('bin/sid --help')
