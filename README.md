@@ -97,6 +97,22 @@ Classes are loaded by [Zeitwerk](https://github.com/fxn/zeitwerk), so there are 
 
 `boot.rb` declares components from `system/` with sourced-component's [`from_dir`](https://github.com/ismasan/sourced-component#components-from-a-directory): a class in a directory there that includes `Sourced::Component::Installable` is a component, keyed by its path and built with the components it asks for with `dep`. So `system/mailers/client.rb`, defining `Mailers::Client`, is the `mailers.client` component, and a class that wants it says `dep 'mailers.client'` (a `client` reader). Files directly in `system/` can't be components. Two limits follow from the boot order. Each top-level directory owns its key, so a `mailers.*` component declared in `config/components/` is dropped. And a class that a `config/components/` file loads, such as a decider passed to `Sourced.register`, loads before the `system/` components are declared, so it can't `dep` one. The Sourced reactors in `system/` are registered by the same scan that declares those components, so they can (see [Registering reactors](#registering-reactors)).
 
+`Installable` builds a new instance on every read. To make a module, or a class used through its class methods, a component, have its file declare it with `__install_component`, whose value is the module itself:
+
+```ruby
+# system/pricing/rules.rb: the pricing.rules component
+module Pricing::Rules
+  def self.__install_component(c) = c.declare(Module).config { self }
+
+  def self.discount(total) = total > 100 ? 10 : 0
+end
+
+# elsewhere
+dep 'pricing.rules' # a `rules` reader, which returns Pricing::Rules
+```
+
+For a class, declare it as a `Class`: `c.declare(Class).config { self }`. `dep` injects through the constructor, so class methods can't use it: a component that needs other components is an `Installable` class.
+
 ### Running the app in development
 
 `bin/dev` runs `bundle exec falcon host` and reloads the app whenever a Ruby file in `system/` or `web/` changes, or `boot.rb`, `config.ru` or `falcon.rb` does. Browsers reconnect by themselves.

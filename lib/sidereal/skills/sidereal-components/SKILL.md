@@ -73,6 +73,20 @@ dep 'mailers.client'   # a `client` reader
 ```
 
 - **A new instance is built on every read.** Keep state in the components it `dep`s, not in the instance.
+- **A module, or a class used through its class methods,** is a component through its own `__install_component`, with the module itself as the value. `Installable` doesn't work for these, because it builds the value with `new`:
+
+  ```ruby
+  # system/pricing/rules.rb: the pricing.rules component
+  module Pricing::Rules
+    def self.__install_component(c) = c.declare(Module).config { self }
+
+    def self.discount(total) = total > 100 ? 10 : 0
+  end
+
+  dep 'pricing.rules'   # elsewhere: a `rules` reader, which returns Pricing::Rules
+  ```
+
+  For a class, use `c.declare(Class).config { self }`. `dep` injects through the constructor, so class methods can't use it. A component that needs other components has to be an `Installable` class.
 - **Only files in a directory count.** A file directly in `system/` can't be a component.
 - **Each directory owns its keys.** Don't declare `mailers.*` anywhere else, or it's dropped.
 - **Don't `dep` them from `config/components/`.** A class a file there loads, such as one passed to `Sourced.register`, loads before the `system/` components are declared, so it can't `dep` them. Sourced deciders and projectors in `system/` are registered by the scan that declares those components, so they can.
