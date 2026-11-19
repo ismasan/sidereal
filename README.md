@@ -79,7 +79,9 @@ my_app/
   bin/sid                     the sid command line, with this app loaded
   .agents/skills/             skills that teach AI coding agents to use bin/sid
   .claude/skills              link to .agents/skills, for Claude Code
-  system/                     backend code that doesn't know about the web
+  system/                     backend code that doesn't know about the web, and
+                              the app's own components (system/mailers/client.rb
+                              is the mailers.client component)
     greetings.rb              messages for the hello demo
   web/
     app.rb                    App: the commands it accepts, their handlers, and pages
@@ -92,6 +94,24 @@ my_app/
 ```
 
 Classes are loaded by [Zeitwerk](https://github.com/fxn/zeitwerk), so there are no `require` statements: name a file after the class it defines. Classes in `system/` are top-level (`system/greetings.rb` defines `Greetings`), and each directory under `web/` is a namespace (`web/ui/welcome_page.rb` defines `UI::WelcomePage`).
+
+`boot.rb` declares components from `system/` with sourced-component's [`from_dir`](https://github.com/ismasan/sourced-component#components-from-a-directory): a class in a directory there that includes `Sourced::Component::Installable` is a component, keyed by its path and built with the components it asks for with `dep`. So `system/mailers/client.rb`, defining `Mailers::Client`, is the `mailers.client` component, and a class that wants it says `dep 'mailers.client'` (a `client` reader). Files directly in `system/` can't be components. Two limits follow from the boot order. Each top-level directory owns its key, so a `mailers.*` component declared in `config/components/` is dropped. And a class that a `config/components/` file loads, such as a decider passed to `Sourced.register`, loads before the `system/` components are declared, so it can't `dep` one. The Sourced reactors in `system/` are registered by the same scan that declares those components, so they can (see [Registering reactors](#registering-reactors)).
+
+`Installable` builds a new instance on every read. To make a module, or a class used through its class methods, a component, have its file declare it with `__install_component`, whose value is the module itself:
+
+```ruby
+# system/pricing/rules.rb: the pricing.rules component
+module Pricing::Rules
+  def self.__install_component(c) = c.declare(Module).config { self }
+
+  def self.discount(total) = total > 100 ? 10 : 0
+end
+
+# elsewhere
+dep 'pricing.rules' # a `rules` reader, which returns Pricing::Rules
+```
+
+For a class, declare it as a `Class`: `c.declare(Class).config { self }`. `dep` injects through the constructor, so class methods can't use it: a component that needs other components is an `Installable` class.
 
 ### Running the app in development
 
@@ -969,7 +989,7 @@ require 'sidereal/integrations/sourced'
 Sidereal.config.use Sidereal::Integrations::Sourced, db: 'db'
 ```
 
-The generated comments show what to re-implement: where to `Sourced.register` deciders and projectors, the worker count, the error strategy behind the retry toasts, and `sidereal.runner.process` to run a Sourced runtime in every worker rather than only the leader.
+The integration registers the deciders, projectors and machines in `system/` (see [Registering reactors](#registering-reactors)). The generated comments show what to re-implement: the worker count, the error strategy behind the retry toasts, and `sidereal.runner.process` to run a Sourced runtime in every worker rather than only the leader.
 
 Finally it writes the migration for Sourced's own tables into `db/migrations/` and applies it, so the app is ready to boot. Sourced's store expects its tables to be there rather than creating them, so they are a migration's job like any other table:
 
@@ -981,7 +1001,7 @@ A checkout of the app gets its database the same way, since `db/migrations/` is 
 
 `bin/sid sourced migration` writes that file on its own, for an app that needs it again — after changing `sourced.store.table_prefix`, say. It renders the migration from Sourced's template through the app's own store, so a configured prefix is honoured, and it leaves an existing one alone unless you pass `--force`. `sourced install` runs it in a separate process, because the gem it needs has only just been bundled.
 
-`boot.rb` says nothing about Sourced — the `require` lives in the generated component file too, so installing Sourced later works exactly like generating with it. Its order is load-bearing in two ways: `config/components/` loads **after** `Sidereal.config.use_file_system!`, because both implement `sidereal.store` and the last implementation of a key wins (the other way round a Sourced app would append its commands to files while Sourced's runtime watched its own tables); and `LOADER.eager_load` comes **after** the components, so that the `require` in `config/components/sourced.rb` has happened before Zeitwerk loads a `system/` class that subclasses `Sourced::Decider`.
+`boot.rb` says nothing about Sourced — the `require` lives in the generated component file too, so installing Sourced later works exactly like generating with it. Its order is load-bearing in two ways: `config/components/` loads **after** `Sidereal.config.use_file_system!`, because both implement `sidereal.store` and the last implementation of a key wins (the other way round a Sourced app would append its commands to files while Sourced's runtime watched its own tables); and `LOADER.eager_load` comes **after** the components, so that the `require` in `config/components/sourced.rb` has happened before Zeitwerk loads a `system/` class that subclasses `Sourced::Decider`. In between, `Sidereal.config.install_dirs!` declares the `system/` components: after `config/components/`, whose components they may inject, and before `eager_load`, whose classes may inject them.
 
 #### Topology
 
@@ -1156,7 +1176,9 @@ my_app.greetings.say_hello  Greetings::SayHello  App::Commander  yes
 
 This lists every command the app knows about:
 
-* **Handled by:** the commanders that handle the command. `App::Commander` is the app's own, for `command` blocks in `web/app.rb`. Commanders added with `commands` in the app appear by name, and with `--sourced`, so do Sourced deciders.
+* **Handled by:** the commanders that handle the command. `App::Commander` is the app's own, for `command` blocks in `web/app.rb`. Commanders added with `commands` in the app appear by name, and with `--sourced`, so do Sourced deciders and machines: the Sourced integration adds its reactors' commands with `Sidereal::CLI::Commands.handlers`, which another integration can call too.
+
+`list` and `info` prepare the app's components without building them, so they open no database connection.
 * **Web:** whether the app accepts the command from forms, with `handle`. A command the web accepts but that nothing handles shows `none` under **Handled by**.
 
 Add `--schemas` for a line under each command with its payload's [JSON Schema](https://json-schema.org/). It's everything needed to dispatch any of the app's commands, in one call, which makes it the quickest way for scripts and AI agents to learn what the app can do:
@@ -1233,7 +1255,7 @@ Commands dispatched from `bin/sid` don't go through the app's `before_command` h
 
 ### Agent skills
 
-Sidereal and its integrations provide skills that teach AI coding agents to work with an app, such as `sidereal-cli`, for using `bin/sid`. `bin/sid skills update` writes them into the app's `.agents/skills/` directory, where agents look for skills, and links `.claude/skills` to it for Claude Code. `sid new` runs it for a new app, unless you pass `--no-skills`.
+Sidereal and its integrations provide skills that teach AI coding agents to work with an app, such as `sidereal-cli`, for using `bin/sid`, and `sidereal-components`, for giving classes their dependencies with `dep`. `bin/sid skills update` writes them into the app's `.agents/skills/` directory, where agents look for skills, and links `.claude/skills` to it for Claude Code. `sid new` runs it for a new app, unless you pass `--no-skills`.
 
 Run it again after updating Sidereal or adding an integration:
 
@@ -2362,6 +2384,30 @@ Sidereal.config.config!('sourced.error_strategy') do
 end
 ```
 
+### Registering reactors
+
+The integration registers the Sourced reactors among the classes that `from_dir` loads: in a generated app, `system/`. It's the same scan that declares the components there (see [Configuration](#configuration)), through sourced-component's `on_dir_load`, so `system/` is scanned once, for both, and a reload updates both. Apply the integration before the directories install, as a `config/components/` file is; `reactors: false` leaves registering to `Sourced.register`.
+
+- **What's registered.** Each file's own constant, as Zeitwerk names it (`system/todos.rb` defines `Todos`, `system/billing/invoices.rb` defines `Billing::Invoices`), if it's a reactor: a decider, projector or machine, anything with `claim_selector` and `handle_claim`, or a group of reactors returned by `to_sourced_reactors`. Two kinds are skipped: Sidereal commanders, which the integration registers itself, and reactors that handle no messages, such as an abstract `ApplicationDecider` that the others subclass. Other constants a file defines aren't looked at.
+- **When.** As the directories install, ex. on `install_dirs!` in `boot.rb`, so before the router is first built. Files there can `dep` each other's components whichever loads first, so a reactor can `dep` a `system/` component. A reactor in a directory of `system/` can be a component itself, ex. a projector used as a repository, registered as the class with class-level query methods:
+
+  ```ruby
+  # system/catalog/books.rb
+  class Catalog::Books < Sourced::Projector::StateStored
+    def self.__install_component(c) = c.declare(Class).config { self }
+    def self.titles = ... # query what it projected
+
+    # ...
+  end
+
+  class Shelf
+    extend Sidereal::Deps
+    dep 'catalog.books' # a `books` reader, which returns Catalog::Books
+  end
+  ```
+- **Reloading.** When the loader reloads and the components are reconfigured, in one change to `Sourced.registry`, the reactors the last scan found are unregistered and the reloaded classes registered: the router is rebuilt with the dispatcher stopped, recompiling the store's codec as it is, and Sidereal's codec is recompiled after, so messages decode into the reloaded message classes, and a message pending during the reload is handled by the old classes or the new ones, never acked unhandled. A file that raises leaves both the components and the registry as they were. A set the registry rejects, such as two reactors with one `group_id`, leaves the registry as it was, with the components reconfigured. Either prints the directory's reload warning. Commanders aren't reloaded: they keep running the code they booted with. The generated `boot.rb` doesn't enable reloading.
+- **Anywhere else.** A reactor no `from_dir` loads is registered with `Sourced.register(Todos)`, at any time. One registered from `config/components/` loads before the `system/` components are declared, so it can't `dep` one. One the scan also finds is replaced like the others when it reloads.
+
 > **Multi-process:** `use_file_system!` (cross-process pubsub + file-lock election) is required whenever you run more than one worker, otherwise the in-process pubsub/elector can't fan SSE updates across processes. If you start multiple workers with the default in-process components, Sidereal **refuses to boot** with a loud error telling you to add it (see [Running with Falcon](#running-with-falcon)).
 
 ### Defining messages and Deciders
@@ -2391,6 +2437,7 @@ class TodoDecider < Sourced::Decider
   end
 end
 
+# In system/todo_decider.rb, the integration registers it. Anywhere else:
 Sourced.register(TodoDecider)
 ```
 

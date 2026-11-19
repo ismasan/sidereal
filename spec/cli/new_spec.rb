@@ -213,6 +213,17 @@ RSpec.describe Sidereal::CLI::New do
       expect(boot.index('LOADER.eager_load')).to be > boot.index('config/components/**')
     end
 
+    # system/ components are declared after config/components, whose
+    # components they may inject (and which may require the libraries they
+    # subclass), and before eager_load, whose classes may inject them.
+    it 'declares the system/ components between config/components and eager loading' do
+      boot = read(generate, 'boot.rb')
+
+      expect(boot).to include('Sidereal.config.loader = LOADER', "Sidereal.config.from_dir(File.expand_path('system/**/*.rb', __dir__)")
+      expect(boot.index('Sidereal.config.install_dirs!')).to be > boot.index('config/components/**')
+      expect(boot.index('LOADER.eager_load')).to be > boot.index('Sidereal.config.install_dirs!')
+    end
+
     it 'leaves requiring the integration to `sourced install` as well' do
       expect(read(generate('app', '--sourced'), 'boot.rb')).not_to include('integrations/sourced')
     end
@@ -223,7 +234,7 @@ RSpec.describe Sidereal::CLI::New do
 
       expect(code).to eq([])
       expect(example).to include("declare('mailer'", "component!('mailer')", "config!('sidereal.workers.count')", 'dep :mailer')
-      expect(read(generate('plain'), 'config/components/example.rb')).not_to include('Sourced')
+      expect(read(generate('plain'), 'config/components/example.rb')).not_to include('Sourced deciders')
     end
 
     it 'uses the file system backend' do
@@ -460,6 +471,126 @@ RSpec.describe Sidereal::CLI::New do
       expect(out).to include('hello from greeter')
     end
 
+    it 'declares components from system/, which classes there and in web/ inject as they load' do
+      root = generate
+      FileUtils.mkdir_p(File.join(root, 'system/mailers'))
+      File.write(File.join(root, 'system/mailers/templates.rb'), <<~RUBY)
+        class Mailers::Templates
+          include Sourced::Component::Installable
+
+          def welcome = 'Welcome!'
+        end
+      RUBY
+      # Injects a sibling, which loads after it
+      File.write(File.join(root, 'system/mailers/client.rb'), <<~RUBY)
+        class Mailers::Client
+          include Sourced::Component::Installable
+          extend Sidereal::Deps
+          dep 'mailers.templates'
+
+          def deliver = "sent: \#{templates.welcome}"
+        end
+      RUBY
+      File.write(File.join(root, 'web/signup.rb'), <<~RUBY)
+        class Signup
+          extend Sidereal::Deps
+          dep 'mailers.client'
+        end
+      RUBY
+
+      out, status = bin_sid(root, 'console', stdin_data: "puts Signup.new.client.deliver\n",
+        chdir: File.join(root, 'web'))
+
+      expect(status).to be_success, out
+      expect(out).to include('sent: Welcome!')
+    end
+
+    it 'declares components from system/ in a Sourced app' do
+      root = generate('app', '--sourced')
+      out, status = bin_sid(root, 'sourced', 'install', '--skip-bundle')
+      expect(status).to be_success, out
+      FileUtils.mkdir_p(File.join(root, 'system/clocks'))
+      File.write(File.join(root, 'system/clocks/now.rb'), <<~RUBY)
+        class Clocks::Now
+          include Sourced::Component::Installable
+
+          def call = 'tick'
+        end
+      RUBY
+
+
+      out, status = bin_sid(root, 'console', stdin_data: "puts Sidereal.config['clocks.now'].call\n")
+
+      expect(status).to be_success, out
+      expect(out).to include('tick')
+    end
+
+    it 'registers the Sourced reactors in system/, which can inject system/ components and be components' do
+      root = generate('app', '--sourced')
+      out, status = bin_sid(root, 'sourced', 'install', '--skip-bundle')
+      expect(status).to be_success, out
+      FileUtils.mkdir_p(File.join(root, 'system/clocks'))
+      File.write(File.join(root, 'system/clocks/now.rb'), <<~RUBY)
+        class Clocks::Now
+          include Sourced::Component::Installable
+
+          def call = 'tick'
+        end
+      RUBY
+      # Top level: a reactor, not a component. Injects a component from a
+      # directory that loads after it.
+      File.write(File.join(root, 'system/ledger.rb'), <<~RUBY)
+        class Ledger < Sourced::Decider
+          extend Sidereal::Deps
+          dep 'clocks.now'
+
+          Record = Sourced::Command.define('app.ledger.record') { attribute :entry_id, String }
+          Recorded = Sourced::Event.define('app.ledger.recorded') { attribute :entry_id, String }
+
+          partition_by :entry_id
+
+          command Record => Recorded do |_state, cmd|
+            event Recorded, entry_id: cmd.payload.entry_id
+          end
+        end
+      RUBY
+      # A base class, which handles no messages, and a reactor that's also a
+      # component: the class itself, with a query method.
+      File.write(File.join(root, 'system/application_decider.rb'), "class ApplicationDecider < Sourced::Decider; end\n")
+      FileUtils.mkdir_p(File.join(root, 'system/catalog'))
+      File.write(File.join(root, 'system/catalog/books.rb'), <<~RUBY)
+        class Catalog::Books < ApplicationDecider
+          Add = Sourced::Command.define('app.catalog.add') { attribute :book_id, String }
+          Added = Sourced::Event.define('app.catalog.added') { attribute :book_id, String }
+
+          partition_by :book_id
+
+          def self.__install_component(c) = c.declare(Class).config { self }
+          def self.titles = ['Dune']
+
+          command Add => Added do |_state, cmd|
+            event Added, book_id: cmd.payload.book_id
+          end
+        end
+      RUBY
+      File.write(File.join(root, 'web/shelf.rb'), <<~RUBY)
+        class Shelf
+          extend Sidereal::Deps
+          dep 'catalog.books'
+        end
+      RUBY
+
+      script = <<~RUBY
+        puts Sidereal.config['sourced.router'].reactors.map(&:name).sort.join(',')
+        puts Ledger.new.now.call
+        puts Shelf.new.books.titles.join
+      RUBY
+      out, status = bin_sid(root, 'console', stdin_data: script)
+
+      expect(status).to be_success, out
+      expect(out.lines(chomp: true)).to include('App::Commander,Catalog::Books,Ledger', 'tick', 'Dune')
+    end
+
     it "lists the app's commands" do
       out, status = bin_sid(generate, 'commands', 'list')
 
@@ -586,8 +717,13 @@ RSpec.describe Sidereal::CLI::New do
       out, status = bin_sid(root, 'skills', 'update')
 
       expect(status).to be_success, out
-      expect(out).to include('write   .agents/skills/sidereal-cli', 'link    .claude/skills -> ../.agents/skills')
-      expect(Dir.children(File.join(root, '.agents/skills'))).to eq(['sidereal-cli'])
+      expect(out).to include(
+        'write   .agents/skills/sidereal-cli',
+        'write   .agents/skills/sidereal-components',
+        'link    .claude/skills -> ../.agents/skills'
+      )
+      expect(Dir.children(File.join(root, '.agents/skills')).sort).to eq(%w[sidereal-cli sidereal-components])
+      expect(front_matter(read(root, '.agents/skills/sidereal-components/SKILL.md'))['name']).to eq('sidereal-components')
       skill = read(root, '.agents/skills/sidereal-cli/SKILL.md')
       expect(front_matter(skill)['name']).to eq('sidereal-cli')
       expect(skill).to include('bin/sid --help')
@@ -634,7 +770,6 @@ RSpec.describe Sidereal::CLI::New do
           end
         end
       RUBY
-      File.write(File.join(root, 'boot.rb'), "Sourced.register(Todos)\n", mode: 'a')
 
       # `sourced install` configures the integration and installs the database
       # it needs; until then there is no `db` component to build.

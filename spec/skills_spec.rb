@@ -112,6 +112,8 @@ end
 
 RSpec.describe Sidereal, '.skills' do
   it "has Sidereal's own skills" do
-    expect(File.read(File.join(Sidereal.skills['sidereal-cli'], 'SKILL.md'))).to include('name: sidereal-cli')
+    %w[sidereal-cli sidereal-components].each do |name|
+      expect(File.read(File.join(Sidereal.skills[name], 'SKILL.md'))).to include("name: #{name}")
+    end
   end
 end

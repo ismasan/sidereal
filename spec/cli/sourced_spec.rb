@@ -57,7 +57,7 @@ RSpec.describe Sidereal::CLI::Sourced do
 
       expect(read('config/components/sourced.rb')).to include(
         "require 'sidereal/integrations/sourced'",
-        "Sidereal.config.use Sidereal::Integrations::Sourced, db: 'db'"
+        "Sidereal.config.use Sidereal::Integrations::Sourced, db: 'db'\n"
       )
     end
 

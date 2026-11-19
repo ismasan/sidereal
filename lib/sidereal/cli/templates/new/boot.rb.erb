@@ -8,8 +8,8 @@ require 'zeitwerk'
 # Zeitwerk loads classes by file name, so no require statements are needed.
 #
 #   system/  backend code that doesn't know about the web: messages,
-#            commanders, Sourced deciders and reactors. Top-level names:
-#            system/greetings.rb defines Greetings.
+#            commanders, Sourced deciders and reactors, and components.
+#            Top-level names: system/greetings.rb defines Greetings.
 #   web/     web code. web/app.rb defines App, the web app, and each
 #            directory is a namespace: web/ui/welcome_page.rb defines
 #            UI::WelcomePage and web/ui/components/hello.rb defines
@@ -21,6 +21,18 @@ LOADER.push_dir(File.expand_path('web', __dir__))
 # Static files, served by config.ru. Not code.
 LOADER.ignore(File.expand_path('web/public', __dir__))
 LOADER.setup
+
+# Components from system/: a class there that includes
+# Sourced::Component::Installable is a component, keyed by its path, and built
+# with the components it asks for with `dep`. system/mailers/client.rb, which
+# defines Mailers::Client, is the `mailers.client` component, which other
+# classes get with `dep 'mailers.client'` (a `client` reader). Only files in a
+# directory: one directly in system/ can't be a component. Each directory owns
+# its key: don't declare `mailers.*` anywhere else, or it's dropped. See
+# config/components/example.rb. With Sourced installed, the same scan
+# registers the deciders and projectors here, and a reload updates both.
+Sidereal.config.loader = LOADER
+Sidereal.config.from_dir(File.expand_path('system/**/*.rb', __dir__), root: File.expand_path('system', __dir__))
 
 # File-backed command store, pubsub and leader election under ./storage.
 # Updates reach browsers connected to any worker, so COUNT > 1 works.
@@ -34,11 +46,17 @@ Sidereal.config.use_file_system!
 # See config/components/example.rb.
 Dir[File.join(__dir__, 'config/components/**/*.rb')].sort.each { |file| require file }
 
+# Declare the system/ components now, after the ones above, which they may
+# use, and before the classes load below, which may use them. So a class that
+# a file in config/components/ loads, ex. by passing it to `Sourced.register`,
+# can't `dep` a system/ component: it loads before they're declared.
+Sidereal.config.install_dirs!
+
 # Load every class up front, after the components: a file above may require a
 # library the classes are written against — `bin/sid sourced install` writes
 # one that requires Sourced, which system/ classes then subclass — and it can
-# refer to a class of its own (`Sourced.register(Todos)`), which LOADER.setup
-# has already made autoloadable. Loading them all now matters because message
+# refer to a class of its own, which LOADER.setup has already made
+# autoloadable. Loading them all now matters because message
 # classes register their types as they load, and every process must know every
 # type before it can decode messages from another.
 LOADER.eager_load

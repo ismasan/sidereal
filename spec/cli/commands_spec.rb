@@ -24,7 +24,7 @@ RSpec.describe Sidereal::CLI::Commands::Catalog do
     end
   end
 
-  # Duck-typed Sourced decider: a reactor that declares its commands.
+  # A handler an integration adds, ex. a Sourced decider.
   let(:decider) do
     Class.new do
       def self.handled_commands = [CLICatalogArchive, CLICatalogAdd]
@@ -41,15 +41,17 @@ RSpec.describe Sidereal::CLI::Commands::Catalog do
     expect(entry(entries, 'cli_catalog.remove').handlers).to eq([app.commander])
   end
 
-  it 'lists commands handled by Sourced deciders' do
-    entries = described_class.new(apps: [], commanders: [commander], sourced_reactors: [decider]).entries
+  def decider_handlers = decider.handled_commands.map { |cmd| [cmd, decider] }
+
+  it 'lists commands of the handlers integrations add' do
+    entries = described_class.new(apps: [], commanders: [commander], handlers: decider_handlers).entries
 
     expect(entry(entries, 'cli_catalog.archive').handlers).to eq([decider])
     expect(entry(entries, 'cli_catalog.add').handlers).to eq([commander, decider])
   end
 
-  it 'skips Sidereal commanders registered as Sourced reactors' do
-    entries = described_class.new(apps: [], commanders: [commander], sourced_reactors: [commander]).entries
+  it 'lists a handler once per command' do
+    entries = described_class.new(apps: [], commanders: [commander], handlers: [[CLICatalogAdd, commander]]).entries
 
     expect(entry(entries, 'cli_catalog.add').handlers).to eq([commander])
   end
@@ -64,7 +66,7 @@ RSpec.describe Sidereal::CLI::Commands::Catalog do
 
   it 'sorts by command type' do
     entries = described_class.new(apps: [app], commanders: [commander, app.commander],
-                                  sourced_reactors: [decider]).entries
+                                  handlers: decider_handlers).entries
 
     expect(entries.map(&:type)).to eq(%w[
       cli_catalog.add cli_catalog.archive cli_catalog.remove cli_catalog.web_only

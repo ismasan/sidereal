@@ -50,7 +50,7 @@ Sourced keeps the app's commands and events in the same database, in tables its 
 | --- | --- |
 | `boot.rb` | Loads and configures the app |
 | `config/components/` | Components: the connections, clients and other services the app's classes use, declared with `Sidereal.config`. `boot.rb` loads every file here. See `example.rb` |
-| `system/` | Backend code that doesn't know about the web: messages, commanders, Sourced deciders and reactors |
+| `system/` | Backend code that doesn't know about the web: messages, commanders, Sourced deciders and reactors, and components (see below) |
 | `web/app.rb` | `App`, the web app: commands it accepts, their handlers, and pages |
 | `web/ui/` | Pages and the layout, in the `UI` namespace |
 | `web/ui/components/` | Components used by pages, in `UI::Components` |
@@ -65,3 +65,25 @@ Sourced keeps the app's commands and events in the same database, in tables its 
 | `.agents/skills/` | Skills that teach AI coding agents to work with this app, such as using `bin/sid`. `.claude/skills` links here, for Claude Code. `bin/sid skills update` refreshes the ones Sidereal and its integrations provide |
 
 Classes in `system/` and `web/` are loaded by [Zeitwerk](https://github.com/fxn/zeitwerk): name a file after the class it defines and use the class anywhere, without `require`. Directories under `web/` are namespaces, so `web/ui/welcome_page.rb` defines `UI::WelcomePage`. Classes in `system/` are top-level.
+
+A class in a directory under `system/` that includes `Sourced::Component::Installable` is a component, keyed by its path, so any class can ask for it with `dep`:
+
+```ruby
+# system/mailers/client.rb: the mailers.client component
+class Mailers::Client
+  include Sourced::Component::Installable
+  extend Sidereal::Deps
+  dep 'mailers.templates' # built with the components it asks for
+
+  def deliver(to:)
+    # ...
+  end
+end
+
+# web/app.rb
+class App < Sidereal::App
+  dep 'mailers.client' # a `client` reader
+end
+```
+
+One process builds one instance, when it starts. A file directly in `system/`, like `greetings.rb`, can't be a component. Each directory owns its key, so don't declare `mailers.*` components in `config/components/` too: they're dropped. And a class loaded from `config/components/`, such as a decider passed to `Sourced.register`, loads before the `system/` components are declared, so it can't `dep` one. With Sourced installed, the deciders and projectors in `system/` are registered by the same scan that declares those components, so they can.

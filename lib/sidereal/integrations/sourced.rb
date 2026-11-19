@@ -61,9 +61,10 @@
 #
 #   Sidereal.config.use_file_system!                              # pubsub + elector
 #   Sidereal.config.use Sidereal::Integrations::Sourced, db: 'db' # store + dispatcher + error bridge
-#   Sourced.register(SomeDecider)                          # deciders/projectors: registered as usual
+#   Sourced.register(SomeDecider)                                 # a reactor no from_dir loads
 
 require 'sourced'
+require 'sidereal/integrations/sourced/reactor_sync'
 
 module Sidereal
   # Teach Commanders the Sourced reactor protocol (duck-typed: Sourced only
@@ -141,6 +142,9 @@ module Sidereal
       #   so this is what surfaces failures in the UI.
       # - Sidereal's commanders are registered with Sourced as the tree is
       #   prepared, once every app class has loaded.
+      # - The Sourced reactors among the classes +from_dir+ loads, ex. from an
+      #   app's +system/+, are registered with Sourced by the same scan that
+      #   declares its components, and again by each reload (see {ReactorSync}).
       # - `bin/sid sourced` and the sidereal-sourced agent skill are registered
       #   with {Sidereal::CLI} and {Sidereal.skills}. The app's bin/sid loads it
       #   before parsing the command line, so this is in time for either.
@@ -150,10 +154,13 @@ module Sidereal
       #   value is the Sequel::Database Sourced keeps its messages in. The app's
       #   component owns the connection, and disconnects it if it implements a
       #   teardown. When nil, Sourced's own +db+ is used.
+      # @param reactors [Boolean] whether to register the reactors +from_dir+
+      #   loads. Needs to be applied before the directories install
       # @return [Sourced::Component]
-      def self.setup(config, db: nil)
+      def self.setup(config, db: nil, reactors: true)
         register_cli_and_skills
         config.mount('sourced', ::Sourced)
+        sync_reactors(config) if reactors
         config.alias('sourced.db', db.to_s) if db
         config.config!('sourced.notifier', ['sidereal.pubsub', 'sidereal.exceptions']) do |pubsub, exceptions|
           Notifier.new(pubsub:, exceptions:)
@@ -183,17 +190,29 @@ module Sidereal
           strategy.on_retry(exceptions).on_fail(exceptions)
         end
 
-        # Commanders are declared under sourced.reactors, which Sourced's router
-        # collects when the tree is prepared: after that, the tree is locked.
-        # root.preparing is published just before, while it's still open.
+        # Commanders are registered as the tree is prepared, once the app's
+        # classes have loaded, so the router is first built with them.
         config.notifier.subscribe('root.preparing') { register_commanders }
         config
       end
 
-      # The two things an app gets by configuring this integration that aren't
-      # components: `bin/sid sourced` and the skill describing it. Both land in
-      # process-global registries, so both are idempotent under a repeated
-      # +use+. The CLI file only defines command classes — it doesn't load
+      # Register the reactors among the classes each +from_dir+ scan loads, on
+      # install and on each reload. A reload redefines the message classes:
+      # Sourced recompiles its store's codec as it rebuilds its router, and
+      # Sidereal's (see {Sidereal.message_codec}) is recompiled after it, to
+      # decode pubsub messages into the new ones.
+      # @return [void]
+      def self.sync_reactors(config)
+        sync = ReactorSync.new(after_change: lambda {
+          Sidereal.message_codec.recompile! if Sidereal.message_codec.compiled?
+        })
+        config.on_dir_load { |source, constants| sync.call(source, constants) }
+      end
+
+      # What an app gets by configuring this integration that isn't a
+      # component: `bin/sid sourced`, the skill describing it, and its reactors'
+      # commands in `bin/sid commands`. They land in process-global registries,
+      # so they're idempotent under a repeated +use+. The CLI file only defines command classes — it doesn't load
       # Sourced, which the commands do for themselves via +boot_app!+.
       # @return [void]
       def self.register_cli_and_skills
@@ -207,16 +226,29 @@ module Sidereal
         Sidereal::CLI::Sourced.register 'migration', Sidereal::Integrations::Sourced::CLI::Migration
         Sidereal::CLI::Sourced.register 'topology', Sidereal::Integrations::Sourced::CLI::Topology
         Sidereal.skills.add('sidereal-sourced', File.expand_path('sourced/skills/sidereal-sourced', __dir__))
+        Sidereal::CLI::Commands.handlers('sourced') { command_handlers }
+      end
+
+      # +[command_class, reactor]+ for each command a registered Sourced reactor
+      # handles, ex. a decider's, for `bin/sid commands`. Sidereal commanders
+      # are left out: it lists them from {Sidereal.registry}.
+      # @return [Array<(Class, Class)>]
+      def self.command_handlers
+        ::Sourced.registry.reactors.flat_map do |reactor|
+          next [] unless reactor.respond_to?(:handled_commands)
+          next [] if reactor.is_a?(Class) && reactor <= Sidereal::Commander
+
+          reactor.handled_commands.map { |cmd| [cmd, reactor] }
+        end
       end
 
       # Register every Sidereal commander with Sourced, with its full command
       # set (the app classes have loaded by the time the tree is prepared).
-      # Skips commanders the app registered itself, which have a +group_id+
-      # once registered.
+      # Skips commanders the app registered itself.
       # @return [void]
       def self.register_commanders
         Sidereal.registry.commanders.each do |commander|
-          next if commander.respond_to?(:group_id) && ::Sourced.config.declared?(::Sourced::Config.reactor_key(commander))
+          next if ::Sourced.registry.registered?(commander)
 
           ::Sourced.register(commander)
         end

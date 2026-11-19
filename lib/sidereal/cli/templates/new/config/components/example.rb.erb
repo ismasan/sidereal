@@ -46,3 +46,16 @@
 #   end
 #
 # Sidereal::Commander subclasses<% if sourced? %>, and Sourced deciders and projectors,<% end %> take `dep` too.
+
+# A class of the app's own can be a component without a file here: in a
+# directory under system/, include Sourced::Component::Installable, and it's
+# keyed by its path. Its `dep`s are what it's built with.
+#
+#   # system/mailers/client.rb: the mailers.client component
+#   class Mailers::Client
+#     include Sourced::Component::Installable
+#     extend Sidereal::Deps
+#     dep :mailer
+#   end
+#
+#   dep 'mailers.client' # elsewhere: a `client` reader

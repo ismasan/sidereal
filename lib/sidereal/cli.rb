@@ -155,10 +155,23 @@ module Sidereal
       # @raise [Error] outside an app
       # @raise [Exception] whatever {.load_app} caught loading the app
       def boot_app!
+        prepare_app!
+        Sidereal.config.build!
+      end
+
+      # Prepare the app's components ({Sidereal.config}) without building them,
+      # for a command that only reads what the app's classes registered as they
+      # loaded or as the tree was prepared, ex. its commands. Preparing loads
+      # the +from_dir+ directories and compiles codecs, but opens no
+      # connections.
+      #
+      # @raise [Error] outside an app
+      # @raise [Exception] whatever {.load_app} caught loading the app
+      def prepare_app!
         raise Error, 'Run this command from inside a Sidereal app, with bin/sid' unless app_root
         raise @app_load_error if @app_load_error
 
-        Sidereal.config.build!
+        Sidereal.config.prepare!
       end
     end
 

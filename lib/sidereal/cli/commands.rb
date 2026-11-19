@@ -8,8 +8,8 @@ module Sidereal
     # bin/sid (see {CLI.load_app}).
     class Commands < Command
       # Every command the app knows about: those handled by Sidereal
-      # commanders, by Sourced deciders, and those exposed to the web with
-      # {Sidereal::App.handle}.
+      # commanders, by the handlers integrations add (see {Commands.handlers}),
+      # and those exposed to the web with {Sidereal::App.handle}.
       class Catalog
         Entry = Data.define(:type, :command_class, :handlers, :web) do
           def web? = web
@@ -17,13 +17,12 @@ module Sidereal
 
         # @param apps [Array<Class>] Sidereal::App subclasses
         # @param commanders [Array<Class>] Sidereal::Commander classes
-        # @param sourced_reactors [Array<Class>] reactors registered with
-        #   Sourced. Those answering +handled_commands+ (deciders) are listed;
-        #   Sidereal commanders among them are skipped, as +commanders+ has them.
-        def initialize(apps:, commanders:, sourced_reactors: [])
+        # @param handlers [Array<(Class, Object)>] more +[command_class, handler]+
+        #   pairs, ex. a Sourced decider and each command it handles
+        def initialize(apps:, commanders:, handlers: [])
           @apps = apps
           @commanders = commanders
-          @sourced_reactors = sourced_reactors
+          @handlers = handlers
         end
 
         # @return [Array<Entry>] sorted by command type
@@ -32,9 +31,7 @@ module Sidereal
           @commanders.each do |commander|
             commander.handled_commands.each { |cmd| handlers[cmd] << commander }
           end
-          sourced_deciders.each do |decider|
-            decider.handled_commands.each { |cmd| handlers[cmd] << decider }
-          end
+          @handlers.each { |cmd, handler| handlers[cmd] << handler }
 
           web = @apps.flat_map { |app| app.handled_commands.values }.uniq
 
@@ -42,36 +39,42 @@ module Sidereal
             .map { |cmd| Entry.new(cmd.type, cmd, handlers[cmd].uniq, web.include?(cmd)) }
             .sort_by(&:type)
         end
-
-        private
-
-        def sourced_deciders
-          @sourced_reactors.select do |reactor|
-            reactor.respond_to?(:handled_commands) && !(reactor < Sidereal::Commander)
-          end
-        end
       end
 
-      # The loaded app's command catalog. Call after {CLI.boot_app!}.
+      # Add the commands an integration's handlers handle to the catalog, ex.
+      # Sourced's deciders. The block returns +[command_class, handler]+ pairs
+      # when a catalog is made, from a loaded and prepared app (see
+      # {CLI.prepare_app!}). By name, so adding it again replaces it.
+      #
+      #   Sidereal::CLI::Commands.handlers('sourced') do
+      #     Sourced.registry.reactors.flat_map { |r| r.handled_commands.map { |cmd| [cmd, r] } }
+      #   end
+      #
+      # @param name [String]
+      # @return [void]
+      def self.handlers(name, &block)
+        raise ArgumentError, 'handlers needs a block' unless block
+
+        handler_sources[name.to_s] = block
+      end
+
+      def self.handler_sources = @handler_sources ||= {}
+
+      # The loaded app's command catalog. Call after {CLI.prepare_app!}.
       #
       # @return [Catalog]
       def self.catalog
-        Catalog.new(apps: app_classes, commanders: Sidereal.registry.commanders, sourced_reactors:)
+        Catalog.new(
+          apps: app_classes,
+          commanders: Sidereal.registry.commanders,
+          handlers: handler_sources.values.flat_map(&:call)
+        )
       end
 
       def self.app_classes(klass = Sidereal::App)
         klass.subclasses.flat_map { |app| [app, *app_classes(app)] }
       end
-
-      # Every reactor registered with Sourced, from its router, which
-      # {CLI.boot_app!} has built. Empty for an app that doesn't use Sourced:
-      # the key exists only once the integration has mounted it.
-      def self.sourced_reactors
-        return [] unless Sidereal.config.declared?('sourced.router')
-
-        Sidereal.config['sourced.router'].reactors
-      end
-      private_class_method :app_classes, :sourced_reactors
+      private_class_method :app_classes, :handler_sources
 
       # A class's name, or its inspect output for an anonymous class.
       def self.display_name(klass) = klass.name || klass.inspect
@@ -258,7 +261,7 @@ module Sidereal
         HEADERS = ['Command', 'Class', 'Handled by', 'Web'].freeze
 
         def call
-          CLI.boot_app!
+          CLI.prepare_app!
 
           entries = Commands.catalog.entries
 
@@ -294,7 +297,7 @@ module Sidereal
         def call
           raise Error, 'Name a command, e.g. `bin/sid commands info Greetings::SayHello`' unless @class_name
 
-          CLI.boot_app!
+          CLI.prepare_app!
 
           entry = Commands.find!(@class_name)
           schema = entry.command_class::Payload.to_json_schema
