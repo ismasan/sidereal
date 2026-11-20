@@ -18,7 +18,7 @@ Then open <http://localhost:<%= port %>>. `PORT`, `HOST` and `COUNT` (worker pro
 The migrations in `db/migrations/` are committed and `storage/` isn't, so `bin/sid db migrations run` is how a checkout gets its database — copy one over instead if you'd rather keep the data.
 <% end -%>
 
-`bin/dev` runs `bundle exec falcon host` and reloads the app whenever a Ruby file changes. Reloading needs a file watcher: [watchexec](https://github.com/watchexec/watchexec) (`brew install watchexec`) or fswatch. Without one, the server still runs. In production, run `bundle exec falcon host`.
+`bin/dev` runs `bundle exec falcon host` and reloads the app whenever a Ruby file changes. Reloading needs a file watcher: [watchexec](https://github.com/watchexec/watchexec) (`brew install watchexec`) or fswatch. Without one, the server still runs. In production, run `bundle exec falcon host`, with `SIDEREAL_SECRET` set to a random string of at least 32 bytes (`ruby -rsecurerandom -e 'puts SecureRandom.hex(32)'`), the same in every process and across deploys: Sidereal signs the URLs of pages' live updates with it. Without it they're only encoded, so a client could forge one.
 <% if rspec? -%>
 
 ## Test

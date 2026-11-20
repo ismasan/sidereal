@@ -228,7 +228,7 @@ event.correlation_id  # => source_cmd.correlation_id
 
 ## App
 
-`Sidereal::App` is a web router with that implements a full reactive framework: command handlers, pages, layouts, and SSE streaming. It automatically sets up `POST /commands` and `GET /updates/:channel_name` endpoints.
+`Sidereal::App` is a web router with that implements a full reactive framework: command handlers, pages, layouts, and SSE streaming. It automatically sets up `POST /commands` and `GET /_updates/:token` endpoints, the second for pages' live updates (see [Per-page channels](#per-page-channels)).
 
 ```ruby
 class ChatApp < Sidereal::App
@@ -651,22 +651,63 @@ A handler written with a block always wins for messages of exactly its class. Th
 
 ### Per-page channels
 
-Each page subscribes to a single PubSub channel via `GET /updates/:channel_name`. The default is `'system'`, which means every page receives every published event. Override `Page#channel_name` to scope a page's SSE stream to a narrower topic — for example, "only events for this donation" or "only events for this chat room".
+Live updates travel over PubSub channels, and each side names its own end. When the dispatcher publishes a message, the app's [`channel_name` resolvers](#routing-messages-to-channels) pick the channel it goes to. A page names the channels it listens on in `#channel_names`, and its browser receives every message published to any of them.
+
+A page receives live updates over one SSE stream, subscribed to the PubSub channels the page names in `#channel_names`. The default is `['system']`, where messages go that no channel resolver (below) routes elsewhere. Override it to scope the stream to a narrower topic: "only events for this donation", say, or "only events for this chat room".
 
 ```ruby
 class DonationPage < Sidereal::Page
   path '/:donation_id'
 
-  def initialize(donation_id:, **)
+  def self.load(params, _ctx) = new(donation_id: params[:donation_id])
+
+  def initialize(donation_id:)
     @donation_id = donation_id
   end
 
   # Each donation page only receives events on its own channel
-  def channel_name = "donations.#{@donation_id}"
+  def channel_names = "donations.#{channel_segment(@donation_id)}"
 end
 ```
 
-For events to actually reach that channel, declare how the App derives a channel name from each message. The `channel_name` macro registers a resolver on the process-global `Sidereal.channels` registry. Pass message classes positionally to scope the resolver, or no arguments to register a catch-all:
+Interpolate values through `channel_segment`. It returns the value as a String, and raises unless it's exactly one plain segment: not blank, no `.`, not `*` or `>`. Without it, a donation id taken from the URL could be `>`, and the page would sign itself a wildcard subscription to every channel under `donations.`. Wildcards go in the pattern itself (`'campaigns.>'`), never in a value.
+
+`#channel_names` runs on the page being rendered, so it can use anything the page was built with: loaded records, the current user. Return one pattern as a String, or an Array of several to receive more than one stream on the same page, such as the entity's updates and the user's notifications. A message whose channel matches more than one of them still arrives once. Return `[]` or `nil` for a page that takes no live updates, like a historic snapshot: the layout then opens no stream for it.
+
+```ruby
+class OrderPage < Sidereal::Page
+  path '/orders/:id'
+
+  def self.load(params, ctx)
+    new(order: Order.find(params[:id]), user: ctx.session[:user_id])
+  end
+
+  # A route of the app's own renders frozen snapshots, passing a step
+  def initialize(order:, user:, step: nil)
+    @order = order
+    @user = user
+    @step = step
+  end
+
+  def channel_names
+    return [] if @step  # a frozen snapshot
+
+    patterns = ["accounts.#{channel_segment(@order.account_id)}.orders.#{channel_segment(@order.id)}"]
+    patterns << "users.#{channel_segment(@user)}" if @user  # logged in
+    patterns
+  end
+end
+```
+
+The browser never names a channel. The layout signs the page's key, the params it was rendered with and its channels into a token, with the [`sidereal.signer`](#sidereals-components) component, and points the browser at `GET /_updates/<token>`. The stream verifies the token, subscribes, and only then loads the page again from those params to render it on connect, so nothing published in between is lost. Once `SIDEREAL_SECRET` is set, a forged or altered token gets nothing, so a client can only subscribe to what a page it was shown named. Without it, the default only encodes the token, so a client could write its own: fine in development, not in production (see [Running with Falcon](#running-with-falcon)).
+
+The token is bound to the session the page rendered in, when the app has [sessions](#sessions): a token from another session is refused. Rack only gives a session its id once something is stored in it, and changes it only when the session is renewed, so a login that writes to the session changes it. To cut off open tabs at logout, renew the session rather than only clearing it (`request.env['rack.session.options'][:renew] = true`). A refused token, like one signed with a secret that has since changed, gets the page reloaded, which renders a fresh one.
+
+Channels are fixed when the page first renders: reactions that re-render it, and the browser's reconnects, keep the same stream until the page reloads. A page streams only when its class is the one an app mounted with `page`, wherever it renders, so the stream can find it again.
+
+#### Routing messages to channels
+
+For events to actually reach a page's channels, declare how the App derives a channel name from each message. The `channel_name` macro registers a resolver on the process-global `Sidereal.channels` registry. Pass message classes positionally to scope the resolver, or no arguments to register a catch-all:
 
 ```ruby
 class DonationsApp < Sidereal::App
@@ -684,7 +725,7 @@ class DonationsApp < Sidereal::App
 end
 ```
 
-The block runs for every message the dispatcher publishes — both the incoming command and the events it emits. Resolution is O(1) per message: typed registrations win first, then the catch-all, then a fallback to the literal `'system'` channel (so an app that registers nothing still publishes successfully). System notifications (`Sidereal::System::NotifyRetry`/`NotifyFailure`) are pre-routed via the `:source_channel` metadata that the dispatcher stamps; user-supplied resolvers never see them.
+The block runs for every message the dispatcher publishes — both the incoming command and the events it emits. Resolution is O(1) per message: typed registrations win first, then the catch-all, then a fallback to the literal `'system'` channel (so an app that registers nothing still publishes successfully). When a command fails or is retried, the `Sidereal::System::NotifyRetry` or `NotifyFailure` it causes is published to the channel the resolvers give the command, so every page subscribed to that channel shows the toast.
 
 Channel routing also works outside the App class — call `Sidereal.channels.channel_name(...)` from anywhere (e.g. a dedicated routes file) for apps where the registrations grow large enough to warrant their own home.
 
@@ -709,12 +750,12 @@ This lets pages scope their SSE stream to just what they need. Use an exact chan
 ```ruby
 class DonationPage < Sidereal::Page
   # Only events for this specific donation
-  def channel_name = "campaigns.#{@campaign_id}.donations.#{@donation_id}"
+  def channel_names = ["campaigns.#{channel_segment(@campaign_id)}.donations.#{channel_segment(@donation_id)}"]
 end
 
 class CampaignsListPage < Sidereal::Page
   # Every campaign event and every donation event under every campaign
-  def channel_name = 'campaigns.>'
+  def channel_names = 'campaigns.>'
 end
 ```
 
@@ -829,7 +870,7 @@ The current machine is kept in `Thread.current`, which Ruby scopes to the curren
 Define a layout by subclassing `Sidereal::Components::Layout`. The base class overrides `head` and `body` to automatically inject the necessary Datastar wiring:
 
 - **`head`** — appends the Datastar JS script tag after your content.
-- **`body`** — adds page signals (`page_key`, `params`) to the `data` attribute and appends the SSE init div at the end.
+- **`body`** — adds page signals (`page_key`, `params`) to the `data` attribute and appends the SSE init div at the end, pointed at the page's signed `/_updates` stream. A page with no channels gets no init div.
 
 ```ruby
 class AppLayout < Sidereal::Components::Layout
@@ -1599,6 +1640,7 @@ Sidereal.config.config!('sidereal.workers.count') { 10 }
 | `sidereal.runner.targets` | `['sidereal.dispatcher']` | what the runner starts |
 | `sidereal.runner.process` | `:all` | where the runner starts it: `:all` or `:leader` (see [Custom backends](#custom-backends)) |
 | `sidereal.scheduler` | `Sidereal.scheduler` | the [Scheduler](#fixed-schedules). Starts after the runner |
+| `sidereal.signer` | `Sidereal::Signer` with `ENV['SIDEREAL_SECRET']` when it's set, otherwise `Sidereal::Signer::Unsigned` | signs and verifies tokens: pages' [stream URLs](#per-page-channels), and anything an app signs with it (`dep 'sidereal.signer'`). `Sidereal::Signer::Unsigned` only encodes them, so anyone can forge one. `Sidereal.signer` reads it, and returns the default before the configuration is built |
 
 Implement any of them to replace it. See [Custom backends](#custom-backends).
 
@@ -1718,6 +1760,10 @@ Run with:
 bundle exec falcon host
 ```
 
+The host builds and starts the app's [components](#sidereals-components) before it serves requests.
+
+In production, set `SIDEREAL_SECRET` to a random string of at least 32 bytes (`ruby -rsecurerandom -e 'puts SecureRandom.hex(32)'`), the same in every process and kept across deploys. Without it, pages' stream URLs are encoded but not signed, so a client could subscribe to any channel by writing its own; the app logs a warning as it boots. Every worker has to sign alike, because a page one worker renders may stream from another, and tabs that are still open after a deploy reconnect with tokens signed by the old secret. Those tabs reload when their token is refused.
+
 ### Workers
 
 Each process that runs the dispatcher handles commands in `sidereal.workers.count` fibers (25 by default):
@@ -1780,7 +1826,7 @@ Sidereal.config.component!('sidereal.pubsub', ['sidereal.elector']) do
 end
 ```
 
-- A store must respond to `#append(message)`. A pubsub to `#start(task)`, `#subscribe` and `#publish`. An elector to `#start(task)`, `#on_promote`, `#on_demote` and `#leader?`.
+- A store must respond to `#append(message)`. A pubsub to `#start(task)`, `#subscribe(*patterns)` and `#publish`. `#subscribe` returns one channel fed by every pattern, which gets a message matching several of them once, and stops them all on `#stop`. An elector to `#start(task)`, `#on_promote`, `#on_demote` and `#leader?`.
 - Implementing a component replaces its hooks along with how it's built, so a pubsub, elector or scheduler you implement brings its own `start` hook, as above.
 - A dispatcher must respond to `#start(task)` and `#stop`, and be able to start again after stopping. Implement `sidereal.dispatcher` with hooks that call them. It stays deferred, so the runner starts it:
 
@@ -1806,7 +1852,7 @@ Sidereal.config.config!('sidereal.runner.process') { :leader }
 
 With the default `Elector::AlwaysLeader` every process is leader, so the two modes coincide. A dispatcher that fails to start on a *later* promotion (after a failover) is logged by the elector's callback guard rather than failing the boot, since promotion happens after boot.
 
-**Multi-process shortcut.** `Sidereal.config.use_file_system!` switches the store, pubsub, **and** elector to their filesystem / unix-socket implementations in one call: the combination needed to run across multiple Falcon workers on one host (a shared on-disk queue, a unix-socket pubsub broker, and file-lock leader election). Files and the socket live under `dir:` (default `./storage`, relative to the working directory). Implement any of them afterward to replace it alone:
+**Multi-process shortcut.** `Sidereal.config.use_file_system!` switches the store, pubsub, **and** elector to their filesystem / unix-socket implementations in one call: the combination needed to run across multiple Falcon workers on one host (a shared on-disk queue, a unix-socket pubsub broker, and file-lock leader election). Files and the socket live under `dir:` (default `./storage`, relative to the working directory). Keep that directory out of version control. Implement any of them afterward to replace it alone:
 
 ```ruby
 Sidereal.config.use_file_system!                         # FS store + unix-socket pubsub + file-lock elector
@@ -1991,7 +2037,7 @@ end
 
 Defining via `Notification.define(...)` registers it under the `Notification` registry; the dispatcher's loop prevention keys off `is_a?(Notification)` and picks up the new class automatically. You'll still need to:
 
-- register a `:source_channel`-bypass route for it on `Sidereal.channels` (mirroring the bypass installed for `NotifyRetry`/`NotifyFailure`) so it reaches the originating page's SSE channel;
+- publish it to a channel the pages that should show it subscribe to, as the default exceptions publisher does for `NotifyRetry`/`NotifyFailure` with the failed command's channel (`Sidereal.channels.for(command)`);
 - extend `Sidereal::Exceptions.build_notification` (or register a custom subscriber that handles the new kind) so reports are translated into the new message;
 - add the corresponding `Page.on(...)` reaction;
 - optionally, add a UI component to render it.
@@ -2330,8 +2376,8 @@ sequenceDiagram
     end
 
 
-    Browser->>App: GET /updates (SSE)
-    App->>PubSub: Subscribe
+    Browser->>App: GET /_updates/<signed token> (SSE)
+    App->>PubSub: Subscribe to the page's channels
     PubSub->>App: Event
     App->>App: Page reactions render HTML
     App->>Browser: SSE patch (HTML fragments)

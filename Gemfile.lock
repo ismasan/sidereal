@@ -23,6 +23,7 @@ PATH
   specs:
     sidereal (0.1.0)
       async
+      base64
       brotli
       datastar (~> 1.0.6)
       phlex

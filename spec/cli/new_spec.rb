@@ -264,16 +264,17 @@ RSpec.describe Sidereal::CLI::New do
 
   describe 'generated app' do
     # Boots config.ru in a separate process (it configures process-global
-    # Sidereal state) and requests the welcome page.
+    # Sidereal state) and requests the welcome page. The response follows a
+    # marker on stderr, after anything the app logged there.
     def get_root(root)
       script = <<~RUBY
         require 'rack'
         app = Rack::Builder.parse_file('config.ru')
         response = Rack::MockRequest.new(app).get('/')
-        $stderr.print response.status, "\\n", response.body
+        $stderr.print "\\0response\\0", response.status, "\\n", response.body
       RUBY
-      _stdout, response, status = Open3.capture3(RbConfig.ruby, '-e', script, chdir: root)
-      [response, status]
+      _stdout, stderr, status = Open3.capture3(RbConfig.ruby, '-e', script, chdir: root)
+      [stderr.split("\0response\0", 2).last, status]
     end
 
     it 'boots and renders the welcome page' do
