@@ -40,13 +40,13 @@ RSpec.describe Sidereal::PubSub::Unix do
 
   let(:pubsub) { build_pubsub }
 
-  # Subscribe and start a consumer fiber, then run `body` and stop.
+  # Subscribe to `pattern` (or an Array of patterns) and start a consumer fiber, then run `body` and stop.
   # Returns the messages delivered.
   def collect_from(pattern, body)
     received = []
     Sync do |task|
       pubsub.start(task)
-      channel = pubsub.subscribe(pattern)
+      channel = pubsub.subscribe(*Array(pattern))
       consumer = task.async { channel.start { |m, _| received << m } }
       body.call(pubsub)
       # Allow async fan-out to settle (frame goes over socket → broker → back).
@@ -150,6 +150,45 @@ RSpec.describe Sidereal::PubSub::Unix do
 
       expect(exact_received.map { |m| m.payload.tag }).to eq(['x'])
       expect(wild_received.map { |m| m.payload.tag }).to eq(['x'])
+    end
+  end
+
+  describe 'subscription to several patterns' do
+    it 'delivers messages matching any of them on one channel' do
+      received = collect_from(['orders.>', 'system'], lambda do |p|
+        p.publish('orders.1', UnixPubSubMsg.new(payload: { tag: 'a' }))
+        p.publish('system', UnixPubSubMsg.new(payload: { tag: 'b' }))
+        p.publish('campaigns.1', UnixPubSubMsg.new(payload: { tag: 'c' }))
+      end)
+      expect(received.map { |m| m.payload.tag }).to eq(%w[a b])
+    end
+
+    it 'delivers a message matching several of them once' do
+      received = collect_from(['orders.>', 'orders.*', 'orders.1'], ->(p) { p.publish('orders.1', UnixPubSubMsg.new(payload: { tag: 'a' })) })
+      expect(received.map { |m| m.payload.tag }).to eq(['a'])
+    end
+
+    it 'stops delivery on every pattern when the channel stops' do
+      received = []
+      Sync do |task|
+        pubsub.start(task)
+        channel = pubsub.subscribe('orders.1', 'system.>')
+        consumer = task.async { channel.start { |m, _| received << m } }
+        pubsub.publish('orders.1', UnixPubSubMsg.new(payload: { tag: 'a' }))
+        channel.stop
+        pubsub.publish('orders.1', UnixPubSubMsg.new(payload: { tag: 'b' }))
+        pubsub.publish('system.x', UnixPubSubMsg.new(payload: { tag: 'c' }))
+        consumer.wait
+      end
+      expect(received.map { |m| m.payload.tag }).to eq(['a'])
+    end
+
+    it 'requires at least one pattern' do
+      expect { pubsub.subscribe }.to raise_error(ArgumentError, /at least one/)
+    end
+
+    it 'validates every pattern' do
+      expect { pubsub.subscribe('orders.1', 'bad..x') }.to raise_error(ArgumentError, /empty segment/)
     end
   end
 
