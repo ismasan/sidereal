@@ -208,6 +208,15 @@ module Sidereal
             # Retries and Retry at are dropped when no group has retried.
             HEADERS = ['Group', 'Status', 'Partitions', 'Position', 'Retries', 'Retry at'].freeze
             ALWAYS = 4
+            STATUS = 1
+            # Green while it consumes, yellow while it backs off, dim when an
+            # operator stopped it, and red when it gave up.
+            STATUS_STYLES = {
+              'active' => :active,
+              'retrying' => :retrying,
+              'stopped' => :stopped,
+              'failed' => :error
+            }.freeze
 
             def call
               Sidereal::CLI.boot_app!
@@ -221,11 +230,19 @@ module Sidereal
               terminal.print_line :title, "#{count} #{count == 1 ? 'group' : 'groups'}", :reset,
                                   ", store at position #{stats.max_position}"
               terminal.puts
-              Sidereal::CLI::Commands.print_table(terminal, HEADERS, rows(stats), keep: ALWAYS)
+              define_styles!
+              Sidereal::CLI::Commands.print_table(terminal, HEADERS, rows(stats),
+                                                  keep: ALWAYS, styles: { STATUS => STATUS_STYLES })
               print_notes(stats)
             end
 
             private
+
+            def define_styles!
+              terminal[:active] = terminal.style(:green)
+              terminal[:retrying] = terminal.style(:yellow)
+              terminal[:stopped] = terminal.style(nil, nil, :faint)
+            end
 
             def rows(stats)
               stats.groups.map do |group|

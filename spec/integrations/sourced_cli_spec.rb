@@ -211,6 +211,19 @@ RSpec.describe Sidereal::Integrations::Sourced::CLI::Groups::List do
     expect(out).to match(/^B\s+active\s+1\s+42\s+2\s+2026-04-01 12:30:00$/)
   end
 
+  it 'colours each status on a colour terminal' do
+    stats = Sourced::Stats.new(max_position: 42, groups: %w[active retrying stopped failed].map { |s| group(s, status: s) })
+    allow(Sidereal::CLI).to receive(:boot_app!)
+    allow(Sidereal.config).to receive(:[]).with('sourced.store').and_return(instance_double(Sourced::Store, stats:))
+    out = StringIO.new
+    command = described_class.new([], name: 'list', output: out)
+    allow(Console::Terminal).to receive(:for).and_return(Console::Terminal::XTerm.new(out))
+    command.call
+
+    expect(out.string).to include("\e[32mactive\e[0m", "\e[33mretrying\e[0m", "\e[2mstopped\e[0m",
+                                  "\e[31;1mfailed\e[0m")
+  end
+
   it 'shows how often a failed group retried beside its error' do
     out = list([group('Broken', status: 'failed',
                       error: { retry_count: 3, exception_class: 'RuntimeError', exception_message: 'boom' })])

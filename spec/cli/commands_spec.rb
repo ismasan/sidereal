@@ -161,6 +161,25 @@ RSpec.describe Sidereal::CLI::Commands, '.print_table' do
   it 'leaves out empty columns after the first `keep`' do
     expect(print_table([['a', 'string', '']], keep: 2)).to eq("Name  Type\na     string\n")
   end
+
+  it 'styles the text of a cell its column looks up, not the padding' do
+    io = StringIO.new
+    terminal = Console::Terminal::XTerm.new(io)
+    terminal[:good] = terminal.style(:green)
+    rows = [%w[a ok x], %w[b unknown y]]
+    described_class.print_table(terminal, %w[Name Type Notes], rows, styles: { 1 => { 'ok' => :good } })
+
+    lines = io.string.lines
+    expect(lines[1]).to start_with("a     \e[32mok\e[0m       x")
+    expect(lines[2]).to start_with('b     unknown  y')
+  end
+
+  it 'prints styled tables plain on a terminal without colour' do
+    expect(print_table([%w[a ok x]], styles: { 1 => { 'ok' => :good } })).to eq(<<~TEXT)
+      Name  Type  Notes
+      a     ok    x
+    TEXT
+  end
 end
 
 RSpec.describe Sidereal::CLI::Commands::Arguments do

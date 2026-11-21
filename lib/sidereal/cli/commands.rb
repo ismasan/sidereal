@@ -234,18 +234,27 @@ module Sidereal
       # Print rows as aligned columns under bold headers. Columns after the
       # first +keep+ are left out when every row is empty in them. +details+,
       # when given, holds a line per row, printed indented under it.
-      def self.print_table(terminal, headers, rows, keep: headers.size, details: nil)
+      # +styles+ maps a column index to a lookup (a Hash or a Proc) from a
+      # cell's text to a terminal style name; a cell it gives nil for is plain.
+      # Only the text is styled, not the padding after it.
+      def self.print_table(terminal, headers, rows, keep: headers.size, details: nil, styles: {})
         columns = headers.each_index.select do |i|
           i < keep || rows.any? { |row| !row[i].empty? }
         end
         widths = columns.map { |i| [headers[i], *rows.map { |row| row[i] }].map(&:size).max }
-        line = lambda do |row|
-          columns.each_with_index.map { |i, w| row[i].ljust(widths[w]) }.join('  ').rstrip
-        end
 
-        terminal.puts line.call(headers), style: :title
+        terminal.puts columns.each_with_index.map { |i, w| headers[i].ljust(widths[w]) }.join('  ').rstrip,
+                      style: :title
         rows.each_with_index do |row, index|
-          terminal.puts line.call(row)
+          # Up to the last filled cell, so a row has no trailing whitespace.
+          shown = columns.each_with_index.to_a
+          shown.pop while shown.size > 1 && row[shown.last.first].empty?
+          parts = shown.flat_map do |i, w|
+            style = styles[i]&.[](row[i])
+            padding = w == shown.last.last ? '' : ' ' * (widths[w] - row[i].size + 2)
+            [*(style ? [style, row[i], :reset] : [row[i]]), padding]
+          end
+          terminal.print_line(*parts)
           terminal.puts "  #{details[index]}" if details
         end
       end
