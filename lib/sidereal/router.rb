@@ -100,6 +100,30 @@ module Sidereal
     # Holds the parameter name as a Symbol (e.g. +Param[:id]+).
     Param = Data.define(:name)
 
+    # Cookie sessions whose secret comes from a callable: {.session} with
+    # +secret: -> { ... }+. Creates its +Rack::Session::Cookie+ on the first
+    # request, once the process has built its components, and again whenever
+    # the secret changes, as after the components are rebuilt.
+    class LazySession
+      # @param app [#call] the Rack app to wrap
+      # @param secret [#call] returns the secret
+      # @param opts [Hash] the options for +Rack::Session::Cookie+
+      def initialize(app, secret:, **opts)
+        @app = app
+        @secret = secret
+        @opts = opts
+      end
+
+      def call(env)
+        secret = @secret.call
+        unless secret == @current_secret
+          @cookie = Rack::Session::Cookie.new(@app, secret:, **@opts)
+          @current_secret = secret
+        end
+        @cookie.call(env)
+      end
+    end
+
     # A node in the route trie.
     #
     # Static segments are stored as hash keys for O(1) lookup.
@@ -244,8 +268,13 @@ module Sidereal
       # Wraps the router in +Rack::Session::Cookie+ middleware with HMAC signing.
       # Once enabled, route handlers can access the session via {#session}.
       #
-      # @param secret [String] HMAC signing secret (required, must be >= 64 bytes
-      #   for security; +Rack::Session::Cookie+ enforces a 16-byte minimum)
+      # @param secret [String, #call] the secret, at least 64 bytes, or a
+      #   callable that returns it. A callable is called on each request, so it
+      #   can read a component, which isn't built when the class loads:
+      #
+      #     session secret: -> { Sidereal.config['secrets'].derive('session') }
+      #
+      #   See {LazySession}.
       # @param opts [Hash] additional options forwarded to +Rack::Session::Cookie+
       # @option opts [String] :key cookie name (default: +"rack.session"+)
       # @option opts [String] :path cookie path (default: +"/"+)
@@ -268,8 +297,12 @@ module Sidereal
       #     end
       #   end
       def session(secret:, **opts)
-        session_options = { secret: }.merge(opts)
-        self.app = Rack::Session::Cookie.new(app, **session_options)
+        self.app =
+          if secret.respond_to?(:call)
+            LazySession.new(app, secret:, **opts)
+          else
+            Rack::Session::Cookie.new(app, secret:, **opts)
+          end
         self
       end
 

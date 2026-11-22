@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require 'sidereal/signer'
+require 'sidereal/key_generator'
 
 module Sidereal
   module CLI
@@ -15,7 +15,7 @@ module Sidereal
       def call
         return print_usage if @options[:help]
 
-        terminal.puts Sidereal::Signer.generate_secret
+        terminal.puts Sidereal::KeyGenerator.generate_secret
       end
     end
   end

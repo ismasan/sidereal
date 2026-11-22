@@ -47,76 +47,28 @@ RSpec.describe Sidereal::Signer do
     expect { described_class.new('s' * 31) }.to raise_error(ArgumentError, /at least 32 bytes/)
   end
 
-  describe Sidereal::Signer::Unsigned do
-    let(:unsigned) { described_class.new }
-
-    it 'round-trips JSON data in a URL-safe token' do
-      token = unsigned.generate({ 'channels' => ['orders.>'] }, purpose: 'streams')
-
-      expect(token).to match(/\A[A-Za-z0-9_-]+\z/)
-      expect(unsigned.verify(token, purpose: 'streams')).to eq({ 'channels' => ['orders.>'] })
-    end
-
-    it 'rejects a token generated for another purpose' do
-      token = unsigned.generate({ 'a' => 1 }, purpose: 'invites')
-
-      expect(unsigned.verify(token, purpose: 'streams')).to be_nil
-      expect(unsigned.verify(token)).to be_nil
-    end
-
-    it 'rejects tokens that do not decode' do
-      expect(unsigned.verify(nil)).to be_nil
-      expect(unsigned.verify('!!!')).to be_nil
-      expect(unsigned.verify(Base64.urlsafe_encode64('{"a":1}'))).to be_nil
+  describe '#inspect' do
+    it 'leaves the secret out' do
+      expect(signer.inspect).to eq('#<Sidereal::Signer>')
+      expect(signer.inspect).not_to include('s' * 32)
+      expect(described_class.new('t' * 40).inspect).to eq('#<Sidereal::Signer>')
     end
   end
 
-  describe '.default' do
-    def with_env_secret(value)
-      allow(ENV).to receive(:[]).and_call_original
-      allow(ENV).to receive(:[]).with(described_class::ENV_KEY).and_return(value)
+  describe 'the sidereal.signer component' do
+    it 'is declared by Sidereal, and left for the app to implement' do
+      Sidereal.reset_config!
+
+      expect { Sidereal.config.build! }
+        .to raise_error(Sourced::Component::UnimplementedComponentError, /sidereal\.signer/)
     end
 
-    it 'signs with SIDEREAL_SECRET when it is set' do
-      with_env_secret('e' * 64)
-
-      token = described_class.default.generate({ 'a' => 1 })
-
-      expect(described_class.new('e' * 64).verify(token)).to eq({ 'a' => 1 })
-    end
-
-    it 'encodes without signing when SIDEREAL_SECRET is unset or empty' do
-      [nil, ''].each do |value|
-        with_env_secret(value)
-
-        expect(described_class.default).to be_a(described_class::Unsigned)
-      end
-    end
-
-    it 'warns when it encodes without signing, and not when it signs' do
-      with_env_secret(nil)
-      expect(Console).to receive(:warn).with(described_class, /SIDEREAL_SECRET isn't set/).once
-      described_class.default
-
-      with_env_secret('e' * 64)
-      described_class.default
-    end
-  end
-
-  describe 'Sidereal.signer' do
-    it 'reads the sidereal.signer component' do
-      signer = described_class.new('k' * 32)
+    it 'takes any signer that generates and verifies tokens' do
+      signer = Struct.new(:generate, :verify).new
       Sidereal.config.config!('sidereal.signer') { signer }
       Sidereal.config.build!
 
       expect(Sidereal.signer).to equal(signer)
-    end
-
-    it 'is the default before the config is built' do
-      allow(ENV).to receive(:[]).and_call_original
-      allow(ENV).to receive(:[]).with(described_class::ENV_KEY).and_return(nil)
-
-      expect(Sidereal.signer).to be_a(described_class::Unsigned)
     end
   end
 end

@@ -83,6 +83,17 @@ RSpec.describe Sidereal::PubSub::Pattern do
     end
   end
 
+  describe '.subscription_error' do
+    it 'explains why a pattern is invalid' do
+      expect(described_class.subscription_error('a..b')).to match(/empty segment/)
+      expect(described_class.subscription_error('a.>.c')).to match(/must be the last segment/)
+    end
+
+    it 'is nil for a valid pattern' do
+      expect(described_class.subscription_error('a.*.>')).to be_nil
+    end
+  end
+
   describe '.validate_publish!' do
     it 'rejects empty channel name' do
       expect { described_class.validate_publish!('') }.to raise_error(ArgumentError)
@@ -102,5 +113,20 @@ RSpec.describe Sidereal::PubSub::Pattern do
       expect { described_class.validate_publish!('a.>') }
         .to raise_error(ArgumentError, /wildcards are not allowed/)
     end
+  end
+end
+
+RSpec.describe Sidereal::Types::ChannelPattern do
+  it 'accepts a pattern that can be subscribed to' do
+    expect(described_class.resolve('orders.*.>').value).to eq('orders.*.>')
+  end
+
+  it 'rejects an invalid pattern with the reason' do
+    expect(described_class.resolve('a..b').errors).to match(/empty segment/)
+    expect(described_class.resolve('>.a').errors).to match(/must be the last segment/)
+  end
+
+  it 'rejects a value that is not a String' do
+    expect(described_class.resolve(1)).not_to be_valid
   end
 end

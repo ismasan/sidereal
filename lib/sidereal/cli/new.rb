@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require 'sidereal/signer'
+require 'sidereal/key_generator'
 require_relative 'installer'
 
 module Sidereal
@@ -12,7 +12,7 @@ module Sidereal
       SIDEREAL_GITHUB = 'ismasan/sidereal'
       PORT = 9292
       ENV_FILE = '.env'
-      # What config/components/signer.rb reads the signer's secret from
+      # What config/components/secrets.rb reads the app's master secret from
       SECRET_VARIABLE = 'SIDEREAL_SECRET'
       SECRET_LINE = /^\s*(?:export\s+)?#{SECRET_VARIABLE}=/
 
@@ -110,7 +110,7 @@ module Sidereal
       #
       # @return [Symbol] +:create+, +:update+ or +:skip+
       def write_secret(path)
-        line = "#{SECRET_VARIABLE}=#{Sidereal::Signer.generate_secret}\n"
+        line = "#{SECRET_VARIABLE}=#{Sidereal::KeyGenerator.generate_secret}\n"
         unless File.exist?(path)
           File.write(path, line)
           return :create

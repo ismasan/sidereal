@@ -293,6 +293,47 @@ RSpec.describe Sidereal::Router do
     end
   end
 
+  describe 'sessions with a callable secret' do
+    let(:secrets) { ['a' * 64] }
+
+    let(:lazy_router) do
+      current = secrets
+      Class.new(SessionRouter) do
+        session secret: -> { current.last }
+      end
+    end
+
+    def app
+      lazy_router
+    end
+
+    it "doesn't read the secret until a request comes in" do
+      calls = 0
+      Class.new(Sidereal::Router) { session secret: -> { calls += 1 } }
+
+      expect(calls).to eq(0)
+    end
+
+    it 'persists session data across requests' do
+      post '/login', user_id: '42'
+      get '/profile'
+
+      expect(last_response.body).to eq('user:42')
+    end
+
+    it 'reads the secret on each request, so a new one drops the old sessions' do
+      post '/login', user_id: '42'
+      secrets << ('b' * 64)
+      get '/profile'
+
+      expect(last_response.status).to eq(401)
+
+      post '/login', user_id: '7'
+      get '/profile'
+      expect(last_response.body).to eq('user:7')
+    end
+  end
+
   describe 'before block' do
     let(:before_router) do
       Class.new(Sidereal::Router) do

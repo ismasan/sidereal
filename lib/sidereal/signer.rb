@@ -4,7 +4,6 @@ require 'base64'
 require 'json'
 require 'openssl'
 require 'rack/utils'
-require 'securerandom'
 
 module Sidereal
   # Signs JSON data into URL-safe tokens, and verifies them. A token is the
@@ -14,8 +13,9 @@ module Sidereal
   #
   # Sidereal signs the URLs of pages' live updates streams with the
   # +sidereal.signer+ component, which an app implements, ex. with one of
-  # these (+sid new+ writes +config/components/signer.rb+). An app can sign its
-  # own data by injecting it:
+  # these and a key a {KeyGenerator} derives (+sid new+ writes
+  # +config/components/signer.rb+). An app can sign its own data by injecting
+  # it:
   #
   #   dep 'sidereal.signer' => 'signer'
   #
@@ -31,11 +31,6 @@ module Sidereal
 
     DIGEST = 'SHA256'
     SEPARATOR = '.'
-
-    # A new random secret, as hex: twice {MIN_SECRET_BYTES} characters.
-    #
-    # @return [String]
-    def self.generate_secret = SecureRandom.hex(MIN_SECRET_BYTES)
 
     # @param secret [String] at least {MIN_SECRET_BYTES} bytes
     # @raise [ArgumentError] if +secret+ is shorter

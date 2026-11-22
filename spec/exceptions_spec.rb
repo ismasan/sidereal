@@ -235,6 +235,21 @@ RSpec.describe Sidereal::Exceptions do
       expect(received.first.payload.retry_count).to eq(3)
     end
 
+    it 'publishes on the session channel of the browser that sent the command, when it carries one' do
+      reg = described_class.with_default_publisher
+      sent = cmd.with_metadata(Sidereal::Page::SESSION_CHANNEL_KEY => 'sidereal.sessions.abc')
+
+      received = collect_published('sidereal.sessions.abc') do
+        reg.report_failure(exception: boom, message: sent, retry_count: 3)
+      end
+      on_command_channel = collect_published('ch.doomed') do
+        reg.report_failure(exception: boom, message: sent, retry_count: 3)
+      end
+
+      expect(received.map(&:class)).to eq([Sidereal::System::NotifyFailure])
+      expect(on_command_channel).to be_empty
+    end
+
     it 'a domain-specific channel resolver only ever sees the failed user command, not the notification' do
       # The default publisher publishes on Sidereal.channels.for(report.message),
       # which is the user resolver — fine. The failed message is the

@@ -184,6 +184,9 @@ RSpec.describe 'Sidereal::App.command_helpers' do
 end
 
 RSpec.describe 'Sidereal::App.page' do
+  # Pages sign their stream URLs with the sidereal.signer component.
+  before { Sidereal.config.build! }
+
   include Rack::Test::Methods
 
   let(:loaded) { [] }
@@ -254,6 +257,8 @@ RSpec.describe 'Sidereal::App.page' do
   def updates_url = last_response.body[/data-init="@get\('([^']*)'\)"/, 1]
 
   describe 'updates stream' do
+    def session_channel = a_string_matching(/\Asidereal\.sessions\.\h{32}\z/)
+
     before do
       allow(Sidereal).to receive(:pubsub).and_return(fake_pubsub)
     end
@@ -270,7 +275,7 @@ RSpec.describe 'Sidereal::App.page' do
       expect(url).to start_with('/_updates/')
       expect(last_response.status).to eq(200)
       expect(last_response.headers['content-type']).to include('text/event-stream')
-      expect(subscribed).to eq([['accounts.12', 'users.ada']])
+      expect(subscribed).to match([['accounts.12', 'users.ada', session_channel]])
     end
 
     context 'with a session cookie coded as JSON' do
@@ -283,17 +288,17 @@ RSpec.describe 'Sidereal::App.page' do
 
         get url
 
-        expect(subscribed).to eq([['accounts.12', 'users.ada']])
+        expect(subscribed).to match([['accounts.12', 'users.ada', session_channel]])
       end
     end
 
-    it 'subscribes without a session when the page rendered without one' do
+    it 'gives a page rendered without a session one, whose channel its stream subscribes to' do
       get '/accounts/12/expenses'
       url = updates_url
 
       get url
 
-      expect(subscribed).to eq([['accounts.12']])
+      expect(subscribed).to match([['accounts.12', session_channel]])
     end
 
     it 'reloads the page without subscribing when the session has changed since it rendered' do
@@ -333,6 +338,9 @@ RSpec.describe 'Sidereal::App.page' do
 end
 
 RSpec.describe 'Sidereal::App#component' do
+  # Pages sign their stream URLs with the sidereal.signer component.
+  before { Sidereal.config.build! }
+
   include Rack::Test::Methods
 
   let(:component_app) do
@@ -411,6 +419,11 @@ RSpec.describe 'Sidereal::App.handle' do
 
         handle HandleTestOtherCmd
 
+        get '/login' do
+          session[:user] = 'ada'
+          'ok'
+        end
+
         handle HandleTestCmd do |cmd|
           captured << cmd
           dispatch(HandleTestOtherCmd, name: 'from handle')
@@ -430,6 +443,21 @@ RSpec.describe 'Sidereal::App.handle' do
       expect(handled.size).to eq(1)
       expect(handled.first).to be_a(HandleTestCmd)
       expect(handled.first.payload.title).to eq('hello')
+    end
+
+    it "stamps a command with its session's channel, which the commands it dispatches carry on" do
+      get '/login'
+      post '/commands', command: { type: 'app_test.do_thing', payload: { title: 'hello' } }
+
+      channel = handled.first.metadata[Sidereal::Page::SESSION_CHANNEL_KEY]
+      expect(channel).to match(/\Asidereal\.sessions\.\h{32}\z/)
+      expect(claim_one(store).metadata[Sidereal::Page::SESSION_CHANNEL_KEY]).to eq(channel)
+    end
+
+    it 'stamps no session channel on a command from a browser without a session' do
+      post '/commands', command: { type: 'app_test.do_thing', payload: { title: 'hello' } }
+
+      expect(handled.first.metadata).not_to have_key(Sidereal::Page::SESSION_CHANNEL_KEY)
     end
 
     it 'can manually append a different command to the store' do

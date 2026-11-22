@@ -6,13 +6,8 @@
 # `generate(data, purpose:)` and `verify(token, purpose:)`: replace this one
 # with your own, which may need no secret, or one from somewhere else.
 
-# The secret, from SIDEREAL_SECRET: `sid new` wrote one to .env, which boot.rb
-# loads. In production, set it in the environment, the same in every process
-# and across deploys. `bin/sid secret` makes a new one.
-Sidereal.config.declare('signer.secret', Sidereal::Types::String)
-Sidereal.config.env('SIDEREAL_SECRET' => 'signer.secret')
-
-# An HMAC-SHA256 signer, with a secret of at least 32 bytes.
-Sidereal.config.config!('sidereal.signer', ['signer.secret']) do |secret|
-  Sidereal::Signer.new(secret)
+# An HMAC-SHA256 signer, with a key derived from the app's secret (see
+# secrets.rb).
+Sidereal.config.config!('sidereal.signer', ['secrets']) do |secrets|
+  Sidereal::Signer.new(secrets.derive('sidereal.signer'))
 end

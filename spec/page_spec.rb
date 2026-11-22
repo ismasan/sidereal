@@ -198,13 +198,39 @@ RSpec.describe Sidereal::Page do
       Sidereal::Page.register(page_class)
     end
 
-    it 'resolves a token to the page class, its decoded params and the channels the instance named' do
+    it "resolves a token to the page class, its decoded params, the channels the instance named and the session's channel" do
       ctx = context_with(session: session_with_id('s1'))
       token = described_class.stream_token(page_class.new(account_id: 'a9'), { id: '42' }, ctx)
 
       expect(described_class.resolve_stream(token, ctx)).to eq(
-        Sidereal::Page::Stream.new(page_class:, params: { id: 42 }, channels: ['orders.>', 'accounts.a9'])
+        Sidereal::Page::Stream.new(
+          page_class:, params: { id: 42 },
+          channels: ['orders.>', 'accounts.a9', described_class.session_channel(ctx)]
+        )
       )
+      expect(described_class.session_channel(ctx)).to match(/\Asidereal\.sessions\.\h{32}\z/)
+    end
+
+    it 'subscribes to no session channel without a session' do
+      token = described_class.stream_token(page_class.new(account_id: 'a9'), { id: '42' }, context_with)
+
+      expect(described_class.resolve_stream(token, context_with).channels).to eq(['orders.>', 'accounts.a9'])
+      expect(described_class.session_channel(context_with)).to be_nil
+    end
+
+    it 'gives a session without an id one, by storing in it, before signing' do
+      page = page_class.new
+      id_before = token = ctx = nil
+      Rack::Session::Cookie.new(->(env) {
+        ctx = Struct.new(:request).new(Rack::Request.new(env))
+        id_before = env['rack.session'].id
+        token = described_class.stream_token(page, { id: '42' }, ctx)
+        [200, {}, []]
+      }, secret: 'a' * 64).call(Rack::MockRequest.env_for('/'))
+
+      expect(id_before).to be_nil
+      expect(ctx.request.env['rack.session'][Sidereal::Page::SESSION_KEY]).to be(true)
+      expect(described_class.resolve_stream(token, ctx).channels).to include(described_class.session_channel(ctx))
     end
 
     it 'accepts a single channel as a String' do
@@ -246,13 +272,6 @@ RSpec.describe Sidereal::Page do
       token = described_class.stream_token(page_class.new, { id: '42' }, context_with(session: session_with_id('s1')))
 
       expect(described_class.resolve_stream(token, context_with(session: double(:session, id: 's1')))).not_to be_nil
-    end
-
-    it 'streams with the default signer before the components are built' do
-      Sidereal.reset_config!
-      token = described_class.stream_token(page_class.new, { id: '42' }, context_with)
-
-      expect(described_class.resolve_stream(token, context_with).params).to eq({ id: 42 })
     end
 
     it 'rejects a token from another session' do
@@ -317,6 +336,27 @@ RSpec.describe Sidereal::Page do
       end
       expect(Sidereal.signer.verify(described_class.stream_token(segment_page.new(id: 'a*b'), { id: 'a*b' }, context_with), purpose: Sidereal::Page::STREAM_PURPOSE))
         .to include('channels' => ['orders.a*b'])
+    end
+
+    it 'rejects a token whose data has the wrong shape' do
+      signer = Sidereal.signer
+      valid = { 'page' => '/orders/:id', 'params' => { 'id' => '1' }, 'channels' => ['orders.1'], 'session' => nil }
+      [
+        valid.merge('channels' => [1]),
+        valid.merge('channels' => [nil]),
+        valid.merge('channels' => ['orders..1']),
+        valid.merge('channels' => ['>.orders']),
+        valid.merge('channels' => 'orders.1'),
+        valid.merge('channels' => []),
+        valid.merge('page' => ['/orders/:id']),
+        valid.merge('params' => 'id=1'),
+        valid.merge('params' => [1])
+      ].each do |data|
+        token = signer.generate(data, purpose: Sidereal::Page::STREAM_PURPOSE)
+        expect(described_class.resolve_stream(token, context_with, signer:)).to be_nil, "accepted #{data.inspect}"
+      end
+      token = signer.generate(valid, purpose: Sidereal::Page::STREAM_PURPOSE)
+      expect(described_class.resolve_stream(token, context_with, signer:)).not_to be_nil
     end
 
     it 'rejects garbage' do

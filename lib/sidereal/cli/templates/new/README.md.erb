@@ -18,7 +18,7 @@ Then open <http://localhost:<%= port %>>. `PORT`, `HOST` and `COUNT` (worker pro
 The migrations in `db/migrations/` are committed and `storage/` isn't, so `bin/sid db migrations run` is how a checkout gets its database — copy one over instead if you'd rather keep the data.
 <% end -%>
 
-`bin/dev` runs `bundle exec falcon host` and reloads the app whenever a Ruby file changes. Reloading needs a file watcher: [watchexec](https://github.com/watchexec/watchexec) (`brew install watchexec`) or fswatch. Without one, the server still runs. In production, run `bundle exec falcon host`, with `SIDEREAL_SECRET` set to a random string of at least 32 bytes (`bin/sid secret` makes one), the same in every process and across deploys: Sidereal signs the URLs of pages' live updates with it, and the app won't start without it. In development it comes from `.env`, which `sid new` wrote and git ignores.
+`bin/dev` runs `bundle exec falcon host` and reloads the app whenever a Ruby file changes. Reloading needs a file watcher: [watchexec](https://github.com/watchexec/watchexec) (`brew install watchexec`) or fswatch. Without one, the server still runs. In production, run `bundle exec falcon host`, with `SIDEREAL_SECRET` set to a random string of at least 64 bytes (`bin/sid secret` makes one), the same in every process and across deploys. The app derives the keys for its session cookies and for signing the URLs of pages' live updates from it, and it won't start without it. In development it comes from `.env`, which `sid new` wrote and git ignores.
 <% if rspec? -%>
 
 ## Test
@@ -49,7 +49,7 @@ Sourced keeps the app's commands and events in the same database, in tables its 
 | Path | What's in it |
 | --- | --- |
 | `boot.rb` | Loads and configures the app |
-| `config/components/` | Components: the connections, clients and other services the app's classes use, declared with `Sidereal.config`. `boot.rb` loads every file here. See `example.rb`, and `signer.rb`, which implements the signer Sidereal signs pages' live updates URLs with, from `SIDEREAL_SECRET` |
+| `config/components/` | Components: the connections, clients and other services the app's classes use, declared with `Sidereal.config`. `boot.rb` loads every file here. See `example.rb`; `secrets.rb`, which derives keys from `SIDEREAL_SECRET`; and `signer.rb`, which implements the signer Sidereal signs the URLs of pages' live updates with |
 | `system/` | Backend code that doesn't know about the web: messages, commanders, Sourced deciders and reactors, and components (see below) |
 | `web/app.rb` | `App`, the web app: commands it accepts, their handlers, and pages |
 | `web/ui/` | Pages and the layout, in the `UI` namespace |

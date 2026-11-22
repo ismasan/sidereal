@@ -4,7 +4,10 @@ require 'spec_helper'
 require 'tmpdir'
 
 RSpec.describe Sidereal::Config do
-  subject(:config) { described_class.build }
+  # Sidereal leaves the signer to the app.
+  subject(:config) do
+    described_class.build.tap { |c| c.config!('signer') { Sidereal::Signer.new('k' * 32) } }
+  end
 
   describe '.build' do
     before { config.build! }
@@ -214,7 +217,10 @@ RSpec.describe Sidereal do
   describe '.check_topology!' do
     # Inject a config so the process-global one is never touched.
     let(:in_process_config) do
-      Sourced::Component.new.tap { |root| root.mount('sidereal', Sidereal::Config.build) }
+      Sourced::Component.new.tap do |root|
+        root.mount('sidereal', Sidereal::Config.build)
+        root.config!('sidereal.signer') { Sidereal::Signer.new('k' * 32) }
+      end
     end
     let(:safe_config) do
       in_process_config.tap do |c|
