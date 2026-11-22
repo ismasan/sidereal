@@ -33,20 +33,26 @@ module Sidereal
         Regexp.new('\A' + parts.join('\.') + '\z')
       end
 
+      # @param pattern [String]
       # @raise [ArgumentError] for empty patterns, empty segments, or non-trailing `>`.
       def self.validate_subscription!(pattern)
-        raise ArgumentError, 'channel pattern must not be empty' if pattern.empty?
+        error = subscription_error(pattern)
+        raise ArgumentError, error if error
+      end
+
+      # Why +pattern+ can't be subscribed to, or +nil+ when it can. The
+      # rules {.validate_subscription!} and +Types::ChannelPattern+ enforce.
+      #
+      # @param pattern [String]
+      # @return [String, nil]
+      def self.subscription_error(pattern)
+        return 'channel pattern must not be empty' if pattern.empty?
 
         segments = pattern.split(SEGMENT_SEPARATOR, -1)
-        if segments.any?(&:empty?)
-          raise ArgumentError, "empty segment in channel pattern #{pattern.inspect}"
-        end
+        return "empty segment in channel pattern #{pattern.inspect}" if segments.any?(&:empty?)
 
-        segments.each_with_index do |seg, i|
-          if seg == '>' && i != segments.size - 1
-            raise ArgumentError,
-                  "`>` wildcard must be the last segment in #{pattern.inspect}"
-          end
+        if segments[0...-1].include?('>')
+          "`>` wildcard must be the last segment in #{pattern.inspect}"
         end
       end
 

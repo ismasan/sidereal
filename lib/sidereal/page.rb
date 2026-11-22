@@ -28,8 +28,33 @@ module Sidereal
     STREAM_PURPOSE = 'sidereal.page_stream'
 
     # A verified stream token: the page to stream, its decoded params, and
-    # the channel patterns to subscribe to. See {.resolve_stream}.
+    # the channel patterns to subscribe to: the page's {#channel_names}, and
+    # its session's {.session_channel}. See {.resolve_stream}.
     Stream = Data.define(:page_class, :params, :channels)
+
+    # What {.stream_token} signs. A token whose data doesn't match it
+    # doesn't resolve.
+    STREAM_DATA = Types::Hash[
+      'page' => Types::String,
+      'params' => Types::Hash,
+      'channels' => Types::Array[Types::ChannelPattern].present,
+      'session' => Types::String.nullable
+    ]
+
+    # Every page stream in a session also subscribes to that session's
+    # channel, +sidereal.sessions.<session digest>+, which nothing but
+    # Sidereal publishes to. It carries what's meant for one user only, such
+    # as the notifications for a command that failed. See {.session_channel}.
+    SESSION_CHANNEL_PREFIX = 'sidereal.sessions'
+
+    # The metadata key {App} stamps a command sent from a browser with, naming
+    # its session's {.session_channel}. Messages correlated from the command
+    # carry it on.
+    SESSION_CHANNEL_KEY = :session_channel
+
+    # The session key {.stream_token} writes to when a session has no id yet,
+    # since Rack only gives a session an id once something is stored in it.
+    SESSION_KEY = 'sidereal.session'
 
     # Prefixed to the session id before digesting it into a stream token, so
     # the digest doesn't coincide with the key a server-side session store
@@ -279,6 +304,9 @@ module Sidereal
       # with, its {#channel_names}, and a digest of the session it was rendered
       # in. {.resolve_stream} turns it back into a {Stream}.
       #
+      # A session that has no id yet is given one, by storing {SESSION_KEY}
+      # in it, so the stream has a {.session_channel}.
+      #
       # Only the params the page's {.query_schema} declares are signed.
       # Returns +nil+, for no stream, when the page names no channels, its
       # class isn't the one {.registry} holds for its key (it wasn't mounted
@@ -302,6 +330,7 @@ module Sidereal
         return unless decoded.valid?
 
         signed_params = params.to_h.select { |key, _| decoded.value.key?(key.to_sym) }
+        start_session(ctx)
         signer.generate(
           { 'page' => page_class.page_key, 'params' => signed_params, 'channels' => channels, 'session' => session_digest(ctx) },
           purpose: STREAM_PURPOSE
@@ -312,23 +341,39 @@ module Sidereal
       # this signer's secret, in the session +ctx+ carries, for a page in
       # {.registry} whose params still decode. A session that has since
       # been renewed, or a token from before the secret changed, gets +nil+.
+      # The stream's channels are the page's, and the session's
+      # {.session_channel} when it has one.
       #
       # @param token [String] from {.stream_token}
       # @param ctx [Sidereal::App] the request's app instance
       # @param signer [#verify]
       # @return [Stream, nil]
       def resolve_stream(token, ctx, signer: Sidereal.signer)
-        data = signer.verify(token, purpose: STREAM_PURPOSE)
-        return unless data.is_a?(Hash) && data['session'] == session_digest(ctx)
+        data = STREAM_DATA.resolve(signer.verify(token, purpose: STREAM_PURPOSE))
+        return unless data.valid?
+
+        data = data.value
+        return unless data['session'] == session_digest(ctx)
 
         page_class = registry[data['page']]
-        channels = data['channels']
-        return unless page_class && channels.is_a?(Array) && channels.any?
+        return unless page_class
 
+        channels = data['channels']
         params = page_class.parse_params(data['params'])
         return unless params.valid?
 
+        channels += ["#{SESSION_CHANNEL_PREFIX}.#{data['session']}"] if data['session']
         Stream.new(page_class:, params: params.value, channels:)
+      end
+
+      # The private channel of the session +ctx+ carries, which every page
+      # stream in it subscribes to, or +nil+ without a session id.
+      #
+      # @param ctx [Sidereal::App]
+      # @return [String, nil]
+      def session_channel(ctx)
+        digest = session_digest(ctx)
+        "#{SESSION_CHANNEL_PREFIX}.#{digest}" if digest
       end
 
       # A digest of the session id +ctx+ carries, or +nil+ without one, or
@@ -348,6 +393,13 @@ module Sidereal
         return if id.nil? || id.to_s.empty?
 
         OpenSSL::Digest::SHA256.hexdigest("#{SESSION_DIGEST_PREFIX}#{id}")[0, 32]
+      end
+
+      private def start_session(ctx)
+        session = ctx.request.env['rack.session']
+        return unless session.respond_to?(:id) && session.respond_to?(:[]=)
+
+        session[SESSION_KEY] = true if session.id.nil?
       end
 
       # Stream live updates for the page at +params+ into +sse+, until

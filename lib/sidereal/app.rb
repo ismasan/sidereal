@@ -430,7 +430,12 @@ module Sidereal
       end
     end
 
+    # A command sent from a browser carries its session's channel, so the
+    # notifications it causes reach only that session's pages.
     private def handle_local_command(cmd)
+      if (channel = Sidereal::Page.session_channel(self))
+        cmd = cmd.with_metadata(Sidereal::Page::SESSION_CHANNEL_KEY => channel)
+      end
       method_name = Sidereal.message_method_name(HANDLE_METHOD_PREFIX, cmd.type)
       @__current_msg = before_command(cmd)
       send(method_name, @__current_msg)

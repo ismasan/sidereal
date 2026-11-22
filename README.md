@@ -49,7 +49,7 @@ cd my_app
 bin/dev
 ```
 
-`sid new` creates the `my_app` directory, runs `bundle install` and `bin/sid skills update` in it, and prints how to start the server. `bin/dev` starts it at <http://localhost:9292>. Open the page in two windows and say hello: every window sees every hello as it happens.
+`sid new` creates the `my_app` directory, writes a new `SIDEREAL_SECRET` to its `.env`, which `boot.rb` loads with [dotenv](https://github.com/bkeepers/dotenv), and implements the [signer](#sidereals-components) in `config/components/signer.rb`, as a `Sidereal::Signer` with that secret, for the app to change. It runs `bundle install` and `bin/sid skills update` in it, and prints how to start the server. `bin/dev` starts it at <http://localhost:9292>. Open the page in two windows and say hello: every window sees every hello as it happens.
 
 `sid new` options:
 
@@ -699,9 +699,11 @@ class OrderPage < Sidereal::Page
 end
 ```
 
-The browser never names a channel. The layout signs the page's key, the params it was rendered with and its channels into a token, with the [`sidereal.signer`](#sidereals-components) component, and points the browser at `GET /_updates/<token>`. The stream verifies the token, subscribes, and only then loads the page again from those params to render it on connect, so nothing published in between is lost. Once `SIDEREAL_SECRET` is set, a forged or altered token gets nothing, so a client can only subscribe to what a page it was shown named. Without it, the default only encodes the token, so a client could write its own: fine in development, not in production (see [Running with Falcon](#running-with-falcon)).
+The browser never names a channel. The layout signs the page's key, the params it was rendered with and its channels into a token, with the [`sidereal.signer`](#sidereals-components) component, and points the browser at `GET /_updates/<token>`. The stream verifies the token, subscribes, and only then loads the page again from those params to render it on connect, so nothing published in between is lost. A forged or altered token gets nothing, so a client can only subscribe to what a page it was shown named. The app implements the signer: a generated app signs with `Sidereal::Signer` and `SIDEREAL_SECRET` (see [Running with Falcon](#running-with-falcon)).
 
 The token is bound to the session the page rendered in, when the app has [sessions](#sessions): a token from another session is refused. Rack only gives a session its id once something is stored in it, and changes it only when the session is renewed, so a login that writes to the session changes it. To cut off open tabs at logout, renew the session rather than only clearing it (`request.env['rack.session.options'][:renew] = true`). A refused token, like one signed with a secret that has since changed, gets the page reloaded, which renders a fresh one.
+
+Every page stream in a session also subscribes to that session's own channel, `sidereal.sessions.<session digest>`, on top of the page's channels. Sidereal publishes there what's meant for one user only: the [notifications](#failure-handling-retries-and-dead-lettering) for a command their browser sent. A command posted to `/commands` carries the channel in its metadata (`Sidereal::Page::SESSION_CHANNEL_KEY`), and so does every message correlated from it, however far down the chain. So when a command fails, the toast shows in that user's open pages, and nobody else's. To give every visitor a session channel, the layout stores a key in a session that has no id yet, which sets the session cookie. Without session middleware there's no session channel, and notifications go to the command's own channel instead. A page with no channels of its own opens no stream, so it shows no notifications either.
 
 Channels are fixed when the page first renders: reactions that re-render it, and the browser's reconnects, keep the same stream until the page reloads. A page streams only when its class is the one an app mounted with `page`, wherever it renders, so the stream can find it again.
 
@@ -725,7 +727,7 @@ class DonationsApp < Sidereal::App
 end
 ```
 
-The block runs for every message the dispatcher publishes — both the incoming command and the events it emits. Resolution is O(1) per message: typed registrations win first, then the catch-all, then a fallback to the literal `'system'` channel (so an app that registers nothing still publishes successfully). When a command fails or is retried, the `Sidereal::System::NotifyRetry` or `NotifyFailure` it causes is published to the channel the resolvers give the command, so every page subscribed to that channel shows the toast.
+The block runs for every message the dispatcher publishes — both the incoming command and the events it emits. Resolution is O(1) per message: typed registrations win first, then the catch-all, then a fallback to the literal `'system'` channel (so an app that registers nothing still publishes successfully). When a command fails or is retried, the `Sidereal::System::NotifyRetry` or `NotifyFailure` it causes goes to the [session channel](#per-page-channels) of the browser that sent it. A command no browser sent, like a scheduled one, has none, and its notification goes to the channel the resolvers give the command, so every page subscribed to that channel shows the toast.
 
 Channel routing also works outside the App class — call `Sidereal.channels.channel_name(...)` from anywhere (e.g. a dedicated routes file) for apps where the registrations grow large enough to warrant their own home.
 
@@ -941,6 +943,7 @@ bin/sid --help
 | `bin/sid system tree` | Prints the app's components as a tree, and who implemented each |
 | `bin/sid console` | Starts an IRB session with the app loaded |
 | `bin/sid info` | Prints the Sidereal and Ruby versions the app runs with |
+| `bin/sid secret` | Prints a new random secret, for `SIDEREAL_SECRET`. Also works outside an app, as `sid secret` |
 
 `NAME` is a command's class name (`Greetings::SayHello`) or its type (`my_app.greetings.say_hello`).
 
@@ -1640,7 +1643,7 @@ Sidereal.config.config!('sidereal.workers.count') { 10 }
 | `sidereal.runner.targets` | `['sidereal.dispatcher']` | what the runner starts |
 | `sidereal.runner.process` | `:all` | where the runner starts it: `:all` or `:leader` (see [Custom backends](#custom-backends)) |
 | `sidereal.scheduler` | `Sidereal.scheduler` | the [Scheduler](#fixed-schedules). Starts after the runner |
-| `sidereal.signer` | `Sidereal::Signer` with `ENV['SIDEREAL_SECRET']` when it's set, otherwise `Sidereal::Signer::Unsigned` | signs and verifies tokens: pages' [stream URLs](#per-page-channels), and anything an app signs with it (`dep 'sidereal.signer'`). `Sidereal::Signer::Unsigned` only encodes them, so anyone can forge one. `Sidereal.signer` reads it, and returns the default before the configuration is built |
+| `sidereal.signer` | none: the app implements it, and building fails until it does | signs and verifies tokens: pages' [stream URLs](#per-page-channels), and anything an app signs with it (`dep 'sidereal.signer'`). Anything that answers `generate(data, purpose:)` and `verify(token, purpose:)`, which returns `nil` for a token it didn't make. `Sidereal::Signer` is an HMAC-SHA256 one, with a secret of at least 32 bytes. A generated app implements it in `config/components/signer.rb`, with a `signer.secret` component of its own that reads `SIDEREAL_SECRET`. `Sidereal.signer` reads it |
 
 Implement any of them to replace it. See [Custom backends](#custom-backends).
 
@@ -1762,7 +1765,7 @@ bundle exec falcon host
 
 The host builds and starts the app's [components](#sidereals-components) before it serves requests.
 
-In production, set `SIDEREAL_SECRET` to a random string of at least 32 bytes (`ruby -rsecurerandom -e 'puts SecureRandom.hex(32)'`), the same in every process and kept across deploys. Without it, pages' stream URLs are encoded but not signed, so a client could subscribe to any channel by writing its own; the app logs a warning as it boots. Every worker has to sign alike, because a page one worker renders may stream from another, and tabs that are still open after a deploy reconnect with tokens signed by the old secret. Those tabs reload when their token is refused.
+An app `sid new` generated signs pages' stream URLs with `SIDEREAL_SECRET`, in `config/components/signer.rb`. In production, set it to a random string of at least 32 bytes (`sid secret` makes one), the same in every process and kept across deploys. The app won't start without it: building the components fails with `invalid ENV for signer.secret: SIDEREAL_SECRET is missing`. In development it comes from `.env`. An app that implements its own signer, ex. with a secret from a vault, has the same constraint: every worker has to sign alike, because a page one worker renders may stream from another, and tabs that are still open after a deploy reconnect with tokens signed by the old secret. Those tabs reload when their token is refused.
 
 ### Workers
 
@@ -1986,12 +1989,12 @@ Sidereal.exceptions.report_failure(exception:, message:, retry_count:)
 
 #### System notification messages (the default UI publisher)
 
-`Sidereal.exceptions` ships with a default subscriber pair pre-installed via `Sidereal::Exceptions.with_default_publisher`. Each one builds the corresponding `Sidereal::System::Notify*` from the report and broadcasts it on the failed message's channel:
+`Sidereal.exceptions` ships with a default subscriber pair pre-installed via `Sidereal::Exceptions.with_default_publisher`. Each one builds the corresponding `Sidereal::System::Notify*` from the report and publishes it to the session channel of the browser that sent the failed command, or else to the command's own channel:
 
 - `Sidereal::System::NotifyRetry` — payload: `command_type`, `command_id`, `command_payload`, `retry_count`, `retry_at` (ISO8601), `error_class`, `error_message`, `backtrace`.
 - `Sidereal::System::NotifyFailure` — same payload minus `retry_at`.
 
-Both inherit from `Sidereal::System::Notification` (a marker base). The default publisher publishes them via `Sidereal.pubsub.publish(Sidereal.channels.for(failed_command), notify)`, where `Sidereal.channels` ships with pre-installed source-channel bypass routes so the resolution lands on the originating command's channel without any user-supplied resolver having to know about system messages.
+Both inherit from `Sidereal::System::Notification` (a marker base). The default publisher publishes them via `Sidereal.pubsub.publish(Sidereal::Exceptions.notification_channel(failed_command), notify)`. That's the [session channel](#per-page-channels) the command carries in its metadata, when a browser sent it, and otherwise `Sidereal.channels.for(failed_command)`. Either way, the channel comes from the failed command, never from the notification, so the app's `channel_name` resolvers never see system messages. `Sidereal.channels` also routes `NotifyRetry` and `NotifyFailure` themselves to `'system'`, so a catch-all resolver doesn't have to handle them if something else resolves one.
 
 Pages render the toasts via the default reactions in `Sidereal::Page`:
 
@@ -2037,7 +2040,7 @@ end
 
 Defining via `Notification.define(...)` registers it under the `Notification` registry; the dispatcher's loop prevention keys off `is_a?(Notification)` and picks up the new class automatically. You'll still need to:
 
-- publish it to a channel the pages that should show it subscribe to, as the default exceptions publisher does for `NotifyRetry`/`NotifyFailure` with the failed command's channel (`Sidereal.channels.for(command)`);
+- publish it to a channel the pages that should show it subscribe to. `Sidereal::Exceptions.notification_channel(command)` gives the one the default publisher uses for `NotifyRetry`/`NotifyFailure`: the session channel of the browser that sent the command, or else the command's own;
 - extend `Sidereal::Exceptions.build_notification` (or register a custom subscriber that handles the new kind) so reports are translated into the new message;
 - add the corresponding `Page.on(...)` reaction;
 - optionally, add a UI component to render it.

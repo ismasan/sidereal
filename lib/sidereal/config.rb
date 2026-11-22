@@ -30,7 +30,9 @@ module Sidereal
   #   runner.process      :all (every process runs the targets) or :leader (only the
   #                       one the elector promotes)
   #   scheduler           Sidereal.scheduler. Ticks on the leader, after the runner starts
-  #   signer              signs the URLs of pages' live updates. See Signer.default
+  #   signer              signs the URLs of pages' live updates. Not implemented:
+  #                       the app implements it, ex. with a Signer, and building
+  #                       fails until it does
   #
   # Components that run in the background (elector, pubsub, scheduler) start
   # themselves in their component's start hook, which a re-implementation
@@ -55,6 +57,7 @@ module Sidereal
     # Started and stopped by the runner, possibly more than once per process
     DispatcherInterface = T::Interface[:start, :stop]
     SchedulerInterface = T::Interface[:start]
+    # Not implemented by Sidereal: an app implements it, ex. with a Sidereal::Signer
     SignerInterface = T::Interface[:generate, :verify]
     # Which process runs the dispatcher: every process, or only the one the
     # elector promotes. See DispatcherRunner.
@@ -164,7 +167,7 @@ module Sidereal
           start { |scheduler, task| scheduler.start(task) }
         end
 
-        c.declare('signer', SignerInterface) { Signer.default }
+        c.declare('signer', SignerInterface)
       end
     end
   end

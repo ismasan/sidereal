@@ -70,6 +70,7 @@ module Sidereal
     end
 
     require_relative 'cli/new'
+    require_relative 'cli/secret'
     require_relative 'cli/app_console'
     require_relative 'cli/commands'
     require_relative 'cli/db'
@@ -178,6 +179,7 @@ module Sidereal
     # The commands available outside an app. {.load_app} adds the rest.
     register 'info', Info
     register 'new', New
+    register 'secret', Secret
 
     # The top-level `sid` command.
     class Application < Command

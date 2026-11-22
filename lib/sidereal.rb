@@ -205,16 +205,8 @@ module Sidereal
   def self.store = config['sidereal.store']
   def self.elector = config['sidereal.elector']
 
-  # The +sidereal.signer+ component. Before {.config} is built, as under
-  # +rackup+ or in a spec that builds nothing, it's {Signer.default}, so pages
-  # still render and stream.
-  #
-  # @return [#generate, #verify]
-  def self.signer
-    config['sidereal.signer']
-  rescue Sourced::Component::NotBuiltError
-    Signer.default
-  end
+  # @return [#generate, #verify] the +sidereal.signer+ component
+  def self.signer = config['sidereal.signer']
 
   # Labels of the subsystems whose state lives entirely within one process
   # (they carry the {SingleProcess} marker). These break cross-process fan-out

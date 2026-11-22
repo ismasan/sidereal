@@ -3,12 +3,21 @@
 require 'securerandom'
 require 'tempfile'
 require 'plumb'
+require_relative 'pubsub/pattern'
 
 module Sidereal
   module Types
     include Plumb::Types
 
     AutoUUID = UUID::V4.default { SecureRandom.uuid }
+
+    # A channel pattern that can be subscribed to, as
+    # {PubSub::Pattern.validate_subscription!} accepts: +*+ and a trailing +>+
+    # are wildcards.
+    ChannelPattern = String >> lambda { |result|
+      error = PubSub::Pattern.subscription_error(result.value)
+      error ? result.invalid(errors: error) : result
+    }
 
     # A file uploaded through a multipart form, in the shape provided by Rack.
     # Declare a command attribute with it, refining it as any struct:
