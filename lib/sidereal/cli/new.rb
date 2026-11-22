@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require 'sidereal/signer'
 require_relative 'installer'
 
 module Sidereal
@@ -10,6 +11,10 @@ module Sidereal
       NAME_FORMAT = /\A[a-z][a-z0-9_]*\z/
       SIDEREAL_GITHUB = 'ismasan/sidereal'
       PORT = 9292
+      ENV_FILE = '.env'
+      # What config/components/signer.rb reads the signer's secret from
+      SECRET_VARIABLE = 'SIDEREAL_SECRET'
+      SECRET_LINE = /^\s*(?:export\s+)?#{SECRET_VARIABLE}=/
 
       # What the templates see: `<%= title %>`, `<% if sourced? %>`, etc.
       Context = Data.define(:app_name, :title, :sidereal_path, :rspec, :sourced, :db) do
@@ -73,6 +78,7 @@ module Sidereal
         Generator.new(TEMPLATES, root, context).generate do |_action, path|
           terminal.print_line :key, '  create  ', :reset, path
         end
+        print_actions([[write_secret(File.join(root, ENV_FILE)), ENV_FILE]])
 
         if @options[:skip_bundle]
           instructions(context, bundled: false)
@@ -96,6 +102,27 @@ module Sidereal
       end
 
       private
+
+      # Adds a new SIDEREAL_SECRET to the app's .env, creating the file if
+      # there's none, and keeps a secret that's already there. Not a template:
+      # each app gets its own secret, and with --force the .env may have been
+      # there first.
+      #
+      # @return [Symbol] +:create+, +:update+ or +:skip+
+      def write_secret(path)
+        line = "#{SECRET_VARIABLE}=#{Sidereal::Signer.generate_secret}\n"
+        unless File.exist?(path)
+          File.write(path, line)
+          return :create
+        end
+
+        content = File.read(path)
+        return :skip if SECRET_LINE.match?(content)
+
+        separator = content.empty? || content.end_with?("\n") ? '' : "\n"
+        File.write(path, "#{content}#{separator}#{line}")
+        :update
+      end
 
       # The app's own bin/sid, which runs with the app's gems — so it needs a
       # Sidereal that has the command line. Until the gem is released that
