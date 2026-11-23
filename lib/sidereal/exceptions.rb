@@ -57,6 +57,18 @@ module Sidereal
     # @return [Exceptions]
     def self.with_default_publisher = new.restore_defaults!
 
+    # Where the notification for a failed or retried +message+ goes: the
+    # session channel of the browser that sent it, when it carries its
+    # session (see {Page::SESSION_DIGEST_KEY}), so only that user's pages
+    # show it, or else the channel the message itself is routed to.
+    #
+    # @param message [Sidereal::Message]
+    # @return [String]
+    def self.notification_channel(message)
+      digest = message.metadata[Sidereal::Page::SESSION_DIGEST_KEY]
+      digest ? Sidereal::Page.session_channel_for(digest) : Sidereal.channels.for(message)
+    end
+
     # Translate an {ExceptionReport} into a concrete
     # {Sidereal::System::Notify*} message ready to publish.
     # Public so custom publishers can reuse the payload-building logic.
@@ -197,7 +209,7 @@ module Sidereal
       reset!
       publisher = lambda do |report|
         notify = self.class.build_notification(report)
-        Sidereal.pubsub.publish(Sidereal.channels.for(report.message), notify)
+        Sidereal.pubsub.publish(self.class.notification_channel(report.message), notify)
       end
       on_retry(&publisher)
       on_failure(&publisher)

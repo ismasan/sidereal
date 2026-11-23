@@ -7,6 +7,13 @@ class App < Sidereal::App
 
   layout UI::Layout
 
+  # Cookie sessions, with a key derived from the app's secret (see
+  # config/components/secrets.rb). A lambda, so the key is read on each
+  # request, once the components are built, not as this class loads.
+  # Each browser's session gets its own channel, so the notifications for a
+  # command it sent reach only its pages.
+  session secret: -> { Sidereal.secrets.derive('session') }
+
   # Accept SayHello from forms. It is queued, then handled below in a
   # background worker, away from the request.
   handle Greetings::SayHello

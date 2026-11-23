@@ -205,6 +205,16 @@ module Sidereal
   def self.store = config['sidereal.store']
   def self.elector = config['sidereal.elector']
 
+  # @return [#generate, #verify] the +sidereal.signer+ component
+  def self.signer = config['sidereal.signer']
+
+  # Derives keys from the app's master secret:
+  #
+  #   Sidereal.secrets.derive('session')
+  #
+  # @return [#derive] the +sidereal.secrets+ component
+  def self.secrets = config['sidereal.secrets']
+
   # Labels of the subsystems whose state lives entirely within one process
   # (they carry the {SingleProcess} marker). These break cross-process fan-out
   # under a forking host, so the list drives {.check_topology!}. Empty once
@@ -325,6 +335,8 @@ require_relative 'sidereal/message'
 require_relative 'sidereal/forms_codec'
 require_relative 'sidereal/system'
 require_relative 'sidereal/channels'
+require_relative 'sidereal/signer'
+require_relative 'sidereal/key_generator'
 require_relative 'sidereal/exceptions'
 require_relative 'sidereal/router'
 require_relative 'sidereal/show_exceptions'

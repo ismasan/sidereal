@@ -3,6 +3,9 @@
 require 'spec_helper'
 
 RSpec.describe Sidereal::Components::BasicLayout do
+  # Pages sign their stream URLs with the sidereal.signer component.
+  before { Sidereal.config.build! }
+
   let(:page_class) do
     Class.new(Sidereal::Page) do
       path '/test'

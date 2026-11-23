@@ -52,6 +52,8 @@ Gem::Specification.new do |spec|
   # Sidereal::Dependencies orders factories with it. A default gem today, but
   # declared so a Ruby that demotes it to a bundled gem still resolves it.
   spec.add_dependency('tsort')
+  # Sidereal::Signer encodes tokens with it. A bundled gem since Ruby 3.4.
+  spec.add_dependency('base64')
   # The `sid` command line, and an app's bin/sid.
   spec.add_dependency('samovar')
   # For more information and examples about making a new gem, check out our

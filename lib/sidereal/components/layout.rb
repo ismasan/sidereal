@@ -40,6 +40,13 @@ module Sidereal
         script(type: "module", src: 'https://cdn.jsdelivr.net/gh/starfederation/datastar@v1.0.1/bundles/datastar.js')
       end
 
+      # The URL of this page's live updates stream, carrying its signed
+      # token, or +nil+ when it takes none. See {Page.stream_token}.
+      def updates_url
+        token = Sidereal::Page.stream_token(page, params, context)
+        context.url("#{Sidereal::Page::UPDATES_PATH}/#{token}", false) if token
+      end
+
       def sidereal_signals
         page.page_signals.merge(params:)
       end
@@ -52,8 +59,9 @@ module Sidereal
         # keeps it 0×0 visually until a toast lands inside.
         div(id: 'sidereal-sysnotify-stack')
 
-        return unless page.channel_name
-        onload = _d.init.get(context.url("/updates/#{page.channel_name}", false))
+        return unless (url = updates_url)
+
+        onload = _d.init.get(url)
         # onload needs to be at the end
         # to make sure to collect all signals on the page
         div(data: onload.to_h)

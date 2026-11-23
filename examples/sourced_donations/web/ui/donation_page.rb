@@ -68,15 +68,12 @@ module UI
       @current_step = current_step
     end
 
-    def channel_name
-      return 'static' if @current_step
-      "campaigns.#{@campaign_id}.donations.#{@donation_id}"
-    end
+    # Historic snapshots take no live updates, which would overwrite the
+    # frozen render with current state.
+    def channel_names
+      return [] if @current_step
 
-    # Historic snapshots suppress page_key so Page.subscribe returns early and
-    # doesn't overwrite the frozen render with current state on SSE connect.
-    def page_signals
-      @current_step ? {} : { page_key: self.class.page_key }
+      ["campaigns.#{channel_segment(@campaign_id)}.donations.#{channel_segment(@donation_id)}"]
     end
 
     def view_template

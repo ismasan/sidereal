@@ -16,7 +16,7 @@ module UI
       @campaigns = campaigns
     end
 
-    def channel_name = 'campaigns.>'
+    def channel_names = ['campaigns.>']
 
     def view_template
       div(id: 'campaigns-page') do

@@ -2,8 +2,13 @@
 
 # Loads and configures the app. Required by config.ru<% if rspec? %> and spec/spec_helper.rb<% end %>.
 
+require 'dotenv'
 require 'sidereal'
 require 'zeitwerk'
+
+# Variables from .env, for development. It's git-ignored, and those already
+# set in the environment win, so production sets its own.
+Dotenv.load(File.expand_path('.env', __dir__))
 
 # Zeitwerk loads classes by file name, so no require statements are needed.
 #

@@ -357,8 +357,43 @@ module Sidereal
       end
     end
 
-    get '/updates/:channel_name' do |channel_name:|
-      channel = pubsub.subscribe(channel_name)
+    # A page's live updates. The token is the one the layout signed into the
+    # page (see {Page.stream_token}), so the browser can only subscribe to the
+    # channels the page named. One that doesn't verify, as after the session
+    # renews or the secret changes, gets the page reloaded for a fresh one.
+    get "#{Sidereal::Page::UPDATES_PATH}/:token" do |token:|
+      if (stream = Sidereal::Page.resolve_stream(token, self))
+        stream_page(stream)
+      else
+        reload_stale_page
+      end
+    end
+
+    # Reloads the page, at most once every 10 seconds per tab: a token that
+    # keeps failing, as with a secret that differs between processes, would
+    # otherwise reload it in a loop. Where sessionStorage is unavailable, as
+    # some browsers' privacy settings make it, the page isn't reloaded, since
+    # nothing would stop such a loop.
+    STALE_STREAM_SCRIPT = <<~JS.gsub(/\s*\n\s*/, ' ').strip
+      (() => {
+        const key = 'sidereal.stale-stream-reload', now = Date.now();
+        try {
+          if (now - Number(sessionStorage.getItem(key) || 0) <= 10000) return;
+          sessionStorage.setItem(key, String(now));
+        } catch (_) { return; }
+        location.reload();
+      })()
+    JS
+
+    private def reload_stale_page
+      Console.warn(self, 'Rejected a live updates token: reloading the page for a fresh one')
+      datastar.execute_script(STALE_STREAM_SCRIPT)
+    end
+
+    # Subscribe to the stream's channels and stream the page's reactions to
+    # them over SSE.
+    private def stream_page(stream)
+      channel = pubsub.subscribe(*stream.channels)
 
       datastar.on_client_disconnect do |*args|
         Console.info 'client disconnect'
@@ -373,7 +408,7 @@ module Sidereal
 
       datastar.stream do |sse|
         Console.info 'client connect'
-        Sidereal::Page.subscribe(channel, sse, self)
+        stream.page_class.stream(channel, sse, stream.params, self)
       end
     end
 
@@ -395,7 +430,12 @@ module Sidereal
       end
     end
 
+    # A command sent from a browser carries its session's digest, so the
+    # notifications it causes reach only that session's pages.
     private def handle_local_command(cmd)
+      if (digest = Sidereal::Page.session_digest(self))
+        cmd = cmd.with_metadata(Sidereal::Page::SESSION_DIGEST_KEY => digest)
+      end
       method_name = Sidereal.message_method_name(HANDLE_METHOD_PREFIX, cmd.type)
       @__current_msg = before_command(cmd)
       send(method_name, @__current_msg)

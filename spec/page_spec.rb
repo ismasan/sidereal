@@ -166,11 +166,224 @@ RSpec.describe Sidereal::Page do
     end
   end
 
-  describe '.register' do
-    it 'registers a page class by its page_key' do
-      page_class = Class.new(Sidereal::Page) { path '/registered' }
+  describe '#channel_names' do
+    it 'subscribes to the system channel by default' do
+      page_class = Class.new(Sidereal::Page) { path '/default-channels' }
+      expect(page_class.new.channel_names).to eq(['system'])
+    end
+  end
+
+  describe '.stream_token and .resolve_stream' do
+    let(:page_class) do
+      Class.new(Sidereal::Page) do
+        path '/orders/:id'
+        query_schema(id: Sidereal::Types::Integer)
+
+        def initialize(account_id: 'a1') = @account_id = account_id
+        def channel_names = ['orders.>', "accounts.#{@account_id}"]
+      end
+    end
+
+    # An app-like context whose request carries +session+ as its rack.session.
+    def context_with(session: nil)
+      env = session ? { 'rack.session' => session } : {}
+      Struct.new(:request).new(Rack::Request.new(env))
+    end
+
+    def session_with_id(id) = double(:session, id: Rack::Session::SessionId.new(id))
+
+    before do
+      Sidereal.config.config!('sidereal.signer') { Sidereal::Signer.new('k' * 32) }
+      Sidereal.config.build!
       Sidereal::Page.register(page_class)
-      expect(Sidereal::Page.registry['/registered']).to eq(page_class)
+    end
+
+    it "resolves a token to the page class, its decoded params, the channels the instance named and the session's channel" do
+      ctx = context_with(session: session_with_id('s1'))
+      token = described_class.stream_token(page_class.new(account_id: 'a9'), { id: '42' }, ctx)
+
+      expect(described_class.resolve_stream(token, ctx)).to eq(
+        Sidereal::Page::Stream.new(
+          page_class:, params: { id: 42 },
+          channels: ['orders.>', 'accounts.a9', described_class.session_channel(ctx)]
+        )
+      )
+      expect(described_class.session_channel(ctx)).to match(/\Asidereal\.sessions\.\h{32}\z/)
+    end
+
+    it "names a session's channel from its digest, as messages carry it" do
+      ctx = context_with(session: session_with_id('s1'))
+      digest = described_class.session_digest(ctx)
+
+      expect(digest).to match(/\A\h{32}\z/)
+      expect(described_class.session_channel_for(digest)).to eq("sidereal.sessions.#{digest}")
+      expect(described_class.session_channel_for(digest)).to eq(described_class.session_channel(ctx))
+    end
+
+    it 'subscribes to no session channel without a session' do
+      token = described_class.stream_token(page_class.new(account_id: 'a9'), { id: '42' }, context_with)
+
+      expect(described_class.resolve_stream(token, context_with).channels).to eq(['orders.>', 'accounts.a9'])
+      expect(described_class.session_channel(context_with)).to be_nil
+    end
+
+    it 'gives a session without an id one, by storing in it, before signing' do
+      page = page_class.new
+      id_before = token = ctx = nil
+      Rack::Session::Cookie.new(->(env) {
+        ctx = Struct.new(:request).new(Rack::Request.new(env))
+        id_before = env['rack.session'].id
+        token = described_class.stream_token(page, { id: '42' }, ctx)
+        [200, {}, []]
+      }, secret: 'a' * 64).call(Rack::MockRequest.env_for('/'))
+
+      expect(id_before).to be_nil
+      expect(ctx.request.env['rack.session'][Sidereal::Page::SESSION_KEY]).to be(true)
+      expect(described_class.resolve_stream(token, ctx).channels).to include(described_class.session_channel(ctx))
+    end
+
+    it 'accepts a single channel as a String' do
+      single = Class.new(Sidereal::Page) do
+        path '/single-channel'
+        def channel_names = 'orders.1'
+      end
+      Sidereal::Page.register(single)
+      token = described_class.stream_token(single.new, {}, context_with)
+
+      expect(described_class.resolve_stream(token, context_with).channels).to eq(['orders.1'])
+    end
+
+    it 'signs no stream for a page whose channels are nil or empty' do
+      [nil, []].each do |none|
+        silent = Class.new(Sidereal::Page) do
+          path '/no-channels'
+          define_method(:channel_names) { none }
+        end
+        Sidereal::Page.register(silent)
+
+        expect(described_class.stream_token(silent.new, {}, context_with)).to be_nil
+      end
+    end
+
+    it 'resolves without a session when the page rendered without one' do
+      token = described_class.stream_token(page_class.new, { id: '42' }, context_with)
+
+      expect(described_class.resolve_stream(token, context_with)).not_to be_nil
+    end
+
+    it 'treats a rack.session without an id, such as a plain Hash, as no session' do
+      token = described_class.stream_token(page_class.new, { id: '42' }, context_with(session: { 'user' => 'ada' }))
+
+      expect(described_class.resolve_stream(token, context_with)).not_to be_nil
+    end
+
+    it 'binds a token to the session id however the store hands it back' do
+      token = described_class.stream_token(page_class.new, { id: '42' }, context_with(session: session_with_id('s1')))
+
+      expect(described_class.resolve_stream(token, context_with(session: double(:session, id: 's1')))).not_to be_nil
+    end
+
+    it 'rejects a token from another session' do
+      token = described_class.stream_token(page_class.new, { id: '42' }, context_with(session: session_with_id('s1')))
+
+      expect(described_class.resolve_stream(token, context_with(session: session_with_id('s2')))).to be_nil
+    end
+
+    it "streams a token from a session to a request with none, as from a browser that refuses cookies, without the session's channel" do
+      token = described_class.stream_token(page_class.new(account_id: 'a9'), { id: '42' }, context_with(session: session_with_id('s1')))
+
+      expect(described_class.resolve_stream(token, context_with).channels).to eq(['orders.>', 'accounts.a9'])
+      expect(described_class.resolve_stream(token, context_with(session: { 'user' => 'ada' })).channels)
+        .to eq(['orders.>', 'accounts.a9'])
+    end
+
+    it 'rejects a token from no session in a request with one' do
+      token = described_class.stream_token(page_class.new, { id: '42' }, context_with)
+
+      expect(described_class.resolve_stream(token, context_with(session: session_with_id('s1')))).to be_nil
+    end
+
+    it 'rejects a token signed with another secret' do
+      other = Sidereal::Signer.new('b' * 64)
+      token = described_class.stream_token(page_class.new, { id: '42' }, context_with, signer: other)
+
+      expect(described_class.resolve_stream(token, context_with)).to be_nil
+    end
+
+    it 'rejects a token whose channels were tampered with' do
+      token = described_class.stream_token(page_class.new, { id: '42' }, context_with)
+      payload, signature = token.split('.')
+      data = JSON.parse(Base64.urlsafe_decode64(payload))
+      forged = Base64.urlsafe_encode64(JSON.generate(data.merge('channels' => ['>'])), padding: false)
+
+      expect(described_class.resolve_stream("#{forged}.#{signature}", context_with)).to be_nil
+    end
+
+    it 'rejects data the signer signed for another purpose' do
+      token = Sidereal.signer.generate({ 'page' => '/orders/:id', 'params' => { 'id' => '1' }, 'channels' => ['>'], 'session' => nil })
+
+      expect(described_class.resolve_stream(token, context_with)).to be_nil
+    end
+
+    it 'rejects a token for a page key no class is registered under' do
+      gone = Class.new(Sidereal::Page) { path '/gone-page' }
+      Sidereal::Page.register(gone)
+      token = described_class.stream_token(gone.new, {}, context_with)
+      Sidereal::Page.registry.delete('/gone-page')
+
+      expect(described_class.resolve_stream(token, context_with)).to be_nil
+    end
+
+    it 'rejects a token whose params no longer decode' do
+      token = described_class.stream_token(page_class.new, { id: '42' }, context_with)
+      Sidereal::Page.register(Class.new(Sidereal::Page) do
+        path '/orders/:id'
+        query_schema(id: Sidereal::Types::UUID::V4)
+      end)
+
+      expect(described_class.resolve_stream(token, context_with)).to be_nil
+    end
+
+    it 'refuses to sign a channel built from a value that is not one plain segment' do
+      segment_page = Class.new(Sidereal::Page) do
+        path '/segments/:id'
+        def initialize(id:) = @id = id
+        def channel_names = ["orders.#{channel_segment(@id)}"]
+      end
+      Sidereal::Page.register(segment_page)
+
+      ['>', '*', 'a.b', '', nil].each do |id|
+        expect { described_class.stream_token(segment_page.new(id:), { id: id.to_s }, context_with) }
+          .to raise_error(ArgumentError, /not a single plain channel name segment/)
+      end
+      expect(Sidereal.signer.verify(described_class.stream_token(segment_page.new(id: 'a*b'), { id: 'a*b' }, context_with), purpose: Sidereal::Page::STREAM_PURPOSE))
+        .to include('channels' => ['orders.a*b'])
+    end
+
+    it 'rejects a token whose data has the wrong shape' do
+      signer = Sidereal.signer
+      valid = { 'page' => '/orders/:id', 'params' => { 'id' => '1' }, 'channels' => ['orders.1'], 'session' => nil }
+      [
+        valid.merge('channels' => [1]),
+        valid.merge('channels' => [nil]),
+        valid.merge('channels' => ['orders..1']),
+        valid.merge('channels' => ['>.orders']),
+        valid.merge('channels' => 'orders.1'),
+        valid.merge('channels' => []),
+        valid.merge('page' => ['/orders/:id']),
+        valid.merge('params' => 'id=1'),
+        valid.merge('params' => [1])
+      ].each do |data|
+        token = signer.generate(data, purpose: Sidereal::Page::STREAM_PURPOSE)
+        expect(described_class.resolve_stream(token, context_with, signer:)).to be_nil, "accepted #{data.inspect}"
+      end
+      token = signer.generate(valid, purpose: Sidereal::Page::STREAM_PURPOSE)
+      expect(described_class.resolve_stream(token, context_with, signer:)).not_to be_nil
+    end
+
+    it 'rejects garbage' do
+      expect(described_class.resolve_stream('nope', context_with)).to be_nil
+      expect(described_class.resolve_stream('a.b.c', context_with)).to be_nil
     end
   end
 
@@ -436,7 +649,7 @@ RSpec.describe Sidereal::Page do
 
     it 'reacts to registered events by patching elements' do
       sse = FakeSSE.new('page_key' => '/reactive', 'params' => {})
-      page_context = page_context_class.new(sse, nil, page_class)
+      page_context = page_context_class.new(sse, nil, page_class, params: {})
 
       evt = PageTestItemAdded.new(payload: { title: 'hello' })
       page_context.react(evt)
@@ -465,7 +678,7 @@ RSpec.describe Sidereal::Page do
       end
 
       sse = FakeSSE.new('page_key' => '/blockless/:id', 'params' => { 'id' => '7' })
-      page_context = page_context_class.new(sse, nil, blockless_page)
+      page_context = page_context_class.new(sse, nil, blockless_page, params: { id: '7' })
 
       page_context.react(PageTestItemAdded.new(payload: { title: 'hello' }))
 
@@ -483,7 +696,7 @@ RSpec.describe Sidereal::Page do
       end
 
       sse = FakeSSE.new('page_key' => '/consequence', 'params' => {})
-      page_context = page_context_class.new(sse, nil, page)
+      page_context = page_context_class.new(sse, nil, page, params: {})
 
       cmd = PageTestItemAdded.new(payload: { title: 'hello' })
       evt = cmd.correlate(PageTestNotification.new(payload: { text: 'added' }))
@@ -503,7 +716,7 @@ RSpec.describe Sidereal::Page do
       end
 
       sse = FakeSSE.new('page_key' => '/own-type', 'params' => {})
-      page_context = page_context_class.new(sse, nil, page)
+      page_context = page_context_class.new(sse, nil, page, params: {})
 
       cmd = PageTestItemAdded.new(payload: { title: 'hello' })
       evt = cmd.correlate(PageTestNotification.new(payload: { text: 'added' }))
@@ -526,7 +739,7 @@ RSpec.describe Sidereal::Page do
       end
 
       sse = FakeSSE.new('page_key' => '/precedence', 'params' => {})
-      page_context = page_context_class.new(sse, nil, page)
+      page_context = page_context_class.new(sse, nil, page, params: {})
 
       cmd = PageTestItemAdded.new(payload: { title: 'hello' })
       evt = cmd.correlate(PageTestNotification.new(payload: { text: 'added' }))
@@ -538,7 +751,7 @@ RSpec.describe Sidereal::Page do
 
     it 'ignores events without a registered handler' do
       sse = FakeSSE.new('page_key' => '/reactive', 'params' => {})
-      page_context = page_context_class.new(sse, nil, page_class)
+      page_context = page_context_class.new(sse, nil, page_class, params: {})
 
       evt = PageTestNotification.new(payload: { text: 'hi' })
       page_context.react(evt)
@@ -546,17 +759,7 @@ RSpec.describe Sidereal::Page do
       expect(sse.patches).to be_empty
     end
 
-    it 'provides access to params from signals' do
-      sse = FakeSSE.new('page_key' => '/reactive', 'params' => { 'id' => '42' })
-      page_context = page_context_class.new(sse, nil, page_class)
-
-      evt = PageTestItemAdded.new(payload: { title: 'test' })
-      page_context.react(evt)
-
-      expect(sse.patches.size).to eq(1)
-    end
-
-    it 'decodes signal params through the query schema' do
+    it 'gives reactions the params it was built with' do
       captured_params = nil
       page_with_params = Class.new(Sidereal::Page) do
         path '/with-params/:id'
@@ -566,105 +769,46 @@ RSpec.describe Sidereal::Page do
         end
       end
 
-      sse = FakeSSE.new(
-        'page_key' => '/with-params/:id',
-        'params' => { 'id' => '42', 'filter' => 'active', 'other' => 'x' }
-      )
-      page_context = page_context_class.new(sse, nil, page_with_params)
+      sse = FakeSSE.new('page_key' => '/with-params/:id', 'params' => { 'id' => '1' })
+      page_context = page_context_class.new(sse, nil, page_with_params, params: { id: 42, filter: 'active' })
 
       page_context.react(PageTestItemAdded.new(payload: { title: 'test' }))
 
       expect(captured_params).to eq({ id: 42, filter: 'active' })
     end
-
-    it 'provides an empty params hash when signal params are missing' do
-      captured_params = :unset
-      page_with_missing_params = Class.new(Sidereal::Page) do
-        path '/missing-params'
-        on PageTestItemAdded do |_evt|
-          captured_params = params
-        end
-      end
-
-      sse = FakeSSE.new('page_key' => '/missing-params')
-      page_context = page_context_class.new(sse, nil, page_with_missing_params)
-
-      page_context.react(PageTestItemAdded.new(payload: { title: 'test' }))
-
-      expect(captured_params).to eq({})
-    end
   end
 
-  describe '.subscribe' do
-    it 'passes an empty params hash to load when signal params are missing' do
-      captured_params = :unset
+  describe '.stream' do
+    let(:pubsub) { Sidereal::PubSub::Memory.new }
+
+    it 'renders the page from the given params, then reacts to messages on the channel' do
+      loaded = []
       page_class = Class.new(Sidereal::Page) do
-        path '/subscribe-missing-params'
+        path '/stream/:id'
 
         define_singleton_method(:load) do |params, _ctx|
-          captured_params = params
+          loaded << params
           new
         end
 
-        def view_template
-          div { 'loaded' }
-        end
-      end
-
-      Sidereal::Page.register(page_class)
-      sse = FakeSSE.new('page_key' => '/subscribe-missing-params')
-      channel = double(:channel, start: nil)
-
-      Sidereal::Page.subscribe(channel, sse, nil)
-
-      expect(captured_params).to eq({})
-    end
-
-    it 'decodes signal params through the query schema before passing them to load' do
-      captured_params = nil
-      page_class = Class.new(Sidereal::Page) do
-        path '/subscribe-params/:id'
-        query_schema(from?: Sidereal::Types::Date)
-
-        define_singleton_method(:load) do |params, _ctx|
-          captured_params = params
-          new
-        end
-
-        def view_template
-          div { 'loaded' }
-        end
-      end
-
-      Sidereal::Page.register(page_class)
-      sse = FakeSSE.new(
-        'page_key' => '/subscribe-params/:id',
-        'params' => { 'id' => '42', 'from' => '2026-11-01', 'other' => 'x' }
-      )
-      channel = double(:channel, start: nil)
-
-      Sidereal::Page.subscribe(channel, sse, nil)
-
-      expect(captured_params).to eq({ id: '42', from: Date.new(2026, 11, 1) })
-    end
-
-    it 'neither renders nor subscribes when signal params fail the query schema' do
-      page_class = Class.new(Sidereal::Page) do
-        path '/subscribe-invalid/:id'
-        query_schema(id: Sidereal::Types::Integer)
-
-        def self.load(_params, _ctx) = new
         def view_template = div { 'loaded' }
+
+        on PageTestNotification do |evt|
+          browser.patch_elements evt.payload.text
+        end
+      end
+      sse = FakeSSE.new
+
+      Sync do |task|
+        channel = pubsub.subscribe('stream.a', 'stream.b')
+        runner = task.async { page_class.stream(channel, sse, { id: '42' }, nil) }
+        pubsub.publish('stream.b', PageTestNotification.new(payload: { text: 'hello' }))
+        channel.stop
+        runner.wait
       end
 
-      Sidereal::Page.register(page_class)
-      sse = FakeSSE.new('page_key' => '/subscribe-invalid/:id', 'params' => { 'id' => 'nope' })
-      channel = double(:channel)
-      expect(channel).not_to receive(:start)
-
-      Sidereal::Page.subscribe(channel, sse, nil)
-
-      expect(sse.patches).to be_empty
+      expect(loaded).to eq([{ id: '42' }])
+      expect(sse.patches.map { |patch| patch[:component] }).to match([an_instance_of(page_class), 'hello'])
     end
   end
 
@@ -704,7 +848,7 @@ RSpec.describe Sidereal::Page do
     def run_page
       Sync do |task|
         channel = pubsub.subscribe('coalescing')
-        page_context = Sidereal::Page::PageContext.new(sse, nil, page_class)
+        page_context = Sidereal::Page::PageContext.new(sse, nil, page_class, params: {})
         runner = task.async { page_context.run(channel) }
         yield ->(msg) { pubsub.publish('coalescing', msg) }
         gate.close
@@ -763,7 +907,7 @@ RSpec.describe Sidereal::Page do
       expect {
         Sync do |task|
           channel = pubsub.subscribe('failing')
-          page_context = Sidereal::Page::PageContext.new(sse, nil, failing)
+          page_context = Sidereal::Page::PageContext.new(sse, nil, failing, params: {})
           runner = task.async { page_context.run(channel) }
           pubsub.publish('failing', item)
           runner.wait
@@ -815,7 +959,7 @@ RSpec.describe Sidereal::Page do
 
     it 'reacts to NotifyRetry by patching SystemNotifyRetry to body, prepend mode' do
       sse = FakeSSE.new('page_key' => '/sys', 'params' => {})
-      page_context = page_context_class.new(sse, nil, page_class)
+      page_context = page_context_class.new(sse, nil, page_class, params: {})
 
       page_context.react(build_retry_evt)
 
@@ -827,7 +971,7 @@ RSpec.describe Sidereal::Page do
 
     it 'reacts to NotifyFailure by patching SystemNotifyFailure to body, prepend mode' do
       sse = FakeSSE.new('page_key' => '/sys', 'params' => {})
-      page_context = page_context_class.new(sse, nil, page_class)
+      page_context = page_context_class.new(sse, nil, page_class, params: {})
 
       page_context.react(build_failure_evt)
 
@@ -847,7 +991,7 @@ RSpec.describe Sidereal::Page do
       end
 
       sse = FakeSSE.new('page_key' => '/sys-override', 'params' => {})
-      page_context = page_context_class.new(sse, nil, override)
+      page_context = page_context_class.new(sse, nil, override, params: {})
 
       evt = build_failure_evt
       page_context.react(evt)

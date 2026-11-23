@@ -8,13 +8,13 @@ PubSubMsg = Sidereal::Message.define('pubsub_spec.event')
 RSpec.describe Sidereal::PubSub::Memory do
   let(:pubsub) { described_class.new }
 
-  # Subscribe to `pattern`, publish each (channel_name, event) pair in `publishes`,
+  # Subscribe to `pattern` (or an Array of patterns), publish each (channel_name, event) pair in `publishes`,
   # then stop. Returns the list of messages delivered to the subscription.
   def collect_from(pattern, publishes)
     received = []
 
     Sync do |task|
-      channel = pubsub.subscribe(pattern)
+      channel = pubsub.subscribe(*Array(pattern))
 
       consumer = task.async do
         channel.start do |msg, _ch|
@@ -176,6 +176,79 @@ RSpec.describe Sidereal::PubSub::Memory do
 
       expect(a_received).to eq([evt])
       expect(b_received).to eq([evt])
+    end
+  end
+
+  describe 'subscription to several patterns' do
+    it 'delivers messages matching any of them on one channel, in publish order' do
+      a = PubSubMsg.new
+      b = PubSubMsg.new
+      c = PubSubMsg.new
+      received = collect_from(['orders.>', 'system'], [['orders.1', a], ['system', b], ['campaigns.1', c]])
+
+      expect(received).to eq([a, b])
+    end
+
+    it 'delivers a message matching several of them once' do
+      evt = PubSubMsg.new
+      received = collect_from(['orders.>', 'orders.*', 'orders.1'], [['orders.1', evt]])
+
+      expect(received).to eq([evt])
+    end
+
+    it 'ignores a repeated pattern' do
+      evt = PubSubMsg.new
+      received = collect_from(['orders.1', 'orders.1'], [['orders.1', evt]])
+
+      expect(received).to eq([evt])
+    end
+
+    it 'stops delivery on every pattern when the channel stops' do
+      before_stop = PubSubMsg.new
+      received = []
+
+      Sync do |task|
+        channel = pubsub.subscribe('orders.1', 'system.>')
+        consumer = task.async { channel.start { |m, _| received << m } }
+
+        pubsub.publish('orders.1', before_stop)
+        channel.stop
+        pubsub.publish('orders.1', PubSubMsg.new)
+        pubsub.publish('system.x', PubSubMsg.new)
+        consumer.wait
+      end
+
+      expect(received).to eq([before_stop])
+    end
+
+    it 'leaves other channels on the same patterns subscribed' do
+      evt = PubSubMsg.new
+      received = []
+
+      Sync do |task|
+        stopped = pubsub.subscribe('orders.1', 'system.>')
+        other = pubsub.subscribe('orders.1', 'system.>')
+        consumer = task.async { other.start { |m, _| received << m } }
+
+        stopped.stop
+        pubsub.publish('orders.1', evt)
+        other.stop
+        consumer.wait
+      end
+
+      expect(received).to eq([evt])
+    end
+
+    it 'exposes the patterns it is subscribed to' do
+      expect(pubsub.subscribe('orders.1', 'system').patterns).to eq(['orders.1', 'system'])
+    end
+
+    it 'requires at least one pattern' do
+      expect { pubsub.subscribe }.to raise_error(ArgumentError, /at least one/)
+    end
+
+    it 'validates every pattern' do
+      expect { pubsub.subscribe('orders.1', 'bad..x') }.to raise_error(ArgumentError, /empty segment/)
     end
   end
 

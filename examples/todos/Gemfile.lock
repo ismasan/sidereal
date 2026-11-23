@@ -3,13 +3,15 @@ PATH
   specs:
     sidereal (0.1.0)
       async
+      base64
       brotli
       datastar (~> 1.0.6)
       phlex
-      plumb (~> 0.4)
+      plumb (~> 0.4, >= 0.4.1)
       rack (~> 3)
       rack-session
-      sourced-component (~> 0.1)
+      samovar
+      sourced-component (~> 0.1, >= 0.1.4)
       sourced-message (>= 0.4.0)
       tsort
 
@@ -87,11 +89,11 @@ GEM
     logger (1.7.0)
     mapping (1.1.3)
     metrics (0.15.0)
-    openssl (4.0.1)
+    openssl (4.0.2)
     phlex (2.4.1)
       refract (~> 1.0)
       zeitwerk (~> 2.7)
-    plumb (0.4.0)
+    plumb (0.4.1)
       bigdecimal
       concurrent-ruby
     prism (1.9.0)
@@ -118,7 +120,7 @@ GEM
     samovar (2.4.1)
       console (~> 1.0)
       mapping (~> 1.0)
-    sourced-component (0.1.0)
+    sourced-component (0.1.4)
       plumb (~> 0.4)
       sourced-message
       tsort (~> 0.2)
@@ -168,9 +170,9 @@ CHECKSUMS
   logger (1.7.0) sha256=196edec7cc44b66cfb40f9755ce11b392f21f7967696af15d274dde7edff0203
   mapping (1.1.3) sha256=2274931d20ecd46eaafdd1e00c58cc7472133b213bcac335cc7733d3c75f4da2
   metrics (0.15.0) sha256=61ded5bac95118e995b1bc9ed4a5f19bc9814928a312a85b200abbdac9039072
-  openssl (4.0.1) sha256=e27974136b7b02894a1bce46c5397ee889afafe704a839446b54dc81cb9c5f7d
+  openssl (4.0.2) sha256=1037ad2868ae58df9ad917891c0c0f9815a1172f6846d4bcdd508e4c2ee747c2
   phlex (2.4.1) sha256=e596717fbfe38b5271840266758779ebe75092e02629f0c170287e6290a70b12
-  plumb (0.4.0) sha256=10c256a6f98363fd535ebe812123f3555e0a557035435f3b9b43cd5fb3d87f72
+  plumb (0.4.1) sha256=b29badb4fea2076c428e80952cf6e16b5a1031134790253e733ea724b0950bdd
   prism (1.9.0) sha256=7b530c6a9f92c24300014919c9dcbc055bf4cdf51ec30aed099b06cd6674ef85
   protocol-hpack (1.5.1) sha256=6feca238b8078da1cd295677d6f306c6001af92d75fe0643d33e6956cbc3ad91
   protocol-http (0.72.0) sha256=b153474785979495b9f2df78f0fdc2e02edc7e92c1f7ea00425eed73bd02194c
@@ -184,7 +186,7 @@ CHECKSUMS
   refract (1.1.0) sha256=ee3b9627e39f7692831101e2fedd73e0d09a592ff5d5c05f171d14211fc7a9c7
   samovar (2.4.1) sha256=c3b91dd0580771e3bc600621c1111f29542529dcffafaac3b6bf068b3f309e80
   sidereal (0.1.0)
-  sourced-component (0.1.0) sha256=c3cf9c1add21c900b52549be9a71034eb926e90369c002932fa1c3e6afdc5e8d
+  sourced-component (0.1.4) sha256=1826560689f2f4fe705c675205a1fd150c19576fb5d4bdd6fc379b0bf80bf2d7
   sourced-message (0.4.0) sha256=39d44d647b36253ebf8a2cdb6232c3b8e402f400982a7f9ed2af5aba423b9831
   string-format (0.2.0) sha256=bc981c14116b061f12134549f32fa2d61a17b5a35dd6fd36596c21722a789af6
   traces (0.18.2) sha256=80f1649cb4daace1d7174b81f3b3b7427af0b93047759ba349960cb8f315e214

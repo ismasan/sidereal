@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'set'
+require 'openssl'
 require 'async/queue'
 require_relative 'components/base_component'
 require_relative 'components/system_notify'
@@ -16,18 +17,63 @@ module Sidereal
     # its own current component the same way.
     RENDERING_KEY = :__sidereal_rendering_page__
 
+    # Where pages' live updates streams are mounted, each at
+    # +/_updates/<token>+. See {.stream_token}.
+    UPDATES_PATH = '/_updates'
+
+    # The channel {#channel_names} subscribes a page to unless it says otherwise.
+    DEFAULT_CHANNEL = Channels::DEFAULT_CHANNEL
+
+    # The +purpose+ stream tokens are signed for. See {Signer#generate}.
+    STREAM_PURPOSE = 'sidereal.page_stream'
+
+    # A verified stream token: the page to stream, its decoded params, and
+    # the channel patterns to subscribe to: the page's {#channel_names}, and
+    # its session's {.session_channel}. See {.resolve_stream}.
+    Stream = Data.define(:page_class, :params, :channels)
+
+    # What {.stream_token} signs. A token whose data doesn't match it
+    # doesn't resolve.
+    STREAM_DATA = Types::Hash[
+      'page' => Types::String,
+      'params' => Types::Hash,
+      'channels' => Types::Array[Types::ChannelPattern].present,
+      'session' => Types::String.nullable
+    ]
+
+    # Every page stream in a session also subscribes to that session's
+    # channel, +sidereal.sessions.<session digest>+, which nothing but
+    # Sidereal publishes to. It carries what's meant for one user only, such
+    # as the notifications for a command that failed. See {.session_channel}.
+    SESSION_CHANNEL_PREFIX = 'sidereal.sessions'
+
+    # The metadata key {App} stamps a command sent from a browser with: its
+    # session's {.session_digest}, which names the session without giving
+    # its id away. Messages correlated from the command carry it on, so
+    # anything they cause can find the session's channel, with
+    # {.session_channel_for}, or tell which session it came from.
+    SESSION_DIGEST_KEY = :session_digest
+
+    # The session key {.stream_token} writes to when a session has no id yet,
+    # since Rack only gives a session an id once something is stored in it.
+    SESSION_KEY = 'sidereal.session'
+
+    # Prefixed to the session id before digesting it into a stream token, so
+    # the digest doesn't coincide with the key a server-side session store
+    # keeps the session under.
+    SESSION_DIGEST_PREFIX = "sidereal.session\0"
+
     # Reaction run for a message whose class has no handler of its own but
     # whose +correlation_type+ the page reacts to: reload the page from the
-    # current signal params and morph it into the browser.
+    # params its stream token was signed with, and morph it into the browser.
     DEFAULT_HANDLER = proc do |_evt|
       browser.patch_elements load(params)
     end
 
     class PageContext
-      # @param params [Hash] the page's decoded params. Defaults to decoding
-      #   the +params+ signal through the page's {Page.query_schema}, raising
-      #   +Plumb::ParseError+ if they don't satisfy it.
-      def initialize(sse, ctx, page, params: page.query_decoder.parse(sse.signals['params'] || {}))
+      # @param params [Hash] the page's params, decoded by {Page.query_schema}
+      #   from its stream token
+      def initialize(sse, ctx, page, params:)
         @context = ctx
         @browser = sse
         @params = params
@@ -117,7 +163,49 @@ module Sidereal
       Thread.current[RENDERING_KEY] = previous
     end
 
-    def channel_name = 'system'
+    # The pubsub channel patterns this page subscribes to for live updates.
+    # The layout asks the page it renders and signs the answer into the
+    # page's stream URL (see {.stream_token}), so the browser can only
+    # subscribe to what the page named. Return one pattern as a String, an
+    # Array of several to receive more than one stream, such as an entity's
+    # updates and system-wide ones, or +[]+ or +nil+ for a page that takes no
+    # live updates: the layout then opens no stream for it.
+    #
+    #   def channel_names = "orders.#{channel_segment(@order.id)}"
+    #
+    #   def channel_names
+    #     return [] if @current_step  # a historic snapshot
+    #
+    #     ["orders.#{channel_segment(@order.id)}", "accounts.#{channel_segment(@order.account_id)}.>"]
+    #   end
+    #
+    # Interpolate values through {#channel_segment}: an id taken from the URL
+    # could otherwise be +>+ and turn the channel into a wildcard, which the
+    # page would then sign.
+    #
+    # The answer is fixed when the page first renders: reactions that
+    # re-render it, and the browser's reconnects, keep the same stream. The
+    # default is +['system']+, where messages go that no channel resolver
+    # routes elsewhere, so a page can add its own with +super + [...]+.
+    #
+    # @return [String, Array<String>, nil] exact channel names or wildcard patterns
+    def channel_names = [DEFAULT_CHANNEL]
+
+    # +value+ as a String, checked to be exactly one plain segment of a channel
+    # name, for interpolating into {#channel_names}. Wildcards are written into the
+    # pattern itself (+"orders.>"+), never taken from a value.
+    #
+    # @param value [#to_s]
+    # @return [String]
+    # @raise [ArgumentError] if +value+ is blank, contains +.+, or is +*+ or +>+
+    private def channel_segment(value)
+      segment = value.to_s
+      if segment.empty? || segment.include?(PubSub::Pattern::SEGMENT_SEPARATOR) || segment == '*' || segment == '>'
+        raise ArgumentError, "#{value.inspect} is not a single plain channel name segment"
+      end
+
+      segment
+    end
 
     def page_signals
       { page_key: }
@@ -196,35 +284,152 @@ module Sidereal
         query_decoder.resolve(params || {})
       end
 
+      # Page classes by {.page_key}, so a stream token can name its page.
+      # {App.page} registers the pages it mounts.
+      #
+      # @return [Hash{String => Class<Page>}]
       def registry
         @registry ||= {}
       end
 
       def page_key = self.path || self.name
 
+      # @param klass [Class<Page>]
+      # @return [self]
       def register(klass)
         registry[klass.page_key] = klass
         self
       end
 
-      def subscribe(channel, sse, ctx)
-        # on connect, we make sure to render the page again
-        # so that browser tabs reconnecting on focus catch up to the latest state
-        page_key = sse.signals['page_key']
-        return unless page_key
-        page_class = registry[page_key]
+      # Sign +page+'s live updates stream into a token for its URL,
+      # +/_updates/<token>+: the page's key, the +params+ it was rendered
+      # with, its {#channel_names}, and a digest of the session it was rendered
+      # in. {.resolve_stream} turns it back into a {Stream}.
+      #
+      # A session that has no id yet is given one, by storing {SESSION_KEY}
+      # in it, so the stream has a {.session_channel}.
+      #
+      # Only the params the page's {.query_schema} declares are signed.
+      # Returns +nil+, for no stream, when the page names no channels, its
+      # class isn't the one {.registry} holds for its key (it wasn't mounted
+      # with {App.page}), or +params+ don't decode.
+      #
+      # @param page [Page] the page being rendered
+      # @param params [Hash] the request's raw params
+      # @param ctx [Sidereal::App] the request's app instance
+      # @param signer [#generate]
+      # @return [String, nil]
+      # @raise [ArgumentError] if a channel pattern is invalid
+      def stream_token(page, params, ctx, signer: Sidereal.signer)
+        page_class = page.class
+        return unless registry[page_class.page_key].equal?(page_class)
+
+        channels = Array(page.channel_names)
+        return if channels.empty?
+
+        channels.each { |pattern| PubSub::Pattern.validate_subscription!(pattern) }
+        decoded = page_class.parse_params(params)
+        return unless decoded.valid?
+
+        signed_params = params.to_h.select { |key, _| decoded.value.key?(key.to_sym) }
+        start_session(ctx)
+        signer.generate(
+          { 'page' => page_class.page_key, 'params' => signed_params, 'channels' => channels, 'session' => session_digest(ctx) },
+          purpose: STREAM_PURPOSE
+        )
+      end
+
+      # The {Stream} +token+ stands for, or +nil+ unless it was signed with
+      # this signer's secret, in the session +ctx+ carries, for a page in
+      # {.registry} whose params still decode. A session that has since
+      # been renewed, or a token from before the secret changed, gets +nil+.
+      # The stream's channels are the page's, and the session's
+      # {.session_channel} when it has one.
+      #
+      # A request with no session at all, as from a browser that refuses
+      # cookies, gets the page's channels without a session channel, rather
+      # than +nil+, which would reload the page for a session it never
+      # keeps.
+      #
+      # @param token [String] from {.stream_token}
+      # @param ctx [Sidereal::App] the request's app instance
+      # @param signer [#verify]
+      # @return [Stream, nil]
+      def resolve_stream(token, ctx, signer: Sidereal.signer)
+        data = STREAM_DATA.resolve(signer.verify(token, purpose: STREAM_PURPOSE))
+        return unless data.valid?
+
+        data = data.value
+        session = session_digest(ctx)
+        return unless session.nil? || data['session'] == session
+
+        page_class = registry[data['page']]
         return unless page_class
 
-        # Params a client tampered with into failing the schema get no page.
-        params = page_class.parse_params(sse.signals['params'])
+        channels = data['channels']
+        params = page_class.parse_params(data['params'])
         return unless params.valid?
 
-        # Build on connect
-        sse.patch_elements page_class.load(params.value, ctx)
+        channels += [session_channel_for(session)] if session
+        Stream.new(page_class:, params: params.value, channels:)
+      end
 
-        page_context = PageContext.new(sse, ctx, page_class, params: params.value)
+      # The private channel of the session +ctx+ carries, which every page
+      # stream in it subscribes to, or +nil+ without a session id.
+      #
+      # @param ctx [Sidereal::App]
+      # @return [String, nil]
+      def session_channel(ctx)
+        digest = session_digest(ctx)
+        session_channel_for(digest) if digest
+      end
 
-        page_context.run(channel)
+      # The private channel of the session whose {.session_digest} is
+      # +digest+, as a message's {SESSION_DIGEST_KEY} metadata holds it.
+      #
+      # @param digest [String]
+      # @return [String]
+      def session_channel_for(digest) = "#{SESSION_CHANNEL_PREFIX}.#{digest}"
+
+      # A digest of the session id +ctx+ carries, or +nil+ without one, or
+      # when +rack.session+ is a plain Hash with no id. Rack assigns a session
+      # its id the first time something is stored in it, and only changes it
+      # when the session is renewed.
+      #
+      # The id is digested in its public form, which it has however the
+      # session store hands it back: a +Rack::Session::SessionId+, or the
+      # String a JSON cookie coder turns it into.
+      #
+      # @param ctx [Sidereal::App]
+      # @return [String, nil]
+      def session_digest(ctx)
+        session = ctx.request.env['rack.session']
+        id = session.id if session.respond_to?(:id)
+        return if id.nil? || id.to_s.empty?
+
+        OpenSSL::Digest::SHA256.hexdigest("#{SESSION_DIGEST_PREFIX}#{id}")[0, 32]
+      end
+
+      private def start_session(ctx)
+        session = ctx.request.env['rack.session']
+        return unless session.respond_to?(:id) && session.respond_to?(:[]=)
+
+        session[SESSION_KEY] = true if session.id.nil?
+      end
+
+      # Stream live updates for the page at +params+ into +sse+, until
+      # +channel+ stops. The page renders once first, so a tab that
+      # reconnects, as browsers do when a tab regains focus, catches up on
+      # whatever it missed. It then reacts to each message on +channel+.
+      #
+      # @param channel [#start] a pubsub channel, subscribed to {#channel_names}
+      # @param sse [#patch_elements] the browser's SSE stream
+      # @param params [Hash] the page's params, decoded by {.query_schema}
+      # @param ctx [Sidereal::App] the request's app instance
+      # @return [void]
+      def stream(channel, sse, params, ctx)
+        sse.patch_elements load(params, ctx)
+        PageContext.new(sse, ctx, self, params:).run(channel)
       end
 
       # Handlers keyed by message class, matched on the exact class of an

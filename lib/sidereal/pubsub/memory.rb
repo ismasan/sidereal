@@ -30,16 +30,25 @@ module Sidereal
         self
       end
 
-      # @param pattern [String] exact channel name or wildcard pattern
+      # Subscribe one channel to one or more patterns. A message published on a
+      # channel name that matches several of them is delivered to it once.
+      #
+      # @param patterns [Array<String>] exact channel names or wildcard patterns
       # @return [Channel]
-      def subscribe(pattern)
-        Pattern.validate_subscription!(pattern)
-        channel = Channel.new(name: pattern, pubsub: self)
+      # @raise [ArgumentError] with no patterns, or an invalid one
+      def subscribe(*patterns)
+        raise ArgumentError, 'at least one channel pattern is required' if patterns.empty?
+
+        patterns = patterns.uniq
+        patterns.each { |pattern| Pattern.validate_subscription!(pattern) }
+        channel = Channel.new(patterns:, pubsub: self)
         @mutex.synchronize do
-          if Pattern.wildcard?(pattern)
-            @wildcards << [Pattern.compile(pattern), channel]
-          else
-            (@subscribers[pattern] ||= []) << channel
+          patterns.each do |pattern|
+            if Pattern.wildcard?(pattern)
+              @wildcards << [Pattern.compile(pattern), channel]
+            else
+              (@subscribers[pattern] ||= []) << channel
+            end
           end
         end
         channel
@@ -49,14 +58,13 @@ module Sidereal
       # @param channel [Channel]
       def unsubscribe(channel)
         @mutex.synchronize do
-          if Pattern.wildcard?(channel.name)
-            @wildcards.reject! { |_re, ch| ch.equal?(channel) }
-          else
-            arr = @subscribers[channel.name]
+          @wildcards.reject! { |_re, ch| ch.equal?(channel) }
+          channel.patterns.each do |pattern|
+            arr = @subscribers[pattern]
             next unless arr
 
             arr.delete(channel)
-            @subscribers.delete(channel.name) if arr.empty?
+            @subscribers.delete(pattern) if arr.empty?
           end
         end
       end
@@ -73,6 +81,9 @@ module Sidereal
           else
             list = exact ? exact.dup : []
             @wildcards.each { |re, ch| list << ch if re.match?(channel_name) }
+            # A channel subscribed to several matching patterns is listed once
+            # per pattern. Channels compare by identity.
+            list.uniq!
             list.empty? ? nil : list
           end
         end
@@ -81,10 +92,11 @@ module Sidereal
       end
 
       class Channel
-        attr_reader :name
+        # @return [Array<String>] the patterns this channel is subscribed to
+        attr_reader :patterns
 
-        def initialize(name:, pubsub:)
-          @name = name
+        def initialize(patterns:, pubsub:)
+          @patterns = patterns.freeze
           @pubsub = pubsub
           @queue = Async::Queue.new
         end

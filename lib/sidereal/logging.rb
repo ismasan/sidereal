@@ -7,7 +7,7 @@ module Sidereal
   # WARNINGS for the benign client disconnects that are constant in an
   # SSE-streaming app.
   #
-  # When a browser drops its +/updates+ connection, async-http's server task
+  # When a browser drops its +/_updates+ connection, async-http's server task
   # (and Datastar's stream teardown) raise +Errno::EPIPE+ ("Broken pipe") while
   # writing the next chunk to the now-dead socket. Async logs any task that ends
   # on an unhandled exception at +:warn+, so the log fills with these on every

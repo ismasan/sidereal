@@ -17,6 +17,10 @@ gem 'debug'
 # lib/sidereal/falcon need it to load.
 gem 'falcon'
 
+# The specs boot apps `sid new` generates with this bundle, and their boot.rb
+# loads .env with it.
+gem 'dotenv'
+
 group :development do
   gem 'docco', github: 'ismasan/docco'
   gem 'sourced', github: 'ismasan/sourced'

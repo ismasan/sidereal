@@ -63,8 +63,12 @@ RSpec.configure do |config|
   # subscriber, a compiled message type — leaks into this one. The config goes
   # too, and with it the dependency container, so an example that swaps the
   # pubsub or store does so before anything has resolved it.
+  #
+  # A fixed master secret, so no spec reads SIDEREAL_SECRET or writes
+  # storage/secret.txt in the working directory.
   config.before(:each) do
     Sidereal.reload!
     Sidereal.reset_config!
+    Sidereal.config.config!('sidereal.secret_key_base') { 'spec-secret-' * 6 }
   end
 end

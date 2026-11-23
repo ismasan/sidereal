@@ -22,9 +22,7 @@ class DonationPage < Sidereal::Page
     @donation_id = donation_id || donation&.donation_id
   end
 
-  def channel_name
-    @donation_id ? "donations.#{@donation_id}" : 'donations'
-  end
+  def channel_names = @donation_id ? ["donations.#{channel_segment(@donation_id)}"] : []
 
   def view_template
     div(id: 'donation-page') do

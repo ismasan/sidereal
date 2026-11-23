@@ -28,7 +28,7 @@ class HomePage < Sidereal::Page
   # Glob subscription: catches every game's events (per-game channels are
   # named `games.<id>`) plus the synthetic Projected signal. Sidereal page
   # reactions only fire on declared `on` events, so the glob is safe.
-  def channel_name = 'games.>'
+  def channel_names = ['games.>']
 
   def view_template
     div(id: 'home-page') do

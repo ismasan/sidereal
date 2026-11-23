@@ -184,21 +184,59 @@ RSpec.describe 'Sidereal::App.command_helpers' do
 end
 
 RSpec.describe 'Sidereal::App.page' do
+  # Pages sign their stream URLs with the sidereal.signer component.
+  before { Sidereal.config.build! }
+
   include Rack::Test::Methods
 
   let(:loaded) { [] }
 
+  # Records each subscription. {Sidereal::Page.stream}, which runs the
+  # subscribed channel, is specified in page_spec.
+  let(:subscribed) { [] }
+  let(:fake_pubsub) do
+    subscribed = self.subscribed
+    channel = Struct.new(:patterns) do
+      def start(*) = self
+      def stop = self
+    end
+    Class.new do
+      define_method(:subscribe) do |*patterns|
+        subscribed << patterns
+        channel.new(patterns)
+      end
+    end.new
+  end
+
+  let(:session_options) { {} }
+
   let(:page_app) do
     loaded = self.loaded
+    session_options = self.session_options
 
     Class.new(Sidereal::App) do
+      session(secret: 'a' * 64, **session_options)
+
+      # Writing to the session gives it an id, which stream tokens are bound to.
+      get '/login' do
+        session[:user] = 'ada'
+        'ok'
+      end
+
       page '/accounts/:id/expenses' do
         query_schema(id: Sidereal::Types::Integer, from?: Sidereal::Types::Date)
 
-        define_singleton_method(:load) do |params, _ctx|
+        define_singleton_method(:load) do |params, ctx|
           loaded << params
-          new
+          new(account_id: params[:id], user: ctx.session[:user])
         end
+
+        def initialize(account_id: nil, user: nil)
+          @account_id = account_id
+          @user = user
+        end
+
+        def channel_names = ["accounts.#{channel_segment(@account_id)}", ("users.#{channel_segment(@user)}" if @user)].compact
 
         def view_template = p { 'expenses' }
       end
@@ -216,14 +254,85 @@ RSpec.describe 'Sidereal::App.page' do
     expect(loaded).to eq([{ id: 12, from: Date.new(2026, 11, 1) }])
   end
 
-  it 'renders params signals that decode to the same params on SSE connect' do
-    get '/accounts/12/expenses?from=2026-11-01&other=x'
-    signals = JSON.parse(CGI.unescapeHTML(last_response.body[/data-signals="([^"]*)"/, 1]))
-    sse = double(:sse, signals:, patch_elements: nil)
+  def updates_url = last_response.body[/data-init="@get\('([^']*)'\)"/, 1]
 
-    Sidereal::Page.subscribe(double(:channel, start: nil), sse, nil)
+  describe 'updates stream' do
+    def session_channel = a_string_matching(/\Asidereal\.sessions\.\h{32}\z/)
 
-    expect(loaded).to eq([{ id: 12, from: Date.new(2026, 11, 1) }] * 2)
+    before do
+      allow(Sidereal).to receive(:pubsub).and_return(fake_pubsub)
+    end
+
+    # Specs read an accepted stream's status and headers, never its body:
+    # Datastar's heartbeat keeps it open until the client goes.
+    it 'subscribes to the channels the rendered page named, in the session it rendered in' do
+      get '/login'
+      get '/accounts/12/expenses?from=2026-11-01&other=x'
+      url = updates_url
+
+      get url
+
+      expect(url).to start_with('/_updates/')
+      expect(last_response.status).to eq(200)
+      expect(last_response.headers['content-type']).to include('text/event-stream')
+      expect(subscribed).to match([['accounts.12', 'users.ada', session_channel]])
+    end
+
+    context 'with a session cookie coded as JSON' do
+      let(:session_options) { { coder: Rack::Session::Cookie::Base64::JSON.new } }
+
+      it 'subscribes in the session the page rendered in, which comes back with its id as a String' do
+        get '/login'
+        get '/accounts/12/expenses'
+        url = updates_url
+
+        get url
+
+        expect(subscribed).to match([['accounts.12', 'users.ada', session_channel]])
+      end
+    end
+
+    it 'gives a page rendered without a session one, whose channel its stream subscribes to' do
+      get '/accounts/12/expenses'
+      url = updates_url
+
+      get url
+
+      expect(subscribed).to match([['accounts.12', session_channel]])
+    end
+
+    it 'reloads the page without subscribing when the session has changed since it rendered' do
+      get '/login'
+      get '/accounts/12/expenses'
+      url = updates_url
+      clear_cookies
+      get '/login'
+
+      get url
+
+      expect(last_response.headers['content-type']).to include('text/event-stream')
+      expect(last_response.body).to include('location.reload()')
+      expect(subscribed).to be_empty
+    end
+
+    it "subscribes without the session's channel when the browser sends no session cookie, as when it refuses cookies" do
+      get '/login'
+      get '/accounts/12/expenses'
+      url = updates_url
+      clear_cookies
+
+      get url
+
+      expect(last_response.headers['content-type']).to include('text/event-stream')
+      expect(subscribed).to eq([['accounts.12', 'users.ada']])
+    end
+
+    it 'reloads the page without subscribing for a token it did not sign' do
+      get '/_updates/orders.42'
+
+      expect(last_response.body).to include('location.reload()')
+      expect(subscribed).to be_empty
+    end
   end
 
   it 'responds 400 without loading the page when a path segment fails the schema' do
@@ -242,6 +351,9 @@ RSpec.describe 'Sidereal::App.page' do
 end
 
 RSpec.describe 'Sidereal::App#component' do
+  # Pages sign their stream URLs with the sidereal.signer component.
+  before { Sidereal.config.build! }
+
   include Rack::Test::Methods
 
   let(:component_app) do
@@ -320,6 +432,11 @@ RSpec.describe 'Sidereal::App.handle' do
 
         handle HandleTestOtherCmd
 
+        get '/login' do
+          session[:user] = 'ada'
+          'ok'
+        end
+
         handle HandleTestCmd do |cmd|
           captured << cmd
           dispatch(HandleTestOtherCmd, name: 'from handle')
@@ -339,6 +456,21 @@ RSpec.describe 'Sidereal::App.handle' do
       expect(handled.size).to eq(1)
       expect(handled.first).to be_a(HandleTestCmd)
       expect(handled.first.payload.title).to eq('hello')
+    end
+
+    it "stamps a command with its session's digest, which the commands it dispatches carry on" do
+      get '/login'
+      post '/commands', command: { type: 'app_test.do_thing', payload: { title: 'hello' } }
+
+      digest = handled.first.metadata[Sidereal::Page::SESSION_DIGEST_KEY]
+      expect(digest).to match(/\A\h{32}\z/)
+      expect(claim_one(store).metadata[Sidereal::Page::SESSION_DIGEST_KEY]).to eq(digest)
+    end
+
+    it 'stamps no session digest on a command from a browser without a session' do
+      post '/commands', command: { type: 'app_test.do_thing', payload: { title: 'hello' } }
+
+      expect(handled.first.metadata).not_to have_key(Sidereal::Page::SESSION_DIGEST_KEY)
     end
 
     it 'can manually append a different command to the store' do
@@ -457,40 +589,6 @@ RSpec.describe 'Sidereal::App.handle' do
       expect(last_response.status).to eq(200)
       expect(last_response.headers['content-type']).to include('text/event-stream')
       expect(last_response.body).to include('<div id="result">updated</div>')
-    end
-  end
-
-  describe 'updates channel selection' do
-    let(:subscribed_channels) { [] }
-    let(:fake_pubsub) do
-      channels = subscribed_channels
-      Class.new do
-        define_method(:subscribe) do |channel_name|
-          channels << channel_name
-          Class.new do
-            def stop
-            end
-          end.new
-        end
-      end.new
-    end
-
-    let(:test_app) do
-      Class.new(Sidereal::App)
-    end
-
-    def app
-      test_app
-    end
-
-    before do
-      allow(Sidereal).to receive(:pubsub).and_return(fake_pubsub)
-    end
-
-    it 'uses the path parameter to choose the updates channel' do
-      get '/updates/items.42'
-
-      expect(subscribed_channels).to eq(['items.42'])
     end
   end
 

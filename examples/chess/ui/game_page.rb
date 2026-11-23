@@ -55,13 +55,9 @@ class GamePage < Sidereal::Page
     @current_step = current_step
   end
 
-  # Historic snapshots use a static channel so live SSE events don't
-  # override the frozen view.
-  def channel_name = @current_step ? 'static' : "games.#{@game_id}"
-
-  # Suppress page_key on historic snapshots so Page.subscribe early-returns
-  # and doesn't re-render the page from current state on SSE connect.
-  def page_signals = @current_step ? {} : super
+  # Historic snapshots take no live updates, which would override the
+  # frozen view.
+  def channel_names = @current_step ? [] : ["games.#{channel_segment(@game_id)}"]
 
   def viewer_color
     return 'white' if @state.white_username && @viewer == @state.white_username

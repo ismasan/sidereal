@@ -7,7 +7,7 @@ Sidereal is a Ruby gem for server-driven reactive web apps: a Rack router, typed
 - Tests: `bundle exec rspec`, or `bundle exec rspec spec/router_spec.rb:83` for one example
 - Console: `bin/console`
 - Setup: `bin/setup`
-- Example app: `cd examples/todos && bundle exec falcon serve`
+- Example app: `cd examples/todos && bundle exec falcon host`
 
 ## Where things are explained
 
