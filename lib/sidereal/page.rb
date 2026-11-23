@@ -47,10 +47,12 @@ module Sidereal
     # as the notifications for a command that failed. See {.session_channel}.
     SESSION_CHANNEL_PREFIX = 'sidereal.sessions'
 
-    # The metadata key {App} stamps a command sent from a browser with, naming
-    # its session's {.session_channel}. Messages correlated from the command
-    # carry it on.
-    SESSION_CHANNEL_KEY = :session_channel
+    # The metadata key {App} stamps a command sent from a browser with: its
+    # session's {.session_digest}, which names the session without giving
+    # its id away. Messages correlated from the command carry it on, so
+    # anything they cause can find the session's channel, with
+    # {.session_channel_for}, or tell which session it came from.
+    SESSION_DIGEST_KEY = :session_digest
 
     # The session key {.stream_token} writes to when a session has no id yet,
     # since Rack only gives a session an id once something is stored in it.
@@ -368,7 +370,7 @@ module Sidereal
         params = page_class.parse_params(data['params'])
         return unless params.valid?
 
-        channels += ["#{SESSION_CHANNEL_PREFIX}.#{session}"] if session
+        channels += [session_channel_for(session)] if session
         Stream.new(page_class:, params: params.value, channels:)
       end
 
@@ -379,8 +381,15 @@ module Sidereal
       # @return [String, nil]
       def session_channel(ctx)
         digest = session_digest(ctx)
-        "#{SESSION_CHANNEL_PREFIX}.#{digest}" if digest
+        session_channel_for(digest) if digest
       end
+
+      # The private channel of the session whose {.session_digest} is
+      # +digest+, as a message's {SESSION_DIGEST_KEY} metadata holds it.
+      #
+      # @param digest [String]
+      # @return [String]
+      def session_channel_for(digest) = "#{SESSION_CHANNEL_PREFIX}.#{digest}"
 
       # A digest of the session id +ctx+ carries, or +nil+ without one, or
       # when +rack.session+ is a plain Hash with no id. Rack assigns a session

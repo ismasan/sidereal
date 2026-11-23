@@ -237,7 +237,7 @@ RSpec.describe Sidereal::Exceptions do
 
     it 'publishes on the session channel of the browser that sent the command, when it carries one' do
       reg = described_class.with_default_publisher
-      sent = cmd.with_metadata(Sidereal::Page::SESSION_CHANNEL_KEY => 'sidereal.sessions.abc')
+      sent = cmd.with_metadata(Sidereal::Page::SESSION_DIGEST_KEY => 'abc')
 
       received = collect_published('sidereal.sessions.abc') do
         reg.report_failure(exception: boom, message: sent, retry_count: 3)

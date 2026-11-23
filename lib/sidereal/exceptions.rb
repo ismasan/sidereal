@@ -58,14 +58,15 @@ module Sidereal
     def self.with_default_publisher = new.restore_defaults!
 
     # Where the notification for a failed or retried +message+ goes: the
-    # session channel of the browser that sent it, when it carries one (see
-    # {Page::SESSION_CHANNEL_KEY}), so only that user's pages show it, or
-    # else the channel the message itself is routed to.
+    # session channel of the browser that sent it, when it carries its
+    # session (see {Page::SESSION_DIGEST_KEY}), so only that user's pages
+    # show it, or else the channel the message itself is routed to.
     #
     # @param message [Sidereal::Message]
     # @return [String]
     def self.notification_channel(message)
-      message.metadata[Sidereal::Page::SESSION_CHANNEL_KEY] || Sidereal.channels.for(message)
+      digest = message.metadata[Sidereal::Page::SESSION_DIGEST_KEY]
+      digest ? Sidereal::Page.session_channel_for(digest) : Sidereal.channels.for(message)
     end
 
     # Translate an {ExceptionReport} into a concrete

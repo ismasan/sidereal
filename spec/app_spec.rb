@@ -458,19 +458,19 @@ RSpec.describe 'Sidereal::App.handle' do
       expect(handled.first.payload.title).to eq('hello')
     end
 
-    it "stamps a command with its session's channel, which the commands it dispatches carry on" do
+    it "stamps a command with its session's digest, which the commands it dispatches carry on" do
       get '/login'
       post '/commands', command: { type: 'app_test.do_thing', payload: { title: 'hello' } }
 
-      channel = handled.first.metadata[Sidereal::Page::SESSION_CHANNEL_KEY]
-      expect(channel).to match(/\Asidereal\.sessions\.\h{32}\z/)
-      expect(claim_one(store).metadata[Sidereal::Page::SESSION_CHANNEL_KEY]).to eq(channel)
+      digest = handled.first.metadata[Sidereal::Page::SESSION_DIGEST_KEY]
+      expect(digest).to match(/\A\h{32}\z/)
+      expect(claim_one(store).metadata[Sidereal::Page::SESSION_DIGEST_KEY]).to eq(digest)
     end
 
-    it 'stamps no session channel on a command from a browser without a session' do
+    it 'stamps no session digest on a command from a browser without a session' do
       post '/commands', command: { type: 'app_test.do_thing', payload: { title: 'hello' } }
 
-      expect(handled.first.metadata).not_to have_key(Sidereal::Page::SESSION_CHANNEL_KEY)
+      expect(handled.first.metadata).not_to have_key(Sidereal::Page::SESSION_DIGEST_KEY)
     end
 
     it 'can manually append a different command to the store' do

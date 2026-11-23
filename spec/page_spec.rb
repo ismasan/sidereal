@@ -211,6 +211,15 @@ RSpec.describe Sidereal::Page do
       expect(described_class.session_channel(ctx)).to match(/\Asidereal\.sessions\.\h{32}\z/)
     end
 
+    it "names a session's channel from its digest, as messages carry it" do
+      ctx = context_with(session: session_with_id('s1'))
+      digest = described_class.session_digest(ctx)
+
+      expect(digest).to match(/\A\h{32}\z/)
+      expect(described_class.session_channel_for(digest)).to eq("sidereal.sessions.#{digest}")
+      expect(described_class.session_channel_for(digest)).to eq(described_class.session_channel(ctx))
+    end
+
     it 'subscribes to no session channel without a session' do
       token = described_class.stream_token(page_class.new(account_id: 'a9'), { id: '42' }, context_with)
 
