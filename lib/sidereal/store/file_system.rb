@@ -29,6 +29,23 @@ module Sidereal
       DEFAULT_MAX_IN_FLIGHT = 50
       DEFAULT_SCHEDULER_INTERVAL = 1.0
 
+      # The directories a message moves through, in the order it does.
+      QUEUES = %i[ready scheduled processing dead].freeze
+
+      # A message's canonical filename; see {.parse_filename}. Anything else in
+      # a queue directory (an +.error.json+ sidecar, a stray +.DS_Store+) is
+      # not a message.
+      FILENAME = /\A\d+-\d+-\d+-\d+-[0-9a-f]+\.json\z/
+
+      # A message waiting in one of the store's {QUEUES}, as its filename
+      # describes it. Listing entries reads no message bodies; {#read} does.
+      #
+      # +name+ is the canonical filename, also for a claimed message, whose
+      # file in +processing/+ carries the claim's pid and time after it
+      # (+claimed_by+ and +claimed_at+, nil in every other queue). +attempt+
+      # is 1 on first delivery and counts up with each retry.
+      Entry = Data.define(:queue, :name, :path, :not_before, :first_appended_at, :attempt, :claimed_by, :claimed_at)
+
       # Parse a canonical message filename into its component parts.
       # Filename format: +<not_before_ns>-<first_append_ns>-<retry_count>-<pid>-<rand>.json+
       # Public so tests and ops tooling can inspect on-disk entries
@@ -226,6 +243,79 @@ module Sidereal
         dest_path
       end
 
+      # The messages in one queue, earliest due first. Messages move while
+      # the app runs, so an entry may be gone by the time it is read.
+      #
+      # @param queue [Symbol] one of {QUEUES}
+      # @return [Array<Entry>]
+      # @raise [ArgumentError] for an unknown queue
+      def entries(queue)
+        raise ArgumentError, "unknown queue #{queue.inspect}, expected one of #{QUEUES.join(', ')}" unless QUEUES.include?(queue)
+
+        dir = queue_dir(queue)
+        Dir.children(dir).sort.filter_map do |file|
+          if queue == :processing
+            name, pid, claim_ns = parse_processing_name(file)
+            next unless name&.match?(FILENAME)
+
+            build_entry(queue, name, File.join(dir, file), claimed_by: pid, claimed_at: ns_to_time(claim_ns))
+          elsif file.match?(FILENAME)
+            build_entry(queue, file, File.join(dir, file))
+          end
+        end
+      end
+
+      # An entry's message as it was serialized: its type, id, payload and
+      # metadata, not decoded into its class. So a message whose type the app
+      # no longer defines, or whose payload no longer validates, can still be
+      # inspected.
+      #
+      # @param entry [Entry]
+      # @return [Hash, nil] the message's JSON, or nil if it has moved on
+      def read(entry)
+        JSON.parse(File.read(entry.path))
+      rescue Errno::ENOENT
+        nil
+      end
+
+      # Why a dead-lettered message failed: the exception's class, message
+      # and backtrace, as written to its +.error.json+ sidecar.
+      #
+      # @param entry [Entry]
+      # @return [Hash, nil] nil outside +dead/+, or when there is no sidecar
+      def failure(entry)
+        return unless entry.queue == :dead
+
+        JSON.parse(File.read("#{entry.path}.error.json"))
+      rescue Errno::ENOENT
+        nil
+      end
+
+      # Remove a message for good, and its sidecar in +dead/+. A message being
+      # handled can't be deleted: the worker holding it still has to ack it.
+      #
+      # The file is moved into +tmp/+ first, which consumers never look in,
+      # so a poller claiming it at the same moment gets either the whole
+      # message or nothing.
+      #
+      # @param entry [Entry] in +ready/+, +scheduled/+ or +dead/+
+      # @return [Boolean] false if the message had already moved on
+      # @raise [ArgumentError] for an entry in +processing/+
+      def delete(entry)
+        raise ArgumentError, "#{entry.name} is being handled, and can't be deleted" if entry.queue == :processing
+
+        trash = File.join(@tmp_dir, "#{entry.name}.deleted")
+        begin
+          File.rename(entry.path, trash)
+        rescue Errno::ENOENT
+          return false
+        end
+        File.unlink(trash)
+        sidecar = "#{entry.path}.error.json"
+        File.unlink(sidecar) if entry.queue == :dead && File.exist?(sidecar)
+        true
+      end
+
       # Pop one path from the internal queue, deserialize, yield with
       # per-claim {Sidereal::Store::Meta}, and act on the block's return.
       # The block must return a {Sidereal::Store::Result} value:
@@ -259,6 +349,23 @@ module Sidereal
       end
 
       private
+
+      def queue_dir(queue)
+        { ready: @ready_dir, scheduled: @scheduled_dir, processing: @processing_dir, dead: @dead_dir }.fetch(queue)
+      end
+
+      def build_entry(queue, name, path, claimed_by: nil, claimed_at: nil)
+        parts = self.class.parse_filename(name)
+        Entry.new(
+          queue:, name:, path:,
+          not_before: ns_to_time(parts[:not_before_ns]),
+          first_appended_at: ns_to_time(parts[:first_append_ns]),
+          attempt: parts[:retry_count],
+          claimed_by:, claimed_at:
+        )
+      end
+
+      def ns_to_time(ns) = Time.at(ns / 1_000_000_000, ns % 1_000_000_000, :nsec)
 
       # Build per-claim Meta by parsing the original filename out of the
       # processing-side name (which is +<original>__<pid>__<claim_ns>+)

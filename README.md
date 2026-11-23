@@ -939,6 +939,11 @@ bin/sid --help
 | `bin/sid sourced groups reset NAME` | Resets a consumer group, so its reactor reads everything again |
 | `bin/sid sourced messages list` | Lists the most recent messages in the store, with `--tail` to follow and `--types` / `--partition` to filter |
 | `bin/sid sourced messages correlation ID` | Draws the causal tree of one workflow |
+| `bin/sid store stats` | Counts the messages in each queue of the [file system store](#failure-handling-retries-and-dead-lettering) |
+| `bin/sid store list` | Lists the store's messages, with why each dead letter failed. `--queue` and `--type` filter |
+| `bin/sid store show ID` | Shows a message's payload and metadata, and its error and backtrace if it failed |
+| `bin/sid store requeue ID...` | Moves dead letters back to ready, with a full set of retries. `--all` for every one |
+| `bin/sid store delete ID...` | Deletes ready, scheduled or dead messages for good. `--all` for every dead letter |
 | `bin/sid system graph` | Prints the app's components and how they depend on each other |
 | `bin/sid system tree` | Prints the app's components as a tree, and who implemented each |
 | `bin/sid console` | Starts an IRB session with the app loaded |
@@ -968,11 +973,13 @@ So a command exists exactly when the app configures the integration that provide
 
 | Step | When | What it does |
 | --- | --- | --- |
-| `Sidereal::CLI.load_app(root)` | `bin/sid`, before parsing | Changes into the app root and requires `boot.rb`, so integrations' `setup` runs |
+| `Sidereal::CLI.load_app(root)` | `bin/sid`, before parsing | Changes into the app root and requires `boot.rb`, so integrations' `setup` runs. Then drops the registered commands whose `available?` is false |
 | `Sidereal::CLI.boot_app!` | in a command's `#call` | `Sidereal.config.build!` — component values become readable. Opens connections; starts nothing |
 | `Sidereal.config.start_component!(key, Thread.current)` | in a command that needs a *started* component | Runs that component's `start` hook, and its dependencies' |
 
 An app can register commands of its own the same way, from `boot.rb` or a file under `config/components/`.
+
+A command can also leave itself out of an app whose configuration makes it useless. Define `self.available?` on it: once `boot.rb` has loaded, `bin/sid` drops each registered command for which it returns false. It runs before anything is built, so it should only read the configuration, ex. which implementation a component has. `bin/sid store` uses it so it only appears while the file system store is still the app's store, and not after Sourced has replaced it.
 
 ### Database
 
@@ -1962,7 +1969,22 @@ end
 - **`Sidereal::Store::FileSystem`** — `Retry` renames the message into `scheduled/` with a bumped retry_count and the new `not_before_ns`; the body stays untouched (commanders cannot mutate the message between attempts). `Fail` writes a sidecar `dead/<f>.error.json` with the exception class/message/backtrace, then renames the message into `dead/`. The sweeper does not touch `dead/` — those messages are terminal until you act on them manually.
 - **`Sidereal::Store::Memory`** — `Retry` and `Fail` log at WARN level and ack/drop the message. The in-memory store has no scheduling or dead-letter primitives.
 
-**Requeueing dead messages.** Once you've fixed the underlying cause of failure, `Sidereal::Store::FileSystem#requeue(filename)` moves a dead-lettered message back into `ready/`. The new filename has `retry_count` reset to 1 and `not_before_ns` set to now (immediately ready); `first_append_ns` is preserved so age-based diagnostics retain the lineage. The `.error.json` sidecar is removed.
+**Inspecting and requeueing dead messages.** Apps that use the file system store get `bin/sid store`. It's left out when something used after `use_file_system!` replaces the store, as the Sourced integration does. It works on the store's files directly, so it's safe to run while the app is running:
+
+```bash
+bin/sid store stats                           # how many messages wait in ready/, scheduled/, processing/ and dead/
+bin/sid store list --queue dead               # each dead letter, with its exception
+bin/sid store show 5ecd5fdf                   # payload, metadata, error and backtrace
+bin/sid store requeue 5ecd5fdf                # back to ready/, once the cause is fixed
+bin/sid store requeue --all --type 'orders.*' # every dead letter in a namespace
+bin/sid store delete 5ecd5fdf                 # drop a dead letter, or cancel a ready or scheduled message
+```
+
+A message is named by its id, the start of one, or its filename. Messages are listed and shown as they were serialized, not decoded, so a dead letter whose type the app no longer defines can still be inspected. A message in `processing/` belongs to the worker handling it, so it can't be deleted.
+
+The same operations are public on the store, for scripts: `#entries(queue)` lists a queue's `Sidereal::Store::FileSystem::Entry` values, `#read(entry)` returns a message's JSON, `#failure(entry)` a dead letter's error, and `#delete(entry)` removes one.
+
+Once you've fixed the underlying cause of failure, `Sidereal::Store::FileSystem#requeue(filename)` moves a dead-lettered message back into `ready/`. The new filename has `retry_count` reset to 1 and `not_before_ns` set to now (immediately ready); `first_append_ns` is preserved so age-based diagnostics retain the lineage. The `.error.json` sidecar is removed.
 
 ```ruby
 store = Sidereal::Store::FileSystem.new(root: 'storage/store')

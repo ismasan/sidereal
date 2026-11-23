@@ -19,6 +19,16 @@ RSpec.describe Sidereal::Integrations::FileSystem do
       end
     end
 
+    it "adds `bin/sid store`, offered while this integration's store is the app's" do
+      require 'sidereal/cli'
+      described_class.setup(config)
+
+      expect(Sidereal::CLI.registry['store']).to eq(Sidereal::CLI::StoreCommand)
+      expect(Sidereal::CLI::StoreCommand).to be_available
+    ensure
+      Sidereal::CLI.registry.delete('store')
+    end
+
     it 'places files, socket, and lock under dir' do
       Dir.mktmpdir do |dir|
         described_class.setup(config, dir: dir)
@@ -89,6 +99,25 @@ RSpec.describe Sidereal::Integrations::FileSystem do
       Dir.mktmpdir do |dir|
         expect(described_class.setup(config, dir: dir)).to be(config)
       end
+    end
+  end
+
+  describe '.store?' do
+    it 'is true while the store is the one setup implemented' do
+      described_class.setup(config)
+
+      expect(described_class.store?(config)).to be(true)
+    end
+
+    it 'is false once something else implements the store, and builds nothing to find out' do
+      described_class.setup(config)
+      config.config!('sidereal.store') { raise 'built' }
+
+      expect(described_class.store?(config)).to be(false)
+    end
+
+    it 'is false without the integration' do
+      expect(described_class.store?(config)).to be(false)
     end
   end
 end
