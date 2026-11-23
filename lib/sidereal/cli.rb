@@ -48,6 +48,15 @@ module Sidereal
         end
       end
 
+      # Whether `bin/sid` offers this command in the app it has loaded. Asked
+      # by {CLI.load_app} once the app has loaded, for each registered
+      # command, so a command an integration registers can drop out when the
+      # app's configuration makes it useless, ex. a store another integration
+      # replaced. Read the configuration only: the app isn't built yet.
+      #
+      # @return [Boolean]
+      def self.available? = true
+
       # Styled terminal writing to this command's output stream.
       # Falls back to plain text when output is not a TTY.
       def terminal
@@ -118,6 +127,9 @@ module Sidereal
       # components but builds nothing, so nothing is connected to yet; a
       # command that needs component values calls {.boot_app!}.
       #
+      # Once it has loaded, the commands that aren't {Command.available?} in
+      # it are dropped.
+      #
       # An app that fails to load is remembered rather than raised, so `--help`
       # and the commands that don't need the app still work — which is when the
       # command line is most wanted. {.boot_app!} re-raises for the rest.
@@ -141,7 +153,9 @@ module Sidereal
           @app_load_error = e
           warn "sid: #{@app_root} failed to load: #{e.class}: #{e.message}"
           warn 'sid: only the commands that do not need the app are available.'
+          return
         end
+        registry.delete_if { |_name, command_class| !command_class.available? }
       end
 
       # Build the app's components ({Sidereal.config}), so a command can read

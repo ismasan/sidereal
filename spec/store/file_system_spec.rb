@@ -605,5 +605,127 @@ RSpec.describe Sidereal::Store::FileSystem do
         expect { store.requeue('missing.json') }.to raise_error(ArgumentError, /not found in dead/)
       end
     end
+
+    describe 'inspecting and deleting entries' do
+      def dead_letter!(store, error: RuntimeError.new('boom'))
+        store.append(FsStoreCmd.new(payload: { name: 'dead' }))
+        one_claim(store) { Sidereal::Store::Result::Fail.new(error:) }
+        store.entries(:dead).last
+      end
+
+      describe '#entries' do
+        it 'lists each queue earliest due first, from what the filename says' do
+          first = FsStoreCmd.new(payload: { name: 'a' })
+          store.append(first)
+          store.append(FsStoreCmd.new(payload: { name: 'b' }))
+          store.append(FsStoreCmd.new(payload: { name: 'later' }, created_at: Time.now + 60))
+
+          ready = store.entries(:ready)
+          expect(ready.map(&:queue)).to eq(%i[ready ready])
+          expect(store.read(ready.first)['id']).to eq(first.id)
+          expect(ready.first).to have_attributes(attempt: 1, claimed_by: nil, claimed_at: nil)
+          expect(ready.first.first_appended_at).to be_within(5).of(Time.now)
+
+          scheduled = store.entries(:scheduled)
+          expect(scheduled.size).to eq(1)
+          expect(scheduled.first.not_before).to be_within(5).of(Time.now + 60)
+        end
+
+        it 'lists dead letters without their sidecars, or files that are not messages' do
+          entry = dead_letter!(store)
+          File.write(File.join(@root, 'dead', '.DS_Store'), '')
+
+          expect(store.entries(:dead)).to eq([entry])
+          expect(entry.name).to match(described_class::FILENAME)
+        end
+
+        it 'lists a claimed message under its own name, with who claimed it and when' do
+          store.append(FsStoreCmd.new(payload: { name: 'a' }))
+          processing = nil
+          one_claim(store) do
+            processing = store.entries(:processing)
+            Sidereal::Store::Result::Ack
+          end
+
+          expect(processing.size).to eq(1)
+          expect(processing.first.name).to match(described_class::FILENAME)
+          expect(processing.first).to have_attributes(queue: :processing, claimed_by: Process.pid)
+          expect(processing.first.claimed_at).to be_within(5).of(Time.now)
+        end
+
+        it 'raises for an unknown queue' do
+          expect { store.entries(:archive) }.to raise_error(ArgumentError, /unknown queue/)
+        end
+      end
+
+      describe '#read' do
+        it "returns the message's JSON without decoding it" do
+          store.append(FsStoreCmd.new(payload: { name: 'a' }))
+
+          expect(store.read(store.entries(:ready).first)).to include('type' => 'fs_store_spec.cmd',
+                                                                     'payload' => { 'name' => 'a' })
+        end
+
+        it 'returns nil for a message that has moved on' do
+          store.append(FsStoreCmd.new(payload: { name: 'a' }))
+          entry = store.entries(:ready).first
+          File.unlink(entry.path)
+
+          expect(store.read(entry)).to be_nil
+        end
+      end
+
+      describe '#failure' do
+        it "returns a dead letter's exception" do
+          entry = dead_letter!(store, error: ArgumentError.new('bad name'))
+
+          expect(store.failure(entry)).to include('class' => 'ArgumentError', 'message' => 'bad name')
+        end
+
+        it 'returns nil outside dead/' do
+          store.append(FsStoreCmd.new(payload: { name: 'a' }))
+
+          expect(store.failure(store.entries(:ready).first)).to be_nil
+        end
+      end
+
+      describe '#delete' do
+        it 'deletes a dead letter and its sidecar' do
+          entry = dead_letter!(store)
+
+          expect(store.delete(entry)).to be(true)
+          expect(Dir.children(File.join(@root, 'dead'))).to be_empty
+          expect(Dir.children(File.join(@root, 'tmp'))).to be_empty
+        end
+
+        it 'deletes a scheduled message, so it never runs' do
+          store.append(FsStoreCmd.new(payload: { name: 'later' }, created_at: Time.now + 60))
+
+          expect(store.delete(store.entries(:scheduled).first)).to be(true)
+          expect(store.entries(:scheduled)).to be_empty
+        end
+
+        it 'returns false for a message that has moved on' do
+          store.append(FsStoreCmd.new(payload: { name: 'a' }))
+          entry = store.entries(:ready).first
+          File.unlink(entry.path)
+
+          expect(store.delete(entry)).to be(false)
+        end
+
+        it 'refuses a message being handled' do
+          store.append(FsStoreCmd.new(payload: { name: 'a' }))
+          error = nil
+          one_claim(store) do
+            store.delete(store.entries(:processing).first)
+          rescue ArgumentError => e
+            error = e
+            Sidereal::Store::Result::Ack
+          end
+
+          expect(error&.message).to match(/being handled/)
+        end
+      end
+    end
   end
 end
