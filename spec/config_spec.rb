@@ -4,9 +4,45 @@ require 'spec_helper'
 require 'tmpdir'
 
 RSpec.describe Sidereal::Config do
-  # Sidereal leaves the signer to the app.
+  # A fixed master secret, so building reads no ENV nor storage/secret.txt.
   subject(:config) do
-    described_class.build.tap { |c| c.config!('signer') { Sidereal::Signer.new('k' * 32) } }
+    described_class.build.tap { |c| c.config!('secret_key_base') { 'k' * 64 } }
+  end
+
+  describe 'secret_key_base' do
+    # Builds a fresh tree in an empty working directory, with +secret+ as
+    # SIDEREAL_SECRET, and yields its secret_key_base there.
+    def build_secret(secret)
+      original = ENV.fetch('SIDEREAL_SECRET', nil)
+      ENV['SIDEREAL_SECRET'] = secret
+      Dir.mktmpdir do |dir|
+        Dir.chdir(dir) { yield described_class.build.tap(&:build!)['secret_key_base'] }
+      end
+    ensure
+      ENV['SIDEREAL_SECRET'] = original
+    end
+
+    it 'is SIDEREAL_SECRET when it is set' do
+      build_secret('e' * 64) do |secret|
+        expect(secret).to eq('e' * 64)
+        expect(File.exist?('storage/secret.txt')).to be(false)
+      end
+    end
+
+    it 'is else the secret in storage/secret.txt, which building creates' do
+      ['', nil].each do |unset|
+        build_secret(unset) do |secret|
+          expect(secret).to match(/\A\h{64}\z/)
+          expect(File.read('storage/secret.txt')).to eq(secret)
+          expect(described_class.build.tap(&:build!)['secret_key_base']).to eq(secret)
+        end
+      end
+    end
+
+    it 'refuses a secret shorter than 64 bytes, without showing it' do
+      expect { build_secret('e' * 63) {} }
+        .to raise_error(Plumb::ParseError, 'secret_key_base: must have attribute bytesize === 64..')
+    end
   end
 
   describe '.build' do
@@ -27,6 +63,14 @@ RSpec.describe Sidereal::Config do
       expect(config['channels']).to be(Sidereal.channels)
       expect(config['exceptions']).to be(Sidereal.exceptions)
       expect(config['scheduler']).to be(Sidereal.scheduler)
+    end
+
+    it 'derives the signer key from secret_key_base, with sidereal.secrets' do
+      key = Sidereal::KeyGenerator.new('k' * 64).derive('sidereal.signer')
+
+      expect(config['secrets']).to be_a(Sidereal::KeyGenerator)
+      expect(config['secrets'].derive('session')).to eq(Sidereal::KeyGenerator.new('k' * 64).derive('session'))
+      expect(config['signer'].verify(Sidereal::Signer.new(key).generate('hi'))).to eq('hi')
     end
 
     it 'builds a Sidereal::Dispatcher and a runner for it' do
@@ -219,7 +263,7 @@ RSpec.describe Sidereal do
     let(:in_process_config) do
       Sourced::Component.new.tap do |root|
         root.mount('sidereal', Sidereal::Config.build)
-        root.config!('sidereal.signer') { Sidereal::Signer.new('k' * 32) }
+        root.config!('sidereal.secret_key_base') { 'k' * 64 }
       end
     end
     let(:safe_config) do

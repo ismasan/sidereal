@@ -208,6 +208,13 @@ module Sidereal
   # @return [#generate, #verify] the +sidereal.signer+ component
   def self.signer = config['sidereal.signer']
 
+  # Derives keys from the app's master secret:
+  #
+  #   Sidereal.secrets.derive('session')
+  #
+  # @return [#derive] the +sidereal.secrets+ component
+  def self.secrets = config['sidereal.secrets']
+
   # Labels of the subsystems whose state lives entirely within one process
   # (they carry the {SingleProcess} marker). These break cross-process fan-out
   # under a forking host, so the list drives {.check_topology!}. Empty once

@@ -278,7 +278,20 @@ RSpec.describe Sidereal::Page do
       token = described_class.stream_token(page_class.new, { id: '42' }, context_with(session: session_with_id('s1')))
 
       expect(described_class.resolve_stream(token, context_with(session: session_with_id('s2')))).to be_nil
-      expect(described_class.resolve_stream(token, context_with)).to be_nil
+    end
+
+    it "streams a token from a session to a request with none, as from a browser that refuses cookies, without the session's channel" do
+      token = described_class.stream_token(page_class.new(account_id: 'a9'), { id: '42' }, context_with(session: session_with_id('s1')))
+
+      expect(described_class.resolve_stream(token, context_with).channels).to eq(['orders.>', 'accounts.a9'])
+      expect(described_class.resolve_stream(token, context_with(session: { 'user' => 'ada' })).channels)
+        .to eq(['orders.>', 'accounts.a9'])
+    end
+
+    it 'rejects a token from no session in a request with one' do
+      token = described_class.stream_token(page_class.new, { id: '42' }, context_with)
+
+      expect(described_class.resolve_stream(token, context_with(session: session_with_id('s1')))).to be_nil
     end
 
     it 'rejects a token signed with another secret' do

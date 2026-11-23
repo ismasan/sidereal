@@ -12,10 +12,9 @@ module Sidereal
   # {#verify} accepts.
   #
   # Sidereal signs the URLs of pages' live updates streams with the
-  # +sidereal.signer+ component, which an app implements, ex. with one of
-  # these and a key a {KeyGenerator} derives (+sid new+ writes
-  # +config/components/signer.rb+). An app can sign its own data by injecting
-  # it:
+  # +sidereal.signer+ component: by default, one of these, with the key
+  # +sidereal.secrets+ derive for it. An app can sign its own data by
+  # injecting it:
   #
   #   dep 'sidereal.signer' => 'signer'
   #

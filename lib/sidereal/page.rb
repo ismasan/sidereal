@@ -344,6 +344,11 @@ module Sidereal
       # The stream's channels are the page's, and the session's
       # {.session_channel} when it has one.
       #
+      # A request with no session at all, as from a browser that refuses
+      # cookies, gets the page's channels without a session channel, rather
+      # than +nil+, which would reload the page for a session it never
+      # keeps.
+      #
       # @param token [String] from {.stream_token}
       # @param ctx [Sidereal::App] the request's app instance
       # @param signer [#verify]
@@ -353,7 +358,8 @@ module Sidereal
         return unless data.valid?
 
         data = data.value
-        return unless data['session'] == session_digest(ctx)
+        session = session_digest(ctx)
+        return unless session.nil? || data['session'] == session
 
         page_class = registry[data['page']]
         return unless page_class
@@ -362,7 +368,7 @@ module Sidereal
         params = page_class.parse_params(data['params'])
         return unless params.valid?
 
-        channels += ["#{SESSION_CHANNEL_PREFIX}.#{data['session']}"] if data['session']
+        channels += ["#{SESSION_CHANNEL_PREFIX}.#{session}"] if session
         Stream.new(page_class:, params: params.value, channels:)
       end
 

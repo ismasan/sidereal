@@ -56,11 +56,13 @@ RSpec.describe Sidereal::Signer do
   end
 
   describe 'the sidereal.signer component' do
-    it 'is declared by Sidereal, and left for the app to implement' do
-      Sidereal.reset_config!
+    it 'is a Signer with the key sidereal.secrets derive for it' do
+      Sidereal.config.build!
+      key = Sidereal::KeyGenerator.new('spec-secret-' * 6).derive('sidereal.signer')
+      token = described_class.new(key).generate('hi', purpose: 'test')
 
-      expect { Sidereal.config.build! }
-        .to raise_error(Sourced::Component::UnimplementedComponentError, /sidereal\.signer/)
+      expect(Sidereal.signer).to be_a(described_class)
+      expect(Sidereal.signer.verify(token, purpose: 'test')).to eq('hi')
     end
 
     it 'takes any signer that generates and verifies tokens' do

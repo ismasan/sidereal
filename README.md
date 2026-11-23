@@ -49,7 +49,7 @@ cd my_app
 bin/dev
 ```
 
-`sid new` creates the `my_app` directory and writes a new `SIDEREAL_SECRET` to its `.env`, which `boot.rb` loads with [dotenv](https://github.com/bkeepers/dotenv). `config/components/secrets.rb` derives keys from that secret, and the app uses them for its session cookies and its [signer](#sidereals-components), a `Sidereal::Signer` in `config/components/signer.rb`. The app can change both files. It runs `bundle install` and `bin/sid skills update` in it, and prints how to start the server. `bin/dev` starts it at <http://localhost:9292>. Open the page in two windows and say hello: every window sees every hello as it happens.
+`sid new` creates the `my_app` directory. Its `config/components/secrets.rb` gives Sidereal the app's [master secret](#sidereals-components), which Sidereal derives the keys for the session cookie and its signer from: `SIDEREAL_SECRET`, or else one the first boot creates in `storage/secret.txt`. So the app, its specs and every fresh checkout run with no setup. `boot.rb` loads a `.env`, if there is one, with [dotenv](https://github.com/bkeepers/dotenv). It runs `bundle install` and `bin/sid skills update` in it, and prints how to start the server. `bin/dev` starts it at <http://localhost:9292>. Open the page in two windows and say hello: every window sees every hello as it happens.
 
 `sid new` options:
 
@@ -699,9 +699,9 @@ class OrderPage < Sidereal::Page
 end
 ```
 
-The browser never names a channel. The layout signs the page's key, the params it was rendered with and its channels into a token, with the [`sidereal.signer`](#sidereals-components) component, and points the browser at `GET /_updates/<token>`. The stream verifies the token, subscribes, and only then loads the page again from those params to render it on connect, so nothing published in between is lost. A forged or altered token gets nothing, so a client can only subscribe to what a page it was shown named. The app implements the signer: a generated app signs with `Sidereal::Signer` and a key derived from `SIDEREAL_SECRET` (see [Running with Falcon](#running-with-falcon)).
+The browser never names a channel. The layout signs the page's key, the params it was rendered with and its channels into a token, with the [`sidereal.signer`](#sidereals-components) component, and points the browser at `GET /_updates/<token>`. The stream verifies the token, subscribes, and only then loads the page again from those params to render it on connect, so nothing published in between is lost. A forged or altered token gets nothing, so a client can only subscribe to what a page it was shown named. By default, the signer is a `Sidereal::Signer`, with a key derived from the app's master secret (see [Sidereal's components](#sidereals-components)).
 
-The token is bound to the session the page rendered in, when the app has [sessions](#sessions): a token from another session is refused. Rack only gives a session its id once something is stored in it, and changes it only when the session is renewed, so a login that writes to the session changes it. To cut off open tabs at logout, renew the session rather than only clearing it (`request.env['rack.session.options'][:renew] = true`). A refused token, like one signed with a secret that has since changed, gets the page reloaded, which renders a fresh one.
+The token is bound to the session the page rendered in, when the app has [sessions](#sessions): a token from another session is refused. A stream request with no session at all, as from a browser that refuses cookies, still gets the page's channels, but not the session's own channel, since it can't prove it's in that session. Rack only gives a session its id once something is stored in it, and changes it only when the session is renewed, so a login that writes to the session changes it. To cut off open tabs at logout, renew the session rather than only clearing it (`request.env['rack.session.options'][:renew] = true`). A refused token, like one signed with a secret that has since changed, gets the page reloaded, which renders a fresh one.
 
 Every page stream in a session also subscribes to that session's own channel, `sidereal.sessions.<session digest>`, on top of the page's channels. Sidereal publishes there what's meant for one user only: the [notifications](#failure-handling-retries-and-dead-lettering) for a command their browser sent. A command posted to `/commands` carries the channel in its metadata (`Sidereal::Page::SESSION_CHANNEL_KEY`), and so does every message correlated from it, however far down the chain. So when a command fails, the toast shows in that user's open pages, and nobody else's. To give every visitor a session channel, the layout stores a key in a session that has no id yet, which sets the session cookie. Without session middleware there's no session channel, and notifications go to the command's own channel instead. A page with no channels of its own opens no stream, so it shows no notifications either.
 
@@ -1577,13 +1577,13 @@ class MyRouter < Sidereal::Router
 end
 ```
 
-The secret can also be a callable, which the router calls on each request. It can then read a component, which isn't built yet when the class loads. A generated app derives the key from its master secret:
+The secret can also be a callable, which the router calls on each request. It can then read a component, which isn't built yet when the class loads. A generated app derives the key from its master secret, with `Sidereal.secrets`:
 
 ```ruby
-session secret: -> { Sidereal.config['secrets'].derive('session') }
+session secret: -> { Sidereal.secrets.derive('session') }
 ```
 
-The router creates the session middleware on the first request, and again whenever the secret changes. `Sidereal::KeyGenerator` derives a separate key for each purpose from one secret of at least 64 bytes, with HKDF-SHA256. A derived key doesn't reveal the secret or the other keys.
+The router creates the session middleware on the first request, and again whenever the secret changes.
 
 ### Halt and redirect
 
@@ -1651,7 +1651,9 @@ Sidereal.config.config!('sidereal.workers.count') { 10 }
 | `sidereal.runner.targets` | `['sidereal.dispatcher']` | what the runner starts |
 | `sidereal.runner.process` | `:all` | where the runner starts it: `:all` or `:leader` (see [Custom backends](#custom-backends)) |
 | `sidereal.scheduler` | `Sidereal.scheduler` | the [Scheduler](#fixed-schedules). Starts after the runner |
-| `sidereal.signer` | none: the app implements it, and building fails until it does | signs and verifies tokens: pages' [stream URLs](#per-page-channels), and anything an app signs with it (`dep 'sidereal.signer'`). Anything that answers `generate(data, purpose:)` and `verify(token, purpose:)`, which returns `nil` for a token it didn't make. `Sidereal::Signer` is an HMAC-SHA256 one, with a secret of at least 32 bytes. A generated app implements it in `config/components/signer.rb`, with a key it derives from its `secrets` component, which reads `SIDEREAL_SECRET` (`config/components/secrets.rb`). `Sidereal.signer` reads it |
+| `sidereal.secret_key_base` | `SIDEREAL_SECRET`, or else `storage/secret.txt` in the working directory, which building creates | the app's master secret, at least 64 bytes. See [Running with Falcon](#running-with-falcon). A generated app implements it in `config/components/secrets.rb`, the same way, with the file in the app's `storage/` |
+| `sidereal.secrets` | `Sidereal::KeyGenerator` | derives a key for each purpose from the master secret, with HKDF-SHA256 (`derive('session')`), so one secret serves them all, and a derived key reveals neither the secret nor the other keys. Anything that answers `derive(purpose)`, ex. one that reads a key for each purpose from a vault. `Sidereal.secrets` reads it |
+| `sidereal.signer` | `Sidereal::Signer`, with the key `sidereal.secrets` derive for it | signs and verifies tokens: pages' [stream URLs](#per-page-channels), and anything an app signs with it (`dep 'sidereal.signer'`). Anything that answers `generate(data, purpose:)` and `verify(token, purpose:)`, which returns `nil` for a token it didn't make. `Sidereal.signer` reads it |
 
 Implement any of them to replace it. See [Custom backends](#custom-backends).
 
@@ -1773,7 +1775,7 @@ bundle exec falcon host
 
 The host builds and starts the app's [components](#sidereals-components) before it serves requests.
 
-An app `sid new` generated derives the keys for its session cookies and for signing pages' stream URLs from `SIDEREAL_SECRET`, in `config/components/secrets.rb`. In production, set it to a random string of at least 64 bytes (`sid secret` makes one), the same in every process and kept across deploys. Changing it logs everyone out. The app won't start without it: building the components fails with `invalid ENV for secrets.base: SIDEREAL_SECRET is missing`. In development it comes from `.env`. An app that replaces `secrets` or the signer, ex. with a secret from a vault, has the same constraint: every worker has to sign alike, because a page one worker renders may stream from another, and tabs that are still open after a deploy reconnect with tokens signed by the old secret. Those tabs reload when their token is refused.
+Sidereal derives the keys for an app's session cookie and for signing pages' stream URLs from its [master secret](#sidereals-components), which a generated app configures in `config/components/secrets.rb`: `SIDEREAL_SECRET`, or else `storage/secret.txt`, which the first boot creates, readable only by its owner. Every process on the machine shares the file, and it lasts as long as `storage/` and the data in it, so a single machine needs no setup. Set `SIDEREAL_SECRET` instead to a random string of at least 64 bytes (`sid secret` makes one) when the app runs on several machines, or on a disk that a deploy replaces: every process must have the same secret, kept across deploys. Changing the secret logs everyone out. A backup of `storage/` includes it. An app that replaces the master secret, `sidereal.secrets` or the signer, ex. with a secret from a vault, has the same constraint: every worker has to sign alike, because a page one worker renders may stream from another, and tabs that are still open after a deploy reconnect with tokens signed by the old secret. Those tabs reload when their token is refused.
 
 ### Workers
 

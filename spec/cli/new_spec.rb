@@ -50,7 +50,6 @@ RSpec.describe Sidereal::CLI::New do
     root = generate('my_app')
 
     expect(files(root)).to eq(%w[
-      .env
       .gitignore
       Gemfile
       README.md
@@ -60,7 +59,6 @@ RSpec.describe Sidereal::CLI::New do
       config.ru
       config/components/example.rb
       config/components/secrets.rb
-      config/components/signer.rb
       falcon.rb
       storage/.keep
       system/greetings.rb
@@ -136,45 +134,19 @@ RSpec.describe Sidereal::CLI::New do
   end
 
   describe 'secret' do
-    it 'writes a new SIDEREAL_SECRET to .env, which git ignores' do
+    it 'loads .env in boot.rb, before Sidereal is configured, and git ignores it' do
       root = generate
-
-      expect(read(root, '.env')).to match(/\ASIDEREAL_SECRET=\h{64}\n\z/)
-      expect(read(root, '.gitignore').lines).to include("/.env\n")
-      expect(read(generate('other'), '.env')).not_to eq(read(root, '.env'))
-    end
-
-    it 'adds a secret to an existing .env that has none, keeping what is there' do
-      root = File.join(@dir, 'app')
-      FileUtils.mkdir_p(root)
-      File.write(File.join(root, '.env'), 'PORT=3000')
-
-      generate('app', '--force')
-
-      expect(read(root, '.env')).to match(/\APORT=3000\nSIDEREAL_SECRET=\h{64}\n\z/)
-    end
-
-    it 'keeps the secret an existing .env has' do
-      root = File.join(@dir, 'app')
-      FileUtils.mkdir_p(root)
-      File.write(File.join(root, '.env'), "export SIDEREAL_SECRET=mine\n")
-
-      generate('app', '--force')
-
-      expect(read(root, '.env')).to eq("export SIDEREAL_SECRET=mine\n")
-    end
-
-    it 'loads .env in boot.rb, before Sidereal is configured' do
-      boot = read(generate, 'boot.rb')
+      boot = read(root, 'boot.rb')
 
       expect(boot).to include("require 'dotenv'", "Dotenv.load(File.expand_path('.env', __dir__))")
       expect(boot.index('Dotenv.load')).to be < boot.index('Sidereal.config')
+      expect(read(root, '.gitignore').lines).to include("/.env\n")
     end
 
     # Runs Ruby in the generated app, with no SIDEREAL_SECRET of the specs'
-    # own, so a secret can only come from the app.
-    def run_in_app(root, script)
-      Open3.capture2e({ 'SIDEREAL_SECRET' => nil }, RbConfig.ruby, '-e', script, chdir: root)
+    # own unless +env+ gives one.
+    def run_in_app(root, script, env = {})
+      Open3.capture2e({ 'SIDEREAL_SECRET' => nil }.merge(env), RbConfig.ruby, '-e', script, chdir: root)
     end
 
     # Prints whether the app's signer verifies a token signed with the key
@@ -189,49 +161,71 @@ RSpec.describe Sidereal::CLI::New do
       RUBY
     end
 
-    it 'signs with a Sidereal::Signer and a key derived from the secret in .env, and refuses to build without one' do
-      root = generate
+    def file_secret = "File.read('storage/secret.txt')"
 
-      out, status = run_in_app(root, verifies_signed_with("ENV.fetch('SIDEREAL_SECRET')"))
+    it 'creates a secret in storage/ on first boot, which git ignores, and reuses it' do
+      root = generate
+      expect(File.exist?(File.join(root, 'storage/secret.txt'))).to be(false)
+
+      out, status = run_in_app(root, verifies_signed_with(file_secret))
       expect(status).to be_success, out
       expect(out.lines.last(2)).to eq(["Sidereal::Signer\n", "\"hi\"\n"])
 
-      File.write(File.join(root, '.env'), '')
-      out, status = run_in_app(root, verifies_signed_with("'x' * 64"))
-      expect(status).not_to be_success
-      expect(out).to include('invalid ENV for secrets.base: SIDEREAL_SECRET is missing')
+      secret = read(root, 'storage/secret.txt')
+      expect(secret).to match(/\A\h{64}\z/)
+      expect(File.stat(File.join(root, 'storage/secret.txt')).mode & 0o777).to eq(0o600)
+      expect(read(root, '.gitignore').lines).to include("/storage/*\n")
 
-      File.write(File.join(root, '.env'), "SIDEREAL_SECRET=#{'s' * 63}\n")
-      out, status = run_in_app(root, verifies_signed_with("'x' * 64"))
-      expect(status).not_to be_success
-      expect(out).to include('invalid ENV for secrets.base: SIDEREAL_SECRET is invalid: must have attribute bytesize === 64..')
-      expect(out).not_to include('s' * 63)
+      out, status = run_in_app(root, verifies_signed_with(file_secret))
+      expect(status).to be_success, out
+      expect(read(root, 'storage/secret.txt')).to eq(secret)
     end
 
-    it 'declares the secret and derives keys from it in config/components/secrets.rb, and implements the signer in signer.rb' do
+    it 'uses SIDEREAL_SECRET instead when it is set, and refuses a short one without showing it' do
+      root = generate
+      env = { 'SIDEREAL_SECRET' => 'e' * 64 }
+
+      out, status = run_in_app(root, verifies_signed_with("'e' * 64"), env)
+      expect(status).to be_success, out
+      expect(out.lines.last).to eq("\"hi\"\n")
+      expect(File.exist?(File.join(root, 'storage/secret.txt'))).to be(false)
+
+      out, status = run_in_app(root, verifies_signed_with("'e' * 64"), { 'SIDEREAL_SECRET' => 'e' * 63 })
+      expect(status).not_to be_success
+      expect(out).to include('sidereal.secret_key_base: must have attribute bytesize === 64..')
+      expect(out).not_to include('e' * 63)
+    end
+
+    it "configures Sidereal's master secret in config/components/secrets.rb, and leaves the signer to Sidereal" do
       root = generate
 
       expect(read(root, 'config/components/secrets.rb')).to include(
-        "Sidereal.config.declare('secrets.base', Sidereal::Types::String.where(bytesize: Sidereal::KeyGenerator::MIN_SECRET_BYTES..))",
-        "Sidereal.config.env('SIDEREAL_SECRET' => 'secrets.base')",
-        "Sidereal.config.declare('secrets', Sidereal::Types::Interface[:derive])",
-        "Sidereal.config.config!('secrets', ['secrets.base'])"
+        "Sidereal.config.config!('sidereal.secret_key_base') do",
+        "Sidereal::KeyGenerator.file_secret(secret_file)"
       )
-      expect(read(root, 'config/components/signer.rb')).to include(
-        "Sidereal.config.config!('sidereal.signer', ['secrets'])",
-        "Sidereal::Signer.new(secrets.derive('sidereal.signer'))"
-      )
+      expect(File.exist?(File.join(root, 'config/components/signer.rb'))).to be(false)
     end
 
-    it 'lets the app replace the secrets, and the signer derives its key from them' do
+    it 'lets the app read the master secret from elsewhere, ex. a vault' do
       root = generate
       File.write(File.join(root, 'config/components/secrets.rb'), <<~RUBY)
-        Sidereal.config.declare('secrets', Sidereal::Types::Interface[:derive])
-        Sidereal.config.config!('secrets') { Sidereal::KeyGenerator.new('v' * 64) }
+        Sidereal.config.config!('sidereal.secret_key_base') { 'v' * 64 }
       RUBY
-      File.write(File.join(root, '.env'), '')
 
       out, status = run_in_app(root, verifies_signed_with("'v' * 64"))
+      expect(status).to be_success, out
+      expect(out.lines.last).to eq("\"hi\"\n")
+      expect(File.exist?(File.join(root, 'storage/secret.txt'))).to be(false)
+    end
+
+    it 'lets the app replace sidereal.secrets with anything that derives keys' do
+      root = generate
+      File.write(File.join(root, 'config/components/secrets.rb'), <<~RUBY)
+        Sidereal.config.config!('sidereal.secret_key_base') { 'unused' * 11 }
+        Sidereal.config.config!('sidereal.secrets') { Sidereal::KeyGenerator.new('w' * 64) }
+      RUBY
+
+      out, status = run_in_app(root, verifies_signed_with("'w' * 64"))
       expect(status).to be_success, out
       expect(out.lines.last).to eq("\"hi\"\n")
     end
@@ -249,14 +243,14 @@ RSpec.describe Sidereal::CLI::New do
 
     it 'signs session cookies with a key derived from the secret' do
       root = generate
-      expect(read(root, 'web/app.rb')).to include("session secret: -> { Sidereal.config['secrets'].derive('session') }")
+      expect(read(root, 'web/app.rb')).to include("session secret: -> { Sidereal.secrets.derive('session') }")
 
       script = <<~RUBY
         require 'rack'
         app = Rack::Builder.parse_file('config.ru')
         Sidereal.config.build!
         cookie = Rack::MockRequest.new(app).get('/').headers['set-cookie'][/rack\\.session=[^;]+/]
-        key = Sidereal::KeyGenerator.new(ENV.fetch('SIDEREAL_SECRET')).derive('session')
+        key = Sidereal::KeyGenerator.new(#{file_secret}).derive('session')
         reader = Rack::Session::Cookie.new(->(env) { [200, {}, [env['rack.session'].to_h.keys.inspect]] }, secret: key)
         puts reader.call(Rack::MockRequest.env_for('/', 'HTTP_COOKIE' => cookie))[2].first
       RUBY

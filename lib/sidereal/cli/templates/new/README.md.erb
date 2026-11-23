@@ -18,7 +18,7 @@ Then open <http://localhost:<%= port %>>. `PORT`, `HOST` and `COUNT` (worker pro
 The migrations in `db/migrations/` are committed and `storage/` isn't, so `bin/sid db migrations run` is how a checkout gets its database — copy one over instead if you'd rather keep the data.
 <% end -%>
 
-`bin/dev` runs `bundle exec falcon host` and reloads the app whenever a Ruby file changes. Reloading needs a file watcher: [watchexec](https://github.com/watchexec/watchexec) (`brew install watchexec`) or fswatch. Without one, the server still runs. In production, run `bundle exec falcon host`, with `SIDEREAL_SECRET` set to a random string of at least 64 bytes (`bin/sid secret` makes one), the same in every process and across deploys. The app derives the keys for its session cookies and for signing the URLs of pages' live updates from it, and it won't start without it. In development it comes from `.env`, which `sid new` wrote and git ignores.
+`bin/dev` runs `bundle exec falcon host` and reloads the app whenever a Ruby file changes. Reloading needs a file watcher: [watchexec](https://github.com/watchexec/watchexec) (`brew install watchexec`) or fswatch. Without one, the server still runs. In production, run `bundle exec falcon host`. The app derives the keys for its session cookies and for signing the URLs of pages' live updates from one secret: `SIDEREAL_SECRET`, or else `storage/secret.txt`, which the first boot creates. On one machine whose `storage/` survives deploys, that's all it needs. On several machines, or a disk that a deploy replaces, set `SIDEREAL_SECRET` to a random string of at least 64 bytes (`bin/sid secret` makes one), the same in every process and across deploys. Changing the secret logs everyone out.
 <% if rspec? -%>
 
 ## Test
@@ -49,7 +49,7 @@ Sourced keeps the app's commands and events in the same database, in tables its 
 | Path | What's in it |
 | --- | --- |
 | `boot.rb` | Loads and configures the app |
-| `config/components/` | Components: the connections, clients and other services the app's classes use, declared with `Sidereal.config`. `boot.rb` loads every file here. See `example.rb`; `secrets.rb`, which derives keys from `SIDEREAL_SECRET`; and `signer.rb`, which implements the signer Sidereal signs the URLs of pages' live updates with |
+| `config/components/` | Components: the connections, clients and other services the app's classes use, declared with `Sidereal.config`. `boot.rb` loads every file here. See `example.rb`, and `secrets.rb`, which gives Sidereal the app's master secret, that it derives the keys for the session cookie and for signing the URLs of pages' live updates from |
 | `system/` | Backend code that doesn't know about the web: messages, commanders, Sourced deciders and reactors, and components (see below) |
 | `web/app.rb` | `App`, the web app: commands it accepts, their handlers, and pages |
 | `web/ui/` | Pages and the layout, in the `UI` namespace |
@@ -58,9 +58,9 @@ Sourced keeps the app's commands and events in the same database, in tables its 
 <% if database? -%>
 | `db/migrations/` | Database migrations, run with `bin/sid db migrations run`. Add one with `bin/sid db migrations add <name>` |
 <% end -%>
-| `storage/` | Runtime data<% if database? %>, including the SQLite database<% end %>. Not committed. |
+| `storage/` | Runtime data<% if database? %>, including the SQLite database<% end %>, and `secret.txt`, the app's secret unless `SIDEREAL_SECRET` is set. Not committed. |
 | `falcon.rb` | Falcon server settings |
-| `.env` | Environment variables for development, such as `SIDEREAL_SECRET`. `boot.rb` loads it, and variables already set win. Not committed. |
+| `.env` | Optional: environment variables for development. `boot.rb` loads it, if there is one, and variables already set win. Not committed. |
 | `bin/dev` | Development server that reloads on code changes |
 | `bin/sid` | Sidereal's command line with this app loaded. `bin/sid --help` lists its commands, e.g. `bin/sid console` |
 | `.agents/skills/` | Skills that teach AI coding agents to work with this app, such as using `bin/sid`. `.claude/skills` links here, for Claude Code. `bin/sid skills update` refreshes the ones Sidereal and its integrations provide |

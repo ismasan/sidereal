@@ -30,9 +30,13 @@ module Sidereal
   #   runner.process      :all (every process runs the targets) or :leader (only the
   #                       one the elector promotes)
   #   scheduler           Sidereal.scheduler. Ticks on the leader, after the runner starts
-  #   signer              signs the URLs of pages' live updates. Not implemented:
-  #                       the app implements it, ex. with a Signer, and building
-  #                       fails until it does
+  #   secret_key_base     the app's master secret: SIDEREAL_SECRET, or else
+  #                       storage/secret.txt, created on first build. See
+  #                       KeyGenerator.file_secret
+  #   secrets             KeyGenerator: derives a key for each purpose from
+  #                       secret_key_base
+  #   signer              Signer, with the key secrets derive for it: signs the
+  #                       URLs of pages' live updates
   #
   # Components that run in the background (elector, pubsub, scheduler) start
   # themselves in their component's start hook, which a re-implementation
@@ -57,8 +61,12 @@ module Sidereal
     # Started and stopped by the runner, possibly more than once per process
     DispatcherInterface = T::Interface[:start, :stop]
     SchedulerInterface = T::Interface[:start]
-    # Not implemented by Sidereal: an app implements it, ex. with a Sidereal::Signer
     SignerInterface = T::Interface[:generate, :verify]
+    SecretsInterface = T::Interface[:derive]
+    SecretKeyBase = T::String.where(bytesize: KeyGenerator::MIN_SECRET_BYTES..)
+    # Where secret_key_base comes from when SIDEREAL_SECRET isn't set, relative
+    # to the working directory, like the file system store's storage/.
+    SECRET_FILE = 'storage/secret.txt'
     # Which process runs the dispatcher: every process, or only the one the
     # elector promotes. See DispatcherRunner.
     DispatcherProcess = T::Value[:all] | T::Value[:leader]
@@ -167,7 +175,16 @@ module Sidereal
           start { |scheduler, task| scheduler.start(task) }
         end
 
+        c.declare('secret_key_base', SecretKeyBase) do
+          secret = ENV['SIDEREAL_SECRET'].to_s
+          secret.empty? ? KeyGenerator.file_secret(File.expand_path(SECRET_FILE)) : secret
+        end
+
+        c.declare('secrets', SecretsInterface)
+        c.config!('secrets', ['secret_key_base']) { |base| KeyGenerator.new(base) }
+
         c.declare('signer', SignerInterface)
+        c.config!('signer', ['secrets']) { |secrets| Signer.new(secrets.derive('sidereal.signer')) }
       end
     end
   end

@@ -64,11 +64,11 @@ RSpec.configure do |config|
   # too, and with it the dependency container, so an example that swaps the
   # pubsub or store does so before anything has resolved it.
   #
-  # Sidereal declares sidereal.signer and leaves it to the app, so the specs
-  # implement it, as a generated app's config/components/signer.rb does.
+  # A fixed master secret, so no spec reads SIDEREAL_SECRET or writes
+  # storage/secret.txt in the working directory.
   config.before(:each) do
     Sidereal.reload!
     Sidereal.reset_config!
-    Sidereal.config.config!('sidereal.signer') { Sidereal::Signer.new('spec-secret-' * 4) }
+    Sidereal.config.config!('sidereal.secret_key_base') { 'spec-secret-' * 6 }
   end
 end

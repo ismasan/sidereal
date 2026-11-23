@@ -272,7 +272,7 @@ module Sidereal
       #   callable that returns it. A callable is called on each request, so it
       #   can read a component, which isn't built when the class loads:
       #
-      #     session secret: -> { Sidereal.config['secrets'].derive('session') }
+      #     session secret: -> { Sidereal.secrets.derive('session') }
       #
       #   See {LazySession}.
       # @param opts [Hash] additional options forwarded to +Rack::Session::Cookie+

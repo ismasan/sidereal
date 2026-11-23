@@ -306,12 +306,25 @@ RSpec.describe 'Sidereal::App.page' do
       get '/accounts/12/expenses'
       url = updates_url
       clear_cookies
+      get '/login'
 
       get url
 
       expect(last_response.headers['content-type']).to include('text/event-stream')
       expect(last_response.body).to include('location.reload()')
       expect(subscribed).to be_empty
+    end
+
+    it "subscribes without the session's channel when the browser sends no session cookie, as when it refuses cookies" do
+      get '/login'
+      get '/accounts/12/expenses'
+      url = updates_url
+      clear_cookies
+
+      get url
+
+      expect(last_response.headers['content-type']).to include('text/event-stream')
+      expect(subscribed).to eq([['accounts.12', 'users.ada']])
     end
 
     it 'reloads the page without subscribing for a token it did not sign' do
