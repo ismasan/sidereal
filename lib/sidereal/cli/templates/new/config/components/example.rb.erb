@@ -15,7 +15,7 @@
 # release it. One value per process, built once, before it serves anything.
 # `config!`, with only a build step, is the short form.
 #
-#   Sidereal.config.declare('mailer', Mailer)
+#   Sidereal.config.declare('mailer', Mailer, description: 'Sends transactional email')
 #   Sidereal.config.component!('mailer') do
 #     build { Mailer.new(api_key: ENV.fetch('MAILER_API_KEY')) }
 #     teardown { |mailer| mailer.close }

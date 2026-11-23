@@ -984,8 +984,8 @@ The migrations in `db/migrations/` are the database's definition: committed, and
 
 ```ruby
 Sidereal.config.tap do |c|
-  c.declare('db.filepath', Sidereal::Types::String) { 'storage/db.db' }
-  c.declare('db', Sequel::Database)
+  c.declare('db.filepath', Sidereal::Types::String, description: 'Where the SQLite database file lives') { 'storage/db.db' }
+  c.declare('db', Sequel::Database, description: "The app's database connection")
   c.component!('db', ['db.filepath']) do
     build do |filepath|
       FileUtils.mkdir_p(File.dirname(filepath))
@@ -1162,15 +1162,20 @@ Sidereal.config  37 components, built
 
 Component                     Type                            State            Needs
 sidereal.elector              Interface[start, on_promote, …  built
+  Picks and signals the lead process
 sidereal.pubsub               Interface[start, subscribe, p…  built            sidereal.elector
+  Delivers published messages to their subscribers, such as open pages
 db.filepath                   Sidereal::Types::String         built
+  Where the SQLite database file lives
 db                            Sequel::Database                built            db.filepath
+  The app's database connection
 sourced.db                    Sequel::Database                built, alias     db
 sidereal.dispatcher           Interface[start, stop]          built, deferred  sidereal.store, sidereal.pubsub,
                                                                                sidereal.channels, sidereal.exceptions
+  Consumes the store and runs the handlers for each command
 ```
 
-The *State* column carries the lifecycle status, the mode when it isn't the default singleton (`alias`, `dynamic`), and whether the component is [deferred](#custom-backends). Edges wrap into the last column, which sizes itself to the terminal — a component's key is never shortened, so the type column gives up room first. `--dependents` turns the edges around, showing what depends on each component rather than what it needs.
+Each component's description, when it was declared with one, is printed dimmed under its row. The *State* column carries the lifecycle status, the mode when it isn't the default singleton (`alias`, `dynamic`), and whether the component is [deferred](#custom-backends). Edges wrap into the last column, which sizes itself to the terminal — a component's key is never shortened, so the type column gives up room first. `--dependents` turns the edges around, showing what depends on each component rather than what it needs.
 
 A component tree is a DAG rather than a tree, so edges are listed per component instead of being nested — a component with two dependents would otherwise have to appear twice.
 
@@ -1198,12 +1203,18 @@ Sidereal.config  37 components, built
 (root)
 ├── sidereal [mounted]
 │   ├── elector Interface[start, on_promote, on_demote, lea… (singleton, built) implemented by (root)
+│   │     Picks and signals the lead process
 │   ├── store Interface[append] (alias, built) implemented by (root)
+│   │     Where dispatched commands are appended, for the dispatcher to consume
 │   ├── workers
 │   │   └── count Integer[0..] (singleton, built)
+│   │         How many worker fibers the dispatcher runs
 │   └── dispatcher Interface[start, stop] (singleton, built, deferred)
+│         Consumes the store and runs the handlers for each command
 ├── db Sequel::Database (singleton, built)
+│   │ The app's database connection
 │   └── filepath Sidereal::Types::String (singleton, built)
+│         Where the SQLite database file lives
 └── sourced [mounted]
     └── db Sequel::Database (alias, built) implemented by (root)
 ```
@@ -1614,19 +1625,19 @@ Declare and implement components while the app loads, before it boots. Any file 
 require 'sequel'
 require 'sidereal'
 
-Sidereal.config.declare('db', Sequel::Database)
+Sidereal.config.declare('db', Sequel::Database, description: "The app's database connection")
 Sidereal.config.component!('db') do
   build { Sequel.sqlite(ENV.fetch('DB_PATH')) }
   teardown(&:disconnect)
 end
 
-Sidereal.config.declare('repos.orders', OrdersRepo)
+Sidereal.config.declare('repos.orders', OrdersRepo, description: 'Reads and writes orders')
 Sidereal.config.config!('repos.orders', ['db']) { |db| OrdersRepo.new(db) }
 
 Sidereal.config.config!('sidereal.workers.count') { 10 }
 ```
 
-- **`declare(key, type)`** adds a typed component. A block gives it a default: `declare('retries', Integer) { 3 }`.
+- **`declare(key, type, description:)`** adds a typed component. A block gives it a default: `declare('retries', Integer) { 3 }`. The optional `description:` says what it's for, and `bin/sid system graph` and `bin/sid system tree` print it under the component.
 - **`component!(key, deps) { ... }`** implements one as a singleton, built once per process, with `build`, `start`, `stop` and `teardown` hooks. `build` gets the values of `deps`, in order, and returns the component's value.
 - **`config!(key, deps) { |*values| ... }`** is the shorthand for a component that only builds. `config` (without `!`) builds a new value on every read.
 - **`alias(key, target)`** makes a component read another one's value.

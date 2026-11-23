@@ -42,7 +42,7 @@ Gem::Specification.new do |spec|
   # 0.4.1 encodes refined structs, which Types::UploadedFile.where(...) needs.
   spec.add_dependency('plumb', '~> 0.4', '>= 0.4.1')
   # Sidereal's configuration is a sourced-component tree (Sidereal.config).
-  spec.add_dependency('sourced-component', '~> 0.1', '>= 0.1.4')
+  spec.add_dependency('sourced-component', '~> 0.1', '>= 0.1.5')
   spec.add_dependency('rack', '~> 3')
   spec.add_dependency('rack-session')
   spec.add_dependency('phlex')

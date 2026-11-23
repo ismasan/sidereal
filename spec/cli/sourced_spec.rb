@@ -47,7 +47,7 @@ RSpec.describe Sidereal::CLI::Sourced do
       out = sid('sourced', 'install', '--skip-bundle')
 
       expect(out).to include('config/components/db.rb', 'config/components/sourced.rb')
-      expect(read('config/components/db.rb')).to include("c.declare('db', Sequel::Database)")
+      expect(read('config/components/db.rb')).to include("c.declare('db', Sequel::Database,")
     end
 
     it 'writes a component that uses the integration on that db' do

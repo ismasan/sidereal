@@ -54,6 +54,13 @@ RSpec.describe Sidereal::Config do
       expect(config['elector']).to be_a(Sidereal::Elector::AlwaysLeader)
     end
 
+    # What `sid system graph` and `sid system tree` print under each one.
+    it 'describes every component' do
+      undescribed = config.graph.components.select { |c| c[:description].nil? }.map { |c| c[:key] }
+
+      expect(undescribed).to eq([])
+    end
+
     it 'defaults workers.count to 25, and runner.process to :all' do
       expect(config['workers.count']).to eq(25)
       expect(config['runner.process']).to eq(:all)

@@ -11,7 +11,7 @@ PATH
       rack (~> 3)
       rack-session
       samovar
-      sourced-component (~> 0.1, >= 0.1.4)
+      sourced-component (~> 0.1, >= 0.1.5)
       sourced-message (>= 0.4.0)
       tsort
 
@@ -120,7 +120,7 @@ GEM
     samovar (2.4.1)
       console (~> 1.0)
       mapping (~> 1.0)
-    sourced-component (0.1.4)
+    sourced-component (0.1.5)
       plumb (~> 0.4)
       sourced-message
       tsort (~> 0.2)
@@ -186,7 +186,7 @@ CHECKSUMS
   refract (1.1.0) sha256=ee3b9627e39f7692831101e2fedd73e0d09a592ff5d5c05f171d14211fc7a9c7
   samovar (2.4.1) sha256=c3b91dd0580771e3bc600621c1111f29542529dcffafaac3b6bf068b3f309e80
   sidereal (0.1.0)
-  sourced-component (0.1.4) sha256=1826560689f2f4fe705c675205a1fd150c19576fb5d4bdd6fc379b0bf80bf2d7
+  sourced-component (0.1.5) sha256=515e7f6461d3966d8517fa1caa8c3eba9cf3554ada0a39eee0d187d578a64efb
   sourced-message (0.4.0) sha256=39d44d647b36253ebf8a2cdb6232c3b8e402f400982a7f9ed2af5aba423b9831
   string-format (0.2.0) sha256=bc981c14116b061f12134549f32fa2d61a17b5a35dd6fd36596c21722a789af6
   traces (0.18.2) sha256=80f1649cb4daace1d7174b81f3b3b7427af0b93047759ba349960cb8f315e214

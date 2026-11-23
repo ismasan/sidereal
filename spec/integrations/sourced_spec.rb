@@ -720,6 +720,18 @@ RSpec.describe 'Sidereal.config.use(Sidereal::Integrations::Sourced)' do
     expect(reports.map { |r| [r.exception.message, r.message] }).to eq([['boom', message]])
   end
 
+  it 'describes every component it declares in sidereal' do
+    use_sourced
+    config.prepare!
+
+    undescribed = config.graph.components
+                        .select { |c| c[:key].start_with?('sidereal.') && c[:description].nil? }
+                        .map { |c| c[:key] }
+
+    expect(config.node('sidereal.sourced.exceptions').description).to be_a(String)
+    expect(undescribed).to eq([])
+  end
+
   it "keeps the error strategy the app implements" do
     use_sourced
     config.config!('sourced.error_strategy') { Sourced::ErrorStrategy.new.retry(times: 3) }

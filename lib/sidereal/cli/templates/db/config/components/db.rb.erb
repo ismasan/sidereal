@@ -31,8 +31,8 @@ require 'sqlite3'
 # The path is relative to the app's root, which is where `falcon host` and
 # `bin/sid` both run from.
 Sidereal.config.tap do |c|
-  c.declare('db.filepath', Sidereal::Types::String) { 'storage/db.db' }
-  c.declare('db', Sequel::Database)
+  c.declare('db.filepath', Sidereal::Types::String, description: 'Where the SQLite database file lives') { 'storage/db.db' }
+  c.declare('db', Sequel::Database, description: "The app's database connection")
   c.component!('db', ['db.filepath']) do
     build do |filepath|
       FileUtils.mkdir_p(File.dirname(filepath))

@@ -64,8 +64,9 @@ RSpec.describe Sidereal::CLI::DB do
       component = read('config/components/db.rb')
 
       expect(component).to include(
-        "c.declare('db.filepath', Sidereal::Types::String) { 'storage/db.db' }",
-        "c.declare('db', Sequel::Database)",
+        "c.declare('db.filepath', Sidereal::Types::String, description: 'Where the SQLite database file lives') " \
+        "{ 'storage/db.db' }",
+        %(c.declare('db', Sequel::Database, description: "The app's database connection")),
         "c.component!('db', ['db.filepath'])",
         'teardown(&:disconnect)'
       )
@@ -125,7 +126,7 @@ RSpec.describe Sidereal::CLI::DB do
 
       sid('db', 'install', '--skip-bundle', '--force')
 
-      expect(read('config/components/db.rb')).to include("c.declare('db', Sequel::Database)")
+      expect(read('config/components/db.rb')).to include("c.declare('db', Sequel::Database,")
     end
 
     it 'fails outside an app' do

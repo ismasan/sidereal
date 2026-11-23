@@ -92,6 +92,50 @@ RSpec.describe Sidereal::CLI::System do
       expect(continuation.index('dependency.')).to eq(header.index('Needs'))
     end
 
+    it "prints a component's description under its row, and nothing for one without" do
+      app!(<<~'RUBY')
+        Sidereal.config.declare('plain', String) { 'x' }
+        Sidereal.config.declare('url', String, description: 'Where the database lives') { 'postgres://' }
+      RUBY
+
+      lines = sid('system', 'graph').lines.map(&:chomp)
+      url = lines.index { |line| line.start_with?('url ') }
+      plain = lines.index { |line| line.start_with?('plain ') }
+
+      expect(lines[url + 1]).to eq('  Where the database lives')
+      # The next row follows straight on.
+      expect(url).to eq(plain + 1)
+    end
+
+    it 'prints the description after the edges that wrap' do
+      app!(<<~'RUBY')
+        %w[alpha bravo charlie delta echo].each do |name|
+          Sidereal.config.declare("dependency.#{name}", String) { name }
+        end
+        Sidereal.config.declare('assembly', String, description: 'Puts the parts together')
+        Sidereal.config.config!('assembly', %w[dependency.alpha dependency.bravo dependency.charlie
+                                               dependency.delta dependency.echo]) { |*parts| parts.join }
+      RUBY
+
+      lines = sid('system', 'graph').lines.map(&:chomp)
+      row = lines.index { |line| line.start_with?('assembly ') }
+      description = lines.index('  Puts the parts together')
+
+      expect(description).to be > row + 1
+      expect(lines[(row + 1)...description]).to all(match(/^\s+dependency\./))
+    end
+
+    it 'wraps a long description to the terminal' do
+      app!("Sidereal.config.declare('chatty', String, description: '#{(%w[word] * 30).join(' ')}') { 'x' }\n")
+
+      lines = sid('system', 'graph').lines.map(&:chomp)
+      row = lines.index { |line| line.start_with?('chatty ') }
+
+      expect(lines[row + 1]).to start_with('  word word')
+      expect(lines[row + 2]).to start_with('  word')
+      expect(lines.grep(/\A  word/).map(&:length)).to all(be <= 80)
+    end
+
     it 'shows what depends on each component with --dependents' do
       app!(<<~'RUBY')
         Sidereal.config.declare('url', String) { 'postgres://' }
@@ -179,6 +223,25 @@ RSpec.describe Sidereal::CLI::System do
       expect(out).to include('(root)', 'mailer', 'url')
       # The namespace is a heading; the component hangs off it.
       expect(out).to match(/mailer\n.*└── url String/)
+    end
+
+    it "prints a component's description under it, inside the drawing" do
+      app!(<<~'RUBY')
+        Sidereal.config.declare('mailer', String, description: 'Sends the mail') { 'm' }
+        Sidereal.config.declare('mailer.url', String, description: 'Where it sends from') { 'smtp://' }
+        Sidereal.config.declare('plain', String) { 'x' }
+      RUBY
+
+      lines = sid('system', 'tree').lines.map(&:chomp)
+      mailer = lines.index { |line| line.start_with?('├── mailer String') }
+
+      # The line down to mailer's children carries on past its description...
+      expect(lines[mailer + 1]).to eq('│   │ Sends the mail')
+      expect(lines[mailer + 2]).to start_with('│   └── url String')
+      # ...and a leaf's sits under it, set in from its name.
+      expect(lines[mailer + 3]).to eq('│         Where it sends from')
+      # Nothing under one without.
+      expect(lines.last).to start_with('└── plain String')
     end
 
     it "marks a mounted component's own subtree" do

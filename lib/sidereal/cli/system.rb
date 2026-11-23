@@ -69,6 +69,29 @@ module Sidereal
           text.length > width ? "#{text[0, width - 1]}…" : text
         end
 
+        # Narrower than this, a description would read a word or two a line.
+        MIN_DESCRIPTION_WIDTH = 30
+
+        # A component's description, dimmed, on lines of its own under it,
+        # word-wrapped to what's left of the terminal after +indent+. Nothing
+        # for a component declared without one.
+        def print_description(description, indent)
+          return if description.nil? || description.empty?
+
+          width = [terminal.width - indent.length, MIN_DESCRIPTION_WIDTH].max
+          word_wrap(description, width).each { |line| terminal.print_line(:muted, indent, line) }
+        end
+
+        def word_wrap(text, width)
+          text.split.each_with_object([]) do |word, lines|
+            if lines.empty? || lines.last.length + 1 + word.length > width
+              lines << word.dup
+            else
+              lines.last << ' ' << word
+            end
+          end
+        end
+
         def print_title(count, status)
           terminal.print_line :title, 'Sidereal.config', :reset, "  #{count} components, ",
                               STATUS_STYLES.fetch(status, :reset), status.to_s
@@ -171,7 +194,8 @@ module Sidereal
             [truncate(node[:type_name]), :type],
             [state_of(node), state_style(node)],
             @options[:dependents] ? node[:dependents] : node[:deps],
-            node[:missing] || []
+            node[:missing] || [],
+            node[:description]
           ]
         end
 
@@ -206,7 +230,13 @@ module Sidereal
           terminal.print_line(*cells, *edge_cells(lines.first || [], missing))
           indent = ' ' * (widths.sum + (GUTTER.length * 3))
           lines.drop(1).each { |line| terminal.print_line(:reset, indent, *edge_cells(line, missing)) }
+          # Under the whole row, edges included, so it reads as the
+          # component's caption rather than as one more edge.
+          print_description(row[5], DESCRIPTION_INDENT)
         end
+
+        # Under the key, set in from it, so the keys still read down the left.
+        DESCRIPTION_INDENT = '  '
 
         def edge_cells(keys, missing)
           keys.flat_map.with_index do |key, i|
@@ -258,7 +288,7 @@ module Sidereal
 
           define_styles!
           print_title(count(tree.root), tree.status)
-          print_node(tree.root, tree.root.path || '(root)', '')
+          print_node(tree.root, tree.root.path || '(root)', '', '')
           print_children(tree.root.children, '')
           print_problem(problem)
         end
@@ -274,12 +304,15 @@ module Sidereal
         def print_children(nodes, prefix)
           nodes.each_with_index do |node, i|
             last = i == nodes.size - 1
-            print_node(node, node.key, "#{prefix}#{last ? '└── ' : '├── '}")
-            print_children(node.children, prefix + (last ? '    ' : '│   '))
+            child_prefix = prefix + (last ? '    ' : '│   ')
+            print_node(node, node.key, "#{prefix}#{last ? '└── ' : '├── '}", child_prefix)
+            print_children(node.children, child_prefix)
           end
         end
 
-        def print_node(node, name, prefix)
+        # +child_prefix+ is the drawing its children hang from, so a
+        # description under a node with children keeps the line down to them.
+        def print_node(node, name, prefix, child_prefix)
           parts = [:muted, prefix, name_style(node), name]
           parts += [:flag, ' [mounted]'] if node.mounted
           parts += [:type, " #{truncate(node.type_name)}", *state(node)] unless node.namespace
@@ -287,6 +320,7 @@ module Sidereal
           # declared, such as `sourced.db` over the app's own connection.
           parts += [:mode, " implemented by #{node.implementer || '(root)'}"] if node.overridden?
           terminal.print_line(*parts)
+          print_description(node.description, child_prefix + (node.children.empty? ? '  ' : '│ '))
         end
 
         # A namespace has no implementation to judge, so it isn't painted as a

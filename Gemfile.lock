@@ -31,7 +31,7 @@ PATH
       rack (~> 3)
       rack-session
       samovar
-      sourced-component (~> 0.1, >= 0.1.4)
+      sourced-component (~> 0.1, >= 0.1.5)
       sourced-message (>= 0.4.0)
       tsort
 
@@ -186,7 +186,7 @@ GEM
       console (~> 1.0)
     sequel (5.110.0)
       bigdecimal
-    sourced-component (0.1.4)
+    sourced-component (0.1.5)
       plumb (~> 0.4)
       sourced-message
       tsort (~> 0.2)
@@ -287,7 +287,7 @@ CHECKSUMS
   sequel (5.110.0) sha256=c316335b352adb4109bb02ade237b1a6dbd493493def34542ce05893f62138ae
   sidereal (0.1.0)
   sourced (0.0.1)
-  sourced-component (0.1.4) sha256=1826560689f2f4fe705c675205a1fd150c19576fb5d4bdd6fc379b0bf80bf2d7
+  sourced-component (0.1.5) sha256=515e7f6461d3966d8517fa1caa8c3eba9cf3554ada0a39eee0d187d578a64efb
   sourced-message (0.5.3) sha256=3d3f961157628e468e18486b81c0893c37a29fa52fae4b47f45260f74510a19d
   sqlite3 (2.10.2-arm64-darwin) sha256=5b0d235ea037e6dcd1b8387a19d73be571917db9f93044d35741cf933a21a37d
   sqlite3 (2.10.2-x86_64-linux-gnu) sha256=ca92731ab464df9cae503fa1a439a549e2724f6953c8c05a7769b59366e38f15

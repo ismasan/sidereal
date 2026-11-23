@@ -112,41 +112,48 @@ module Sidereal
     # @return [Sourced::Component]
     def self.build
       Sourced::Component.new.tap do |c|
-        c.declare('elector', ElectorInterface)
+        c.declare('elector', ElectorInterface, description: 'Picks and signals the lead process')
         c.component!('elector') do
           build { Elector::AlwaysLeader.new }
           start { |elector, task| elector.start(task) }
         end
 
-        c.declare('pubsub', PubsubInterface)
+        c.declare('pubsub', PubsubInterface,
+                  description: 'Delivers published messages to their subscribers, such as open pages')
         c.component!('pubsub', ['elector']) do
           build { |_elector| PubSub::Memory.instance }
           start { |pubsub, task| pubsub.start(task) }
         end
 
-        c.declare('store', StoreWriterInterface) { Store::Memory.instance }
+        c.declare('store', StoreWriterInterface,
+                  description: 'Where dispatched commands are appended, for the dispatcher to consume') { Store::Memory.instance }
 
-        c.declare('channels', ChannelsInterface)
+        c.declare('channels', ChannelsInterface,
+                  description: 'Resolves the pubsub channel each message is published on')
         c.component!('channels') do
           build { Sidereal.channels }
           start { |channels, _| channels.lock! }
         end
 
-        c.declare('exceptions', ExceptionsInterface)
+        c.declare('exceptions', ExceptionsInterface,
+                  description: 'Reports the exceptions handlers raise, as they are retried or fail')
         c.component!('exceptions') do
           build { Sidereal.exceptions }
           start { |exceptions, _| exceptions.lock! }
         end
 
-        c.declare('broadcaster', BroadcasterInterface)
+        c.declare('broadcaster', BroadcasterInterface,
+                  description: 'Publishes transient messages on the pubsub, on their channel')
         c.component!('broadcaster', %w[pubsub channels]) do
           build { |pubsub, channels| Broadcaster.new(pubsub:, channels:) }
         end
 
-        c.declare('workers.count', T::Integer[0..]) { 25 }
+        c.declare('workers.count', T::Integer[0..],
+                  description: 'How many worker fibers the dispatcher runs') { 25 }
 
         # Deferred, so the root's start doesn't start it in every process: the runner does
-        c.declare('dispatcher', DispatcherInterface)
+        c.declare('dispatcher', DispatcherInterface,
+                  description: 'Consumes the store and runs the handlers for each command')
         c.component!('dispatcher', %w[store pubsub channels exceptions broadcaster workers.count]) do
           build do |store, pubsub, channels, exceptions, broadcaster, count|
             Dispatcher.new(worker_count: count, store:, pubsub:, channels:, exceptions:, broadcaster:, registry: Sidereal.registry)
@@ -157,9 +164,12 @@ module Sidereal
         c.defer('dispatcher')
 
         # Doesn't depend on its targets: depending on a deferred component would defer it too
-        c.declare('runner', DispatcherRunner)
-        c.declare('runner.targets', T::Array[String]) { [[c.path, 'dispatcher'].compact.join('.')] }
-        c.declare('runner.process', DispatcherProcess) { :all }
+        c.declare('runner', DispatcherRunner,
+                  description: 'Starts its targets in the processes that run them, and stops them on demotion')
+        c.declare('runner.targets', T::Array[String],
+                  description: 'Keys of the deferred components the runner starts and stops') { [[c.path, 'dispatcher'].compact.join('.')] }
+        c.declare('runner.process', DispatcherProcess,
+                  description: 'Which processes run the targets: :all, or only the :leader') { :all }
         c.component!('runner', %w[elector runner.process runner.targets]) do
           build do |elector, process, targets|
             DispatcherRunner.new(config: c.root, targets:, elector:, process:)
@@ -169,21 +179,25 @@ module Sidereal
         end
 
         # Depends on the runner to start after it (and so after the elector)
-        c.declare('scheduler', SchedulerInterface)
+        c.declare('scheduler', SchedulerInterface,
+                  description: "Dispatches the commands of the app's named schedules, on the leader process")
         c.component!('scheduler', ['runner']) do
           build { |_runner| Sidereal.scheduler }
           start { |scheduler, task| scheduler.start(task) }
         end
 
-        c.declare('secret_key_base', SecretKeyBase) do
+        c.declare('secret_key_base', SecretKeyBase,
+                  description: "The app's master secret, which every other key is derived from") do
           secret = ENV['SIDEREAL_SECRET'].to_s
           secret.empty? ? KeyGenerator.file_secret(File.expand_path(SECRET_FILE)) : secret
         end
 
-        c.declare('secrets', SecretsInterface)
+        c.declare('secrets', SecretsInterface,
+                  description: 'Derives a key for each purpose from secret_key_base')
         c.config!('secrets', ['secret_key_base']) { |base| KeyGenerator.new(base) }
 
-        c.declare('signer', SignerInterface)
+        c.declare('signer', SignerInterface,
+                  description: "Signs and verifies the URLs of pages' live updates")
         c.config!('signer', ['secrets']) { |secrets| Signer.new(secrets.derive('sidereal.signer')) }
       end
     end

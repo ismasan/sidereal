@@ -35,7 +35,7 @@ Put declarations for connections, clients and settings in a file in `config/comp
 # config/components/mailer.rb
 require 'mailer_sdk'   # requires at the top, outside the blocks
 
-Sidereal.config.declare('mailer', MailerSDK::Client)
+Sidereal.config.declare('mailer', MailerSDK::Client, description: 'Sends transactional email')
 Sidereal.config.component!('mailer') do
   build { MailerSDK::Client.new(api_key: ENV.fetch('MAILER_API_KEY')) }
   teardown(&:close)
@@ -49,7 +49,7 @@ Sidereal.config.config!('notifier', ['mailer']) { |mailer| Notifier.new(mailer) 
 Sidereal.config.declare('orders.page_size', Integer) { 20 }
 ```
 
-- `declare(key, type)` adds a typed component. A block gives it a default. Building a value that doesn't match the type fails the boot.
+- `declare(key, type, description:)` adds a typed component. A block gives it a default. Building a value that doesn't match the type fails the boot. Give it a `description:` saying what it's for: `bin/sid system tree` and `bin/sid system graph` print it under the component.
 - `component!(key, deps) { build ...; start ...; stop ...; teardown ... }` implements a component. It's built once per process.
 - `config!(key, deps) { |*values| ... }` is the short form for a component that only builds.
 - Implementing a key again replaces it, hooks included. The last one wins. That's how an app replaces one of Sidereal's own, such as `sidereal.store` or `sidereal.workers.count`.
@@ -93,7 +93,7 @@ dep 'mailers.client'   # a `client` reader
 
 ## Inspecting and debugging
 
-- `bin/sid system tree` prints every component, its status and who implemented it.
+- `bin/sid system tree` prints every component, its status, who implemented it and what it's for.
 - `bin/sid system graph` shows what depends on what.
 - The tree locks when the app prepares, which happens on boot. Every declaration has to load before then. A boot error names the component that's undeclared, unimplemented, part of a cycle or of the wrong type.
 - Outside a running app (rake tasks, scripts, specs), reading a component raises `Sourced::Component::NotBuiltError` until `Sidereal.config.build!` has been called, after the app has loaded.

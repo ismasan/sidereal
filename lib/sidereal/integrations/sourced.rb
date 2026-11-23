@@ -185,7 +185,10 @@ module Sidereal
         # strategy on start. Whatever strategy the app implements is kept.
         # Declared in Sidereal's tree, which owns its keys, and implemented from
         # the root, which can see Sourced's
-        config.node('sidereal').declare('sourced.exceptions', ::Sourced::Config::ErrorStrategyInterface)
+        config.node('sidereal').declare(
+          'sourced.exceptions', ::Sourced::Config::ErrorStrategyInterface,
+          description: "Sourced's error strategy, reporting retries and failures to Sidereal's exceptions"
+        )
         config.config!('sidereal.sourced.exceptions', ['sourced.error_strategy', 'sidereal.exceptions']) do |strategy, exceptions|
           strategy.on_retry(exceptions).on_fail(exceptions)
         end
