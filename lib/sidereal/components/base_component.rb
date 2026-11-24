@@ -121,12 +121,65 @@ module Sidereal
         assets.each { |asset| asset.register_in(registry) }
       end
 
-      # Register this component's {.assets} with +app+'s: what {App.install}
-      # calls.
+      # A command handler a component declares with {.handle}: the command it
+      # takes from the web, and the block that handles it, or +nil+ for the
+      # app's default, which dispatches the command.
+      Handler = Data.define(:command_class, :block)
+
+      # Declare commands this component takes from the web, and how to handle
+      # them, as {App.handle} does. Only recorded here: an app that installs
+      # the component (see {.sidereal_install}) handles them, and the block
+      # runs in that app's request, with its helpers: +browser+, +session+,
+      # +params+, +reject+, and +dispatch+ to send a command on to a
+      # background handler.
+      #
+      #   class Chat < Sidereal::Components::BaseComponent
+      #     handle SendMessage do |cmd|
+      #       dispatch StoreMessage, text: cmd.payload.text
+      #       browser.patch_elements MessageList.new
+      #     end
+      #   end
+      #
+      # Test them with {Sidereal::Testing::Harness}.
+      #
+      # @param command_classes [Array<Class<Sidereal::Message>>]
+      # @yieldparam cmd [Sidereal::Message] the validated command
+      # @return [Array<Handler>]
+      def self.handle(*command_classes, &block)
+        raise ArgumentError, 'handle needs at least one command class' if command_classes.empty?
+
+        command_classes.map { |command_class| Handler.new(command_class:, block:) }.tap do |handlers|
+          (@handlers ||= []).concat(handlers)
+        end
+      end
+
+      # The command handlers this component declares, after its superclass's.
+      #
+      # @return [Array<Handler>]
+      def self.handlers
+        inherited = superclass.respond_to?(:handlers) ? superclass.handlers : []
+        inherited + (@handlers || [])
+      end
+
+      # Register this component's {.handlers} with +app+, with {App.handle}. A
+      # command handled twice, as by two components with the same superclass,
+      # is handled by the last.
       #
       # @param app [Class<Sidereal::App>]
       # @return [void]
-      def self.sidereal_install(app) = register_assets(app.assets)
+      def self.register_handlers(app)
+        handlers.each { |handler| app.handle(handler.command_class, &handler.block) }
+      end
+
+      # Register this component's {.assets} and {.handlers} with +app+: what
+      # {App.install} and {App.component} call.
+      #
+      # @param app [Class<Sidereal::App>]
+      # @return [void]
+      def self.sidereal_install(app)
+        register_assets(app.assets)
+        register_handlers(app)
+      end
 
       def self.declare_asset(name, kind, path, content)
         Assets::Declaration.new(name:, kind:, path:, content:).tap { |asset| (@assets ||= []) << asset }
