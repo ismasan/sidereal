@@ -30,7 +30,15 @@ module Sidereal
     # A verified stream token: the page to stream, its decoded params, and
     # the channel patterns to subscribe to: the page's {#channel_names}, and
     # its session's {.session_channel}. See {.resolve_stream}.
-    Stream = Data.define(:page_class, :params, :channels)
+    #
+    # +live+ is whether the page takes live updates, which is whether it named
+    # any channels. A stream that isn't live only follows the page's assets
+    # for live reload, and never renders the page: what's in the browser may
+    # have been rendered from more than the page's params, as a route that
+    # renders a page itself can.
+    Stream = Data.define(:page_class, :params, :channels, :live) do
+      def initialize(page_class:, params:, channels:, live: true) = super
+    end
 
     # What {.stream_token} signs. A token whose data doesn't match it
     # doesn't resolve.
@@ -73,7 +81,10 @@ module Sidereal
     class PageContext
       # @param params [Hash] the page's params, decoded by {Page.query_schema}
       #   from its stream token
-      def initialize(sse, ctx, page, params:)
+      # @param live [Boolean] whether the page takes live updates, so may be
+      #   rendered again. See {Stream}
+      def initialize(sse, ctx, page, params:, live: true)
+        @live = live
         @context = ctx
         @browser = sse
         @params = params
@@ -83,14 +94,14 @@ module Sidereal
       end
 
       # Live reload: bring the browser's asset tags up to date, and with
-      # +rerender+, render the page again if a file it may link changed. See
-      # {Assets::LiveReload#sync}.
+      # +rerender+, render the page again if a file it may link changed, as
+      # long as the page is live. See {Assets::LiveReload#sync}.
       #
       # @param rerender [Boolean]
       # @return [void]
       def sync_assets(rerender: true)
         @live_reload ||= Assets::LiveReload.new(browser, context)
-        @live_reload.sync(rerender:) { load(params) }
+        @live_reload.sync(rerender: rerender && @live) { load(params) }
       end
 
       # Run the page's reaction for +evt+, if any.
@@ -387,7 +398,7 @@ module Sidereal
         channels = stream_channels(data['channels'], session)
         return if channels.empty?
 
-        Stream.new(page_class:, params: params.value, channels:)
+        Stream.new(page_class:, params: params.value, channels:, live: data['channels'].any?)
       end
 
       # The channels a stream subscribes to: the page's +channels+, the
@@ -449,7 +460,7 @@ module Sidereal
       end
 
       # Stream live updates for the page at +params+ into +sse+, until
-      # +channel+ stops. The page renders once first, so a tab that
+      # +channel+ stops. A live page renders once first, so a tab that
       # reconnects, as browsers do when a tab regains focus, catches up on
       # whatever it missed. It then reacts to each message on +channel+.
       #
@@ -457,10 +468,11 @@ module Sidereal
       # @param sse [#patch_elements] the browser's SSE stream
       # @param params [Hash] the page's params, decoded by {.query_schema}
       # @param ctx [Sidereal::App] the request's app instance
+      # @param live [Boolean] whether the page takes live updates. See {Stream}
       # @return [void]
-      def stream(channel, sse, params, ctx)
-        sse.patch_elements load(params, ctx)
-        page_context = PageContext.new(sse, ctx, self, params:)
+      def stream(channel, sse, params, ctx, live: true)
+        sse.patch_elements load(params, ctx) if live
+        page_context = PageContext.new(sse, ctx, self, params:, live:)
         page_context.sync_assets(rerender: false) if Assets::LiveReload.enabled?
         page_context.run(channel)
       end

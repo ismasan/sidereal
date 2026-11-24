@@ -298,7 +298,9 @@ RSpec.describe Sidereal::Page do
         Sidereal::Page.register(silent)
         token = described_class.stream_token(silent.new, {}, ctx)
 
-        expect(described_class.resolve_stream(token, ctx).channels).to eq([Sidereal::Assets::CHANNEL])
+        stream = described_class.resolve_stream(token, ctx)
+        expect(stream.channels).to eq([Sidereal::Assets::CHANNEL])
+        expect(stream.live).to be(false)
       end
     end
 
@@ -899,10 +901,10 @@ RSpec.describe Sidereal::Page do
     # A URL as the sync script quotes it.
     def url(href) = JSON.generate(href, script_safe: true)
 
-    def stream(sse)
+    def stream(sse, live: true)
       Sync do |task|
         channel = pubsub.subscribe(Sidereal::Assets::CHANNEL)
-        runner = task.async { page_class.stream(channel, sse, {}, ctx_for(registry)) }
+        runner = task.async { page_class.stream(channel, sse, {}, ctx_for(registry), live:) }
         yield
         channel.stop
         runner.wait
@@ -940,6 +942,26 @@ RSpec.describe Sidereal::Page do
 
       expect(renders.size).to eq(2)
       expect(sse.patches.size).to eq(2)
+    end
+
+    # As for a page a route rendered from more than its params, which
+    # rendering again would replace.
+    it "syncs a page's assets without rendering it when the page isn't live" do
+      registry.stylesheet 'app.css', path: write('app.css', 'a {}')
+      registry.file 'logo.svg', path: write('logo.svg', '<svg/>')
+      sse = FakeSSE.new
+
+      stream(sse, live: false) do
+        pubsub.publish(Sidereal::Assets::CHANNEL, Sidereal::Assets::Changed.new)
+        write('app.css', 'b {}')
+        write('logo.svg', '<svg></svg>')
+        pubsub.publish(Sidereal::Assets::CHANNEL, Sidereal::Assets::Changed.new)
+      end
+
+      expect(renders).to be_empty
+      expect(sse.patches).to be_empty
+      expect(sse.scripts.size).to eq(3)
+      expect(sse.scripts.last).to include(url("/app#{registry.path('app.css')}"))
     end
   end
 

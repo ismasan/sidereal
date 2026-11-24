@@ -422,7 +422,7 @@ module Sidereal
 
       datastar.stream do |sse|
         Console.info 'client connect'
-        stream.page_class.stream(channel, sse, stream.params, self)
+        stream.page_class.stream(channel, sse, stream.params, self, live: stream.live)
       end
     end
 
