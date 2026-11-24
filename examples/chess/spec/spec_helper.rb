@@ -3,7 +3,14 @@
 ENV['TEST'] = 'true'
 
 require 'sourced/testing/rspec'
+require 'sidereal/testing'
 require_relative '../boot'
+# The web app, for the specs of the components' command handlers
+require_relative '../app'
+
+# Let specs install Sourced's tables in the in-memory database with
+# Sourced.store.install!, rather than running the migrations.
+Sidereal.config.config!('sourced.store.install_tables') { true }
 
 # Build every component (an in-memory 'db' in TEST), so classes can read the
 # ones they inject. Nothing starts: no pubsub, no workers.

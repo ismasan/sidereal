@@ -11,6 +11,9 @@ https://github.com/user-attachments/assets/478b86ed-56ef-43df-98bd-261b10a600f8
 - Server-driven UI built from Phlex components and Datastar signals — no client framework.
 - Session-based identity (just a username) wired into commands via Sidereal's `before_command` hook.
 - Click-to-move UX implemented entirely with Datastar signals + the standard `command` form helper.
+- Components that handle the commands their forms send: `Square` (selecting a piece, moving it), `SeatPanel` (sitting as black) and `NewGameButton` (starting a game) each declare `handle` next to their form, and `ChessApp` installs them with `component`. `GamePage` handles resigning the same way.
+- Testing those handlers with `Sidereal::Testing::Harness`, in `spec/ui/`: each command is handled as `ChessApp` handles it, with a session, and the spec checks what the handler dispatched and what it sent the browser.
+- Components that declare their own stylesheets: `Square` and `SeatPanel` have a `.css` file next to their `.rb` file, and `StatusBanner` has an inline `css` block. Installing a component registers them. The rest of the styles are in `public/css/main.css`.
 
 ## Run it
 
@@ -23,6 +26,8 @@ bundle exec falcon host
 Then open http://localhost:9296 in two browser windows (one private), log in as different users, and play.
 
 The Sourced event-store dashboard is at http://localhost:9296/sourced.
+
+Run the specs, the domain's and the components' handlers', with `bundle exec rspec`.
 
 ## How a game flows
 

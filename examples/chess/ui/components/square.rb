@@ -2,7 +2,37 @@
 
 require_relative 'piece'
 
+# One square of the board. It handles the commands its forms send:
+# ChessApp installs it with `component`.
 class Square < Sidereal::Components::BaseComponent
+  # Its stylesheet, next to this file.
+  stylesheet 'chess/square.css', path: 'square.css'
+
+  # UI-only message: clicking a friendly piece submits this to mutate
+  # per-session selection state and trigger a server-side board re-render
+  # via SSE. NOT a Sourced::Command — it never reaches the event store.
+  SelectSource = Sidereal::Message.define('chess.select_source') do
+    attribute :game_id, Sidereal::Types::UUID::V4
+    attribute :coord,   Sidereal::Types::String.present
+  end
+
+  # SelectSource is processed inline, not dispatched. It carries the
+  # selected cell coord; the re-rendered GamePage uses it to highlight the
+  # source and show valid destinations. No persistence: the next SSE
+  # re-render (e.g., after MoveMade) drops the selection naturally.
+  # Synthesize `{ id: ... }` for GamePage.load because POST /commands has
+  # no :id segment in the URL.
+  handle SelectSource do |cmd|
+    browser.patch_elements GamePage.load(
+      { id: cmd.payload.game_id },
+      self,
+      selected_source: cmd.payload.coord
+    )
+  end
+
+  # A move, dispatched to the Game decider.
+  handle Game::MakeMove
+
   def initialize(coord:, piece:, friendly:, interactive:,
                  is_selected:, is_valid_target:, selected_source_coord:, game_id:)
     @coord = coord

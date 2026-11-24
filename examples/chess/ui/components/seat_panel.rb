@@ -1,6 +1,14 @@
 # frozen_string_literal: true
 
+# Who plays which colour, and the form to sit as black. It handles the
+# command that form sends: ChessApp installs it with `component`.
 class SeatPanel < Sidereal::Components::BaseComponent
+  # Its stylesheet, next to this file.
+  stylesheet 'chess/seat_panel.css', path: 'seat_panel.css'
+
+  # Dispatched to the Game decider.
+  handle Game::JoinGame
+
   def initialize(state:, viewer_color:, viewer_username:)
     @state = state
     @viewer = viewer_color

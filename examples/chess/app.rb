@@ -4,14 +4,6 @@ require_relative 'ui/layout'
 require_relative 'ui/home_page'
 require_relative 'ui/game_page'
 
-# UI-only message: clicking a friendly piece submits this to mutate
-# per-session selection state and trigger a server-side board re-render
-# via SSE. NOT a Sourced::Command — it never reaches the event store.
-SelectSource = Sidereal::Message.define('chess.select_source') do
-  attribute :game_id, Sidereal::Types::UUID::V4
-  attribute :coord,   Sidereal::Types::String.present
-end
-
 class ChessApp < Sidereal::App
   # Scoped cookie name so this demo's session doesn't collide with the
   # other examples on localhost. The key is derived from the app's secret,
@@ -87,29 +79,19 @@ class ChessApp < Sidereal::App
     )
   end
 
-  handle Game::CreateGame do |cmd|
-    halt 401, 'login required' if session[:username].to_s.empty?
-    dispatch cmd
-    browser.redirect "/games/#{cmd.payload.game_id}"
-  end
+  # Components that handle the commands their forms send: CreateGame,
+  # SelectSource and MakeMove, and JoinGame. Each declares its handlers next
+  # to its form; installing it here exposes them. GamePage handles Resign,
+  # and `page` installs that too.
+  component NewGameButton
+  component Square
+  component SeatPanel
 
-  handle Game::JoinGame
-  handle Game::MakeMove
-  handle Game::Resign
-
-  # SelectSource is processed inline (NOT dispatched). It carries the
-  # selected cell coord; the re-rendered GamePage uses it to highlight
-  # the source and show valid destinations. No persistence — the next
-  # SSE re-render (e.g., after MoveMade) drops the selection naturally.
-  # Synthesize `{ id: ... }` for GamePage.load because POST /commands
-  # has no :id segment in the URL.
-  handle SelectSource do |cmd|
-    browser.patch_elements GamePage.load(
-      { id: cmd.payload.game_id },
-      self,
-      selected_source: cmd.payload.coord
-    )
-  end
+  # Square, SeatPanel and StatusBanner declare their own stylesheets, which
+  # installing them registers. StatusBanner handles no commands: it's
+  # installed only for its styles. The rest of the app's styles are in
+  # public/css/main.css.
+  component StatusBanner
 
   page HomePage
   page GamePage

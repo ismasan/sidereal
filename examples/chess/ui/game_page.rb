@@ -6,6 +6,7 @@ require_relative 'components/event_list'
 require_relative 'components/score'
 require_relative 'components/status_banner'
 require_relative 'components/seat_panel'
+require_relative 'components/new_game_button'
 
 class GamePage < Sidereal::Page
   path '/games/:id'
@@ -15,6 +16,10 @@ class GamePage < Sidereal::Page
   # which never renders them — JoinGame is only shown to the joining player
   # and MakeMove only to the player on turn.
   on Game::PlayerJoined, Game::MoveMade, Game::GameEnded
+
+  # The page's own form: resigning. Without a block, the command is
+  # dispatched to the Game decider.
+  handle Game::Resign
 
   def self.load(params, ctx, selected_source: nil, current_step: nil)
     state, messages = load_state_with_history(params[:id], upto: current_step)
@@ -154,10 +159,7 @@ class GamePage < Sidereal::Page
       end
 
       if @state.status == 'ended' && !@viewer.empty?
-        command Game::CreateGame, class: 'inline-form' do |f|
-          f.payload_fields(game_id: SecureRandom.uuid)
-          button(type: :submit, class: 'primary-button') { 'Start new game' }
-        end
+        render NewGameButton.new(form_class: 'inline-form')
       end
     end
   end
