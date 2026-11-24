@@ -10,10 +10,10 @@ module UI
           meta(charset: 'utf-8')
           meta(name: 'viewport', content: 'width=device-width, initial-scale=1.0')
           title { 'Donations Kiosk' }
-          link(rel: 'stylesheet', href: "/css/main.css?a=#{Time.now.to_i}")
         end
         body do
           div(class: 'page') do
+            img(src: asset_url('img/logo.svg'), alt: 'Donations Kiosk', width: 48, height: 48)
             render page
           end
         end

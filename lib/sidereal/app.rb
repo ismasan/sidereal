@@ -3,6 +3,7 @@
 require 'datastar'
 require 'datastar/async_executor'
 require_relative 'commander'
+require_relative 'scripts'
 require_relative 'components/basic_layout'
 
 Datastar.configure do |config|
@@ -99,6 +100,30 @@ module Sidereal
       # @return [Sidereal::FormsCodec]
       def forms_codec
         @forms_codec ||= FormsCodec.new(registry: FormsCodec::HandledCommands.new(self)).compile!
+      end
+
+      # This app's static assets: register stylesheets, scripts and files on
+      # it as the app loads. It reads its superclass's assets, which come first.
+      # Served under {Assets::PREFIX}; layouts link them. See {Sidereal::Assets}.
+      #
+      #   assets.stylesheet 'app.css', path: Sidereal.root.join('assets/app.css')
+      #
+      # @return [Sidereal::Assets]
+      def assets
+        @assets ||= Assets.new(superclass.respond_to?(:assets) ? superclass.assets : nil)
+      end
+
+      # Serves {.assets} ahead of {.app}, so asset responses carry no session
+      # cookie, and the rest through it.
+      def call(env)
+        return assets.call(env) if asset_request?(env)
+
+        super
+      end
+
+      private def asset_request?(env)
+        env[Rack::PATH_INFO].to_s.start_with?(Assets::PATH_PREFIX) &&
+          (env[Rack::REQUEST_METHOD] == Rack::GET || env[Rack::REQUEST_METHOD] == Rack::HEAD)
       end
 
       def layout(ly = nil)
@@ -371,19 +396,8 @@ module Sidereal
 
     # Reloads the page, at most once every 10 seconds per tab: a token that
     # keeps failing, as with a secret that differs between processes, would
-    # otherwise reload it in a loop. Where sessionStorage is unavailable, as
-    # some browsers' privacy settings make it, the page isn't reloaded, since
-    # nothing would stop such a loop.
-    STALE_STREAM_SCRIPT = <<~JS.gsub(/\s*\n\s*/, ' ').strip
-      (() => {
-        const key = 'sidereal.stale-stream-reload', now = Date.now();
-        try {
-          if (now - Number(sessionStorage.getItem(key) || 0) <= 10000) return;
-          sessionStorage.setItem(key, String(now));
-        } catch (_) { return; }
-        location.reload();
-      })()
-    JS
+    # otherwise reload it in a loop. See {Scripts::THROTTLED_RELOAD}.
+    STALE_STREAM_SCRIPT = "#{Scripts::THROTTLED_RELOAD}('sidereal.stale-stream-reload')"
 
     private def reload_stale_page
       Console.warn(self, 'Rejected a live updates token: reloading the page for a fresh one')
@@ -408,7 +422,7 @@ module Sidereal
 
       datastar.stream do |sse|
         Console.info 'client connect'
-        stream.page_class.stream(channel, sse, stream.params, self)
+        stream.page_class.stream(channel, sse, stream.params, self, live: stream.live)
       end
     end
 
@@ -492,6 +506,16 @@ module Sidereal
 
     def params
       @params ||= request.env.fetch('router.params', EMPTY_PARAMS)
+    end
+
+    # The URL of one of the app's {.assets}: the +sidereal.assets.host+, if any,
+    # the app's mount path, and the asset's digested path.
+    #
+    # @param name [String] ex. +"logo.svg"+
+    # @return [String]
+    def asset_url(name)
+      assets = self.class.assets
+      assets.href(assets.path(name), script_name:)
     end
 
     def pubsub

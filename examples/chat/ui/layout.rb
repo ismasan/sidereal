@@ -9,7 +9,6 @@ class ChatLayout < Sidereal::Components::Layout
         meta(charset: 'utf-8')
         meta(name: 'viewport', content: 'width=device-width, initial-scale=1.0')
         title { 'Chat' }
-        link(rel: 'stylesheet', href: '/css/main.css')
       end
       body do
         render page

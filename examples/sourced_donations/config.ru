@@ -13,6 +13,5 @@ map '/sourced' do
 end
 
 map '/' do
-  use Rack::Static, urls: ['/css', '/js'], root: 'web/public'
   run App
 end

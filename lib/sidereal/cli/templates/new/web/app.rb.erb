@@ -7,6 +7,13 @@ class App < Sidereal::App
 
   layout UI::Layout
 
+  # Stylesheets, scripts and images in web/assets/, served with digests in
+  # their URLs, so browsers and CDNs can cache them for good. The layout links
+  # the stylesheets and scripts; components link the rest with `asset_url`,
+  # ex. `img(src: asset_url('logo.svg'))`. config/components/assets.rb says
+  # whether the layout links each one or a bundle of each type.
+  assets.directory Sidereal.root.join('web/assets')
+
   # Cookie sessions, with a key derived from the app's secret (see
   # config/components/secrets.rb). A lambda, so the key is read on each
   # request, once the components are built, not as this class loads.

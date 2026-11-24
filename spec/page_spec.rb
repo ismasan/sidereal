@@ -21,6 +21,12 @@ class FakeSSE
   def patch_elements(component, options = {})
     @patches << { component: component, options: options }
   end
+
+  def scripts = @scripts ||= []
+
+  def execute_script(script, options = {})
+    scripts << script
+  end
 end
 
 RSpec.describe Sidereal::Page do
@@ -192,6 +198,14 @@ RSpec.describe Sidereal::Page do
 
     def session_with_id(id) = double(:session, id: Rack::Session::SessionId.new(id))
 
+    # Rebuild the components with live reload on, and the same signer.
+    def enable_live_reload!
+      Sidereal.reset_config!
+      Sidereal.config.config!('sidereal.signer') { Sidereal::Signer.new('k' * 32) }
+      Sidereal.config.config!('sidereal.assets.live_reload') { true }
+      Sidereal.config.build!
+    end
+
     before do
       Sidereal.config.config!('sidereal.signer') { Sidereal::Signer.new('k' * 32) }
       Sidereal.config.build!
@@ -209,6 +223,14 @@ RSpec.describe Sidereal::Page do
         )
       )
       expect(described_class.session_channel(ctx)).to match(/\Asidereal\.sessions\.\h{32}\z/)
+    end
+
+    it 'subscribes to the assets channel when live reload is on' do
+      enable_live_reload!
+      ctx = context_with
+      token = described_class.stream_token(page_class.new, { id: '42' }, ctx)
+
+      expect(described_class.resolve_stream(token, ctx).channels).to eq(['orders.>', 'accounts.a1', Sidereal::Assets::CHANNEL])
     end
 
     it "names a session's channel from its digest, as messages carry it" do
@@ -263,6 +285,37 @@ RSpec.describe Sidereal::Page do
 
         expect(described_class.stream_token(silent.new, {}, context_with)).to be_nil
       end
+    end
+
+    it 'streams only the assets of a page whose channels are nil or empty, when live reload is on' do
+      enable_live_reload!
+      ctx = context_with(session: session_with_id('s1'))
+      [nil, []].each do |none|
+        silent = Class.new(Sidereal::Page) do
+          path '/no-channels'
+          define_method(:channel_names) { none }
+        end
+        Sidereal::Page.register(silent)
+        token = described_class.stream_token(silent.new, {}, ctx)
+
+        stream = described_class.resolve_stream(token, ctx)
+        expect(stream.channels).to eq([Sidereal::Assets::CHANNEL])
+        expect(stream.live).to be(false)
+      end
+    end
+
+    it 'resolves no stream for a page without channels once live reload is off' do
+      silent = Class.new(Sidereal::Page) do
+        path '/no-channels'
+        def channel_names = []
+      end
+      Sidereal::Page.register(silent)
+      token = Sidereal::Signer.new('k' * 32).generate(
+        { 'page' => '/no-channels', 'params' => {}, 'channels' => [], 'session' => nil },
+        purpose: Sidereal::Page::STREAM_PURPOSE
+      )
+
+      expect(described_class.resolve_stream(token, context_with)).to be_nil
     end
 
     it 'resolves without a session when the page rendered without one' do
@@ -809,6 +862,106 @@ RSpec.describe Sidereal::Page do
 
       expect(loaded).to eq([{ id: '42' }])
       expect(sse.patches.map { |patch| patch[:component] }).to match([an_instance_of(page_class), 'hello'])
+    end
+  end
+
+  describe '.stream, with live reload' do
+    let(:pubsub) { Sidereal::PubSub::Memory.new }
+    let(:registry) { Sidereal::Assets.new }
+    let(:renders) { [] }
+    let(:page_class) do
+      renders = self.renders
+      Class.new(Sidereal::Page) do
+        path '/live'
+
+        define_singleton_method(:load) do |_params, _ctx|
+          renders << :render
+          new
+        end
+
+        def view_template = div { 'live' }
+      end
+    end
+
+    # An app-like context mounted at /app, whose class has +registry+.
+    def ctx_for(registry)
+      Class.new do
+        define_singleton_method(:assets) { registry }
+        def script_name = '/app'
+      end.new
+    end
+
+    include_context 'tmp files'
+
+    before do
+      Sidereal.config.config!('sidereal.assets.live_reload') { true }
+      Sidereal.config.build!
+    end
+
+    # A URL as the sync script quotes it.
+    def url(href) = JSON.generate(href, script_safe: true)
+
+    def stream(sse, live: true)
+      Sync do |task|
+        channel = pubsub.subscribe(Sidereal::Assets::CHANNEL)
+        runner = task.async { page_class.stream(channel, sse, {}, ctx_for(registry), live:) }
+        yield
+        channel.stop
+        runner.wait
+      end
+    end
+
+    it "sends the app's current stylesheet and script URLs when it connects, and when assets change" do
+      registry.stylesheet 'app.css', path: write('app.css', 'a {}')
+      registry.javascript 'app.js', js: 'a()'
+      sse = FakeSSE.new
+
+      stream(sse) do
+        write('app.css', 'b {}')
+        pubsub.publish(Sidereal::Assets::CHANNEL, Sidereal::Assets::Changed.new)
+      end
+
+      expect(sse.scripts.size).to eq(2)
+      first, second = sse.scripts
+      expect(first).to start_with(Sidereal::Assets::LiveReload::SCRIPT)
+      expect(first).to include(url("/app#{registry.path('app.js')}"))
+      expect(first).not_to include(url("/app#{registry.path('app.css')}"))
+      expect(second).to include(url("/app#{registry.path('app.css')}"))
+      expect(renders.size).to eq(1)
+    end
+
+    it 'renders the page again when a file it may link changes' do
+      registry.file 'logo.svg', path: write('logo.svg', '<svg/>')
+      sse = FakeSSE.new
+
+      stream(sse) do
+        pubsub.publish(Sidereal::Assets::CHANNEL, Sidereal::Assets::Changed.new)
+        write('logo.svg', '<svg></svg>')
+        pubsub.publish(Sidereal::Assets::CHANNEL, Sidereal::Assets::Changed.new)
+      end
+
+      expect(renders.size).to eq(2)
+      expect(sse.patches.size).to eq(2)
+    end
+
+    # As for a page a route rendered from more than its params, which
+    # rendering again would replace.
+    it "syncs a page's assets without rendering it when the page isn't live" do
+      registry.stylesheet 'app.css', path: write('app.css', 'a {}')
+      registry.file 'logo.svg', path: write('logo.svg', '<svg/>')
+      sse = FakeSSE.new
+
+      stream(sse, live: false) do
+        pubsub.publish(Sidereal::Assets::CHANNEL, Sidereal::Assets::Changed.new)
+        write('app.css', 'b {}')
+        write('logo.svg', '<svg></svg>')
+        pubsub.publish(Sidereal::Assets::CHANNEL, Sidereal::Assets::Changed.new)
+      end
+
+      expect(renders).to be_empty
+      expect(sse.patches).to be_empty
+      expect(sse.scripts.size).to eq(3)
+      expect(sse.scripts.last).to include(url("/app#{registry.path('app.css')}"))
     end
   end
 

@@ -37,6 +37,12 @@ module Sidereal
   #                       secret_key_base
   #   signer              Signer, with the key secrets derive for it: signs the
   #                       URLs of pages' live updates
+  #   assets.mode         :single (layouts link each asset) or :combined (they
+  #                       link one bundle per type). See Sidereal::Assets
+  #   assets.host         a host asset URLs start with, ex. a CDN's, or nil
+  #   assets.live_reload  whether open pages update when an asset changes
+  #   assets.watcher      Assets::Watcher: publishes asset changes, on the
+  #                       leader, when live_reload is on
   #
   # Components that run in the background (elector, pubsub, scheduler) start
   # themselves in their component's start hook, which a re-implementation
@@ -62,6 +68,7 @@ module Sidereal
     DispatcherInterface = T::Interface[:start, :stop]
     SchedulerInterface = T::Interface[:start]
     SignerInterface = T::Interface[:generate, :verify]
+    AssetsWatcherInterface = T::Interface[:start, :stop]
     SecretsInterface = T::Interface[:derive]
     SecretKeyBase = T::String.where(bytesize: KeyGenerator::MIN_SECRET_BYTES..)
     # Where secret_key_base comes from when SIDEREAL_SECRET isn't set, relative
@@ -199,6 +206,21 @@ module Sidereal
         c.declare('signer', SignerInterface,
                   description: "Signs and verifies the URLs of pages' live updates")
         c.config!('signer', ['secrets']) { |secrets| Signer.new(secrets.derive('sidereal.signer')) }
+
+        c.declare('assets.mode', T::Symbol.options(Assets::MODES),
+                  description: 'What layouts link: each asset (:single), or one bundle per type (:combined)') { :single }
+        c.declare('assets.host', T::String.nullable,
+                  description: 'A host asset URLs start with, such as a CDN in front of the app, or nil') { nil }
+        c.declare('assets.live_reload', T::Boolean,
+                  description: 'Whether open pages update their stylesheets, images and scripts when an asset changes') { false }
+
+        c.declare('assets.watcher', AssetsWatcherInterface,
+                  description: 'Publishes asset changes for live reload, on the leader process')
+        c.component!('assets.watcher', %w[pubsub elector assets.live_reload]) do
+          build { |pubsub, elector, enabled| Assets::Watcher.new(pubsub:, elector:, enabled:) }
+          start { |watcher, task| watcher.start(task) }
+          stop(&:stop)
+        end
       end
     end
   end

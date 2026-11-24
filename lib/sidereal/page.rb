@@ -30,14 +30,22 @@ module Sidereal
     # A verified stream token: the page to stream, its decoded params, and
     # the channel patterns to subscribe to: the page's {#channel_names}, and
     # its session's {.session_channel}. See {.resolve_stream}.
-    Stream = Data.define(:page_class, :params, :channels)
+    #
+    # +live+ is whether the page takes live updates, which is whether it named
+    # any channels. A stream that isn't live only follows the page's assets
+    # for live reload, and never renders the page: what's in the browser may
+    # have been rendered from more than the page's params, as a route that
+    # renders a page itself can.
+    Stream = Data.define(:page_class, :params, :channels, :live) do
+      def initialize(page_class:, params:, channels:, live: true) = super
+    end
 
     # What {.stream_token} signs. A token whose data doesn't match it
     # doesn't resolve.
     STREAM_DATA = Types::Hash[
       'page' => Types::String,
       'params' => Types::Hash,
-      'channels' => Types::Array[Types::ChannelPattern].present,
+      'channels' => Types::Array[Types::ChannelPattern],
       'session' => Types::String.nullable
     ]
 
@@ -73,13 +81,27 @@ module Sidereal
     class PageContext
       # @param params [Hash] the page's params, decoded by {Page.query_schema}
       #   from its stream token
-      def initialize(sse, ctx, page, params:)
+      # @param live [Boolean] whether the page takes live updates, so may be
+      #   rendered again. See {Stream}
+      def initialize(sse, ctx, page, params:, live: true)
+        @live = live
         @context = ctx
         @browser = sse
         @params = params
         @page_id = sse.signals['page_id']
         @page_key = sse.signals['page_key']
         @page = page
+      end
+
+      # Live reload: bring the browser's asset tags up to date, and with
+      # +rerender+, render the page again if a file it may link changed, as
+      # long as the page is live. See {Assets::LiveReload#sync}.
+      #
+      # @param rerender [Boolean]
+      # @return [void]
+      def sync_assets(rerender: true)
+        @live_reload ||= Assets::LiveReload.new(browser, context)
+        @live_reload.sync(rerender: rerender && @live) { load(params) }
       end
 
       # Run the page's reaction for +evt+, if any.
@@ -169,7 +191,9 @@ module Sidereal
     # subscribe to what the page named. Return one pattern as a String, an
     # Array of several to receive more than one stream, such as an entity's
     # updates and system-wide ones, or +[]+ or +nil+ for a page that takes no
-    # live updates: the layout then opens no stream for it.
+    # live updates: the layout then opens no stream for it, unless
+    # +sidereal.assets.live_reload+ is on, when it opens one that only
+    # follows the page's assets.
     #
     #   def channel_names = "orders.#{channel_segment(@order.id)}"
     #
@@ -310,9 +334,9 @@ module Sidereal
       # in it, so the stream has a {.session_channel}.
       #
       # Only the params the page's {.query_schema} declares are signed.
-      # Returns +nil+, for no stream, when the page names no channels, its
-      # class isn't the one {.registry} holds for its key (it wasn't mounted
-      # with {App.page}), or +params+ don't decode.
+      # Returns +nil+, for no stream, when the page names no channels and
+      # live reload is off, its class isn't the one {.registry} holds for
+      # its key (it wasn't mounted with {App.page}), or +params+ don't decode.
       #
       # @param page [Page] the page being rendered
       # @param params [Hash] the request's raw params
@@ -325,7 +349,7 @@ module Sidereal
         return unless registry[page_class.page_key].equal?(page_class)
 
         channels = Array(page.channel_names)
-        return if channels.empty?
+        return if stream_channels(channels, nil).empty?
 
         channels.each { |pattern| PubSub::Pattern.validate_subscription!(pattern) }
         decoded = page_class.parse_params(params)
@@ -344,7 +368,9 @@ module Sidereal
       # {.registry} whose params still decode. A session that has since
       # been renewed, or a token from before the secret changed, gets +nil+.
       # The stream's channels are the page's, and the session's
-      # {.session_channel} when it has one.
+      # {.session_channel} when it has one, plus {Assets::CHANNEL} when live
+      # reload is on. A page that named no channels gets only
+      # {Assets::CHANNEL}, and +nil+ once live reload is off.
       #
       # A request with no session at all, as from a browser that refuses
       # cookies, gets the page's channels without a session channel, rather
@@ -366,12 +392,28 @@ module Sidereal
         page_class = registry[data['page']]
         return unless page_class
 
-        channels = data['channels']
         params = page_class.parse_params(data['params'])
         return unless params.valid?
 
-        channels += [session_channel_for(session)] if session
-        Stream.new(page_class:, params: params.value, channels:)
+        channels = stream_channels(data['channels'], session)
+        return if channels.empty?
+
+        Stream.new(page_class:, params: params.value, channels:, live: data['channels'].any?)
+      end
+
+      # The channels a stream subscribes to: the page's +channels+, the
+      # channel of the +session+ digest when the page named any, and
+      # {Assets::CHANNEL} while live reload is on. A page that names no
+      # channels takes no live updates, so with live reload it only follows
+      # its assets, not its session.
+      #
+      # @param channels [Array<String>] the page's {#channel_names}
+      # @param session [String, nil] a {.session_digest}
+      # @return [Array<String>]
+      private def stream_channels(channels, session)
+        channels += [session_channel_for(session)] if session && channels.any?
+        channels += [Assets::CHANNEL] if Assets::LiveReload.enabled?
+        channels
       end
 
       # The private channel of the session +ctx+ carries, which every page
@@ -418,7 +460,7 @@ module Sidereal
       end
 
       # Stream live updates for the page at +params+ into +sse+, until
-      # +channel+ stops. The page renders once first, so a tab that
+      # +channel+ stops. A live page renders once first, so a tab that
       # reconnects, as browsers do when a tab regains focus, catches up on
       # whatever it missed. It then reacts to each message on +channel+.
       #
@@ -426,10 +468,13 @@ module Sidereal
       # @param sse [#patch_elements] the browser's SSE stream
       # @param params [Hash] the page's params, decoded by {.query_schema}
       # @param ctx [Sidereal::App] the request's app instance
+      # @param live [Boolean] whether the page takes live updates. See {Stream}
       # @return [void]
-      def stream(channel, sse, params, ctx)
-        sse.patch_elements load(params, ctx)
-        PageContext.new(sse, ctx, self, params:).run(channel)
+      def stream(channel, sse, params, ctx, live: true)
+        sse.patch_elements load(params, ctx) if live
+        page_context = PageContext.new(sse, ctx, self, params:, live:)
+        page_context.sync_assets(rerender: false) if Assets::LiveReload.enabled?
+        page_context.run(channel)
       end
 
       # Handlers keyed by message class, matched on the exact class of an
@@ -595,6 +640,11 @@ module Sidereal
         mode: 'prepend',
         selector: '#sidereal-sysnotify-stack'
       )
+    end
+
+    # Live reload: published by {Assets::Watcher} when an asset changes.
+    on Sidereal::Assets::Changed do |_evt|
+      sync_assets
     end
   end
 end

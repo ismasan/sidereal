@@ -3,6 +3,9 @@
 require 'sidereal'
 require 'sidereal/integrations/sourced'
 
+# Paths in the app start here: Sidereal.root.join('public').
+Sidereal.root = __dir__
+
 DB_PATH = File.expand_path('storage/chess.db', __dir__)
 
 # Components first: nothing is built until the process starts, so the files
