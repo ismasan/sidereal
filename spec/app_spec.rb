@@ -867,9 +867,9 @@ RSpec.describe 'Sidereal::App.assets' do
     get '/'
 
     html = last_response.body
-    css = html.index(%(<link rel="stylesheet" href="#{app.assets.path('app.css')}">))
+    css = html.index(%(<link rel="stylesheet" href="#{app.assets.path('app.css')}" data-sidereal-asset>))
     datastar = html.index('starfederation/datastar')
-    js = html.index(%(<script type="module" src="#{app.assets.path('app.js')}">))
+    js = html.index(%(<script type="module" src="#{app.assets.path('app.js')}" data-sidereal-asset>))
     expect([css, datastar, js]).to all(be_an(Integer))
     expect(css).to be < js
     expect(js).to be < datastar

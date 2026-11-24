@@ -381,4 +381,121 @@ RSpec.describe Sidereal::Assets do
       expect(request('/_assets/bundle-0000000000000000.js').first).to eq(404)
     end
   end
+
+  describe '#digests' do
+    it 'returns the digest of every asset, or of every asset of a kind, recomputed when a file changes' do
+      use_mode(:combined)
+      assets.stylesheet 'app.css', css: 'a {}'
+      assets.file 'logo.svg', path: write('logo.svg', '<svg/>')
+      before = assets.digests
+
+      expect(before.keys).to eq(%w[app.css logo.svg])
+      expect(assets.digests(:file).keys).to eq(%w[logo.svg])
+
+      write('logo.svg', '<svg></svg>')
+      expect(assets.digests['logo.svg']).not_to eq(before['logo.svg'])
+      expect(assets.digests['app.css']).to eq(before['app.css'])
+    end
+  end
+
+  describe '.registries' do
+    it 'lists the registries in use' do
+      registry = assets
+      expect(described_class.registries).to include(registry)
+    end
+  end
+
+  describe Sidereal::Assets::Watcher do
+    subject(:assets) { Sidereal::Assets.new }
+    let(:pubsub) { Sidereal::PubSub::Memory.new }
+    let(:watcher) { watcher_for(enabled: true) }
+
+    # A watcher that checks only this example's registry, not those other
+    # examples left behind.
+    def watcher_for(enabled:)
+      registry = assets
+      described_class.new(pubsub:, elector: Sidereal::Elector::AlwaysLeader.new, enabled:, interval: 0.01,
+                          registries: -> { [registry] })
+    end
+
+    def published
+      [].tap do |messages|
+        channel = pubsub.subscribe(Sidereal::Assets::CHANNEL)
+        Sync do |task|
+          reader = task.async { channel.start { |message, _| messages << message } }
+          yield
+          channel.stop
+          reader.wait
+        end
+      end
+    end
+
+    it 'publishes Changed when an asset in use changes, after recording them on the first check' do
+      path = write('app.css', 'a {}')
+      assets.stylesheet 'app.css', path: path
+      assets.path('app.css')
+
+      messages = published do
+        expect(watcher.check).to be(false)
+        expect(watcher.check).to be(false)
+        write('app.css', 'b {}')
+        expect(watcher.check).to be(true)
+        expect(watcher.check).to be(false)
+      end
+
+      expect(messages).to match([an_instance_of(Sidereal::Assets::Changed)])
+    end
+
+    it 'keeps the last digests of a registry while one of its files is missing' do
+      path = write('app.css', 'a {}')
+      assets.stylesheet 'app.css', path: path
+      assets.path('app.css')
+      watcher.check
+
+      File.delete(path)
+      expect(watcher.check).to be(false)
+      write('app.css', 'a {}')
+      expect(watcher.check).to be(false)
+      write('app.css', 'b {}')
+      expect(watcher.check).to be(true)
+    end
+
+    it "doesn't read, or lock, a registry still being filled" do
+      assets.stylesheet 'app.css', css: 'a {}'
+      watcher.check
+
+      expect(assets).not_to be_locked
+    end
+
+    it 'checks on its own once started, while this process leads' do
+      path = write('app.css', 'a {}')
+      assets.stylesheet 'app.css', path: path
+      assets.path('app.css')
+
+      messages = published do
+        Async { |task| watcher.start(task) }
+        sleep 0.05
+        write('app.css', 'b {}')
+        sleep 0.05
+        watcher.stop
+      end
+
+      expect(messages).not_to be_empty
+    end
+
+    it 'does nothing when not enabled' do
+      disabled = watcher_for(enabled: false)
+      path = write('app.css', 'a {}')
+      assets.stylesheet 'app.css', path: path
+      assets.path('app.css')
+
+      messages = published do
+        Async { |task| disabled.start(task) }
+        write('app.css', 'b {}')
+        sleep 0.05
+      end
+
+      expect(messages).to be_empty
+    end
+  end
 end

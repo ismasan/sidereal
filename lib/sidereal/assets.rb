@@ -44,8 +44,15 @@ module Sidereal
   # Only the bundles are kept in memory, one per type, replaced when their
   # digest changes. Files are read from disk when served, and other files are
   # streamed from it.
+  #
+  # With +sidereal.assets.live_reload+ on, a {Watcher} publishes {Changed} on
+  # {CHANNEL} when a file changes, and open pages update their stylesheets,
+  # images and scripts. See {LiveReload}.
   class Assets
     PREFIX = '/_assets'
+    # The pubsub channel {Changed} is published on, which page streams
+    # subscribe to when live reload is on.
+    CHANNEL = 'sidereal.assets'
     # What the path of every asset request starts with.
     PATH_PREFIX = "#{PREFIX}/".freeze
     MODES = %i[single combined].freeze
@@ -118,8 +125,23 @@ module Sidereal
       end
     end
 
+    # Published on {CHANNEL} when a registered file changes. It carries
+    # nothing: each page stream works out what changed for its own page.
+    Changed = Sidereal::Message.define('sidereal.assets.changed')
+
+    REGISTRIES = ObjectSpace::WeakMap.new
+    REGISTRIES_LOCK = Mutex.new
+    private_constant :REGISTRIES, :REGISTRIES_LOCK
+
+    # Every registry still in use, for the {Watcher} to check. Held weakly, so
+    # the registries of app classes a reload replaced drop out.
+    #
+    # @return [Array<Assets>]
+    def self.registries = REGISTRIES_LOCK.synchronize { REGISTRIES.keys }
+
     # @param parent [Assets, nil] the registry whose assets come before this one's
     def initialize(parent = nil)
+      REGISTRIES_LOCK.synchronize { REGISTRIES[self] = true }
       @parent = parent
       @assets = {}
       @bundles = {}
@@ -207,6 +229,17 @@ module Sidereal
     # @return [String]
     # @raise [UnknownAssetError]
     def digest(name) = digest_of(fetch(name))
+
+    # The digest of every asset, or of every asset of +kind+, by name, each
+    # recomputed if its file changed, whatever the {#mode}.
+    #
+    # @param kind [:css, :js, :file, nil]
+    # @return [Hash{String => String}]
+    def digests(kind = nil)
+      lock!
+      assets = kind ? members(kind) : all
+      assets.to_h { |asset| [asset.name, digest_of(asset, true)] }
+    end
 
     # The current digest of a bundle, computed from its assets' digests.
     #
@@ -457,3 +490,6 @@ module Sidereal
     end
   end
 end
+
+require_relative 'assets/watcher'
+require_relative 'assets/live_reload'

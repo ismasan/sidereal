@@ -37,7 +37,7 @@ module Sidereal
     STREAM_DATA = Types::Hash[
       'page' => Types::String,
       'params' => Types::Hash,
-      'channels' => Types::Array[Types::ChannelPattern].present,
+      'channels' => Types::Array[Types::ChannelPattern],
       'session' => Types::String.nullable
     ]
 
@@ -80,6 +80,17 @@ module Sidereal
         @page_id = sse.signals['page_id']
         @page_key = sse.signals['page_key']
         @page = page
+      end
+
+      # Live reload: bring the browser's asset tags up to date, and with
+      # +rerender+, render the page again if a file it may link changed. See
+      # {Assets::LiveReload#sync}.
+      #
+      # @param rerender [Boolean]
+      # @return [void]
+      def sync_assets(rerender: true)
+        @live_reload ||= Assets::LiveReload.new(browser, context)
+        @live_reload.sync(rerender:) { load(params) }
       end
 
       # Run the page's reaction for +evt+, if any.
@@ -169,7 +180,9 @@ module Sidereal
     # subscribe to what the page named. Return one pattern as a String, an
     # Array of several to receive more than one stream, such as an entity's
     # updates and system-wide ones, or +[]+ or +nil+ for a page that takes no
-    # live updates: the layout then opens no stream for it.
+    # live updates: the layout then opens no stream for it, unless
+    # +sidereal.assets.live_reload+ is on, when it opens one that only
+    # follows the page's assets.
     #
     #   def channel_names = "orders.#{channel_segment(@order.id)}"
     #
@@ -310,9 +323,9 @@ module Sidereal
       # in it, so the stream has a {.session_channel}.
       #
       # Only the params the page's {.query_schema} declares are signed.
-      # Returns +nil+, for no stream, when the page names no channels, its
-      # class isn't the one {.registry} holds for its key (it wasn't mounted
-      # with {App.page}), or +params+ don't decode.
+      # Returns +nil+, for no stream, when the page names no channels and
+      # live reload is off, its class isn't the one {.registry} holds for
+      # its key (it wasn't mounted with {App.page}), or +params+ don't decode.
       #
       # @param page [Page] the page being rendered
       # @param params [Hash] the request's raw params
@@ -325,7 +338,7 @@ module Sidereal
         return unless registry[page_class.page_key].equal?(page_class)
 
         channels = Array(page.channel_names)
-        return if channels.empty?
+        return if channels.empty? && !Assets::LiveReload.enabled?
 
         channels.each { |pattern| PubSub::Pattern.validate_subscription!(pattern) }
         decoded = page_class.parse_params(params)
@@ -344,7 +357,9 @@ module Sidereal
       # {.registry} whose params still decode. A session that has since
       # been renewed, or a token from before the secret changed, gets +nil+.
       # The stream's channels are the page's, and the session's
-      # {.session_channel} when it has one.
+      # {.session_channel} when it has one, plus {Assets::CHANNEL} when live
+      # reload is on. A page that named no channels gets only
+      # {Assets::CHANNEL}, and +nil+ once live reload is off.
       #
       # A request with no session at all, as from a browser that refuses
       # cookies, gets the page's channels without a session channel, rather
@@ -370,7 +385,12 @@ module Sidereal
         params = page_class.parse_params(data['params'])
         return unless params.valid?
 
-        channels += [session_channel_for(session)] if session
+        # A page that names no channels takes no live updates, so in
+        # development it only follows its assets, not its session.
+        channels += [session_channel_for(session)] if session && channels.any?
+        channels += [Assets::CHANNEL] if Assets::LiveReload.enabled?
+        return if channels.empty?
+
         Stream.new(page_class:, params: params.value, channels:)
       end
 
@@ -429,7 +449,9 @@ module Sidereal
       # @return [void]
       def stream(channel, sse, params, ctx)
         sse.patch_elements load(params, ctx)
-        PageContext.new(sse, ctx, self, params:).run(channel)
+        page_context = PageContext.new(sse, ctx, self, params:)
+        page_context.sync_assets(rerender: false) if Assets::LiveReload.enabled?
+        page_context.run(channel)
       end
 
       # Handlers keyed by message class, matched on the exact class of an
@@ -595,6 +617,11 @@ module Sidereal
         mode: 'prepend',
         selector: '#sidereal-sysnotify-stack'
       )
+    end
+
+    # Live reload: published by {Assets::Watcher} when an asset changes.
+    on Sidereal::Assets::Changed do |_evt|
+      sync_assets
     end
   end
 end

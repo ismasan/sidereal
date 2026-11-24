@@ -990,6 +990,28 @@ Sidereal.config.config!('sidereal.assets.host') { 'https://cdn.example.com' }
 
 Only the two bundles are held in memory, one of each type, replaced when their digest changes. Stylesheets and scripts are read from their files when served, and other files are streamed from disk. Digests are computed by streaming each file.
 
+### Live reload
+
+With `sidereal.assets.live_reload` on, open pages update when an asset's file changes, without a reload or a restart. Generated apps turn it on in development:
+
+```ruby
+Sidereal.config.config!('sidereal.assets.live_reload') do
+  Sidereal.environment == 'development'
+end
+```
+
+The `sidereal.assets.watcher` component checks the registered files every 0.3 seconds, on the leader process only, and publishes `Sidereal::Assets::Changed` on the `sidereal.assets` channel when any digest changes. Each check `stat`s the files and reads only those whose modification time or size changed. Page streams subscribe to that channel, and each one brings its page up to date:
+
+| Changed | The page |
+| --- | --- |
+| A stylesheet | Swaps in a new `<link>`, and removes the old one once the new one has loaded |
+| An image, font or other file | Renders again, so `asset_url` links the new URL |
+| A script | Reloads, since a module that ran can't be swapped out |
+
+An image a stylesheet references changes that stylesheet's digest too, so it's swapped as well. A tab that reconnects also catches up, since a stream syncs the asset tags when it connects.
+
+It works in `:single` mode, which links each asset with its current digest. A `Page` that names no channels gets a stream too, which follows only its assets, not its session's messages. A route that renders HTML without a mounted `Page` has no stream, so it doesn't update. Assets registered inline only change when the app restarts.
+
 ## The app's command line: `bin/sid`
 
 `bin/sid` in an app is `sid` with that app loaded. It runs with the app's gems and adds commands that only make sense inside an app. It finds the app from any directory, so `../bin/sid` works from a subdirectory too:
@@ -1750,6 +1772,8 @@ Sidereal.config.config!('sidereal.workers.count') { 10 }
 | `sidereal.secrets` | `Sidereal::KeyGenerator` | derives a key for each purpose from the master secret, with HKDF-SHA256 (`derive('session')`), so one secret serves them all, and a derived key reveals neither the secret nor the other keys. Anything that answers `derive(purpose)`, ex. one that reads a key for each purpose from a vault. `Sidereal.secrets` reads it |
 | `sidereal.assets.mode` | `:single` | what layouts link: each [asset](#assets) (`:single`), or one bundle of each type (`:combined`) |
 | `sidereal.assets.host` | `nil` | a host asset URLs start with, such as a CDN's |
+| `sidereal.assets.live_reload` | `false` | whether open pages update when an asset changes. See [Live reload](#live-reload) |
+| `sidereal.assets.watcher` | `Assets::Watcher` | checks assets for changes on the leader, when `live_reload` is on |
 | `sidereal.signer` | `Sidereal::Signer`, with the key `sidereal.secrets` derive for it | signs and verifies tokens: pages' [stream URLs](#per-page-channels), and anything an app signs with it (`dep 'sidereal.signer'`). Anything that answers `generate(data, purpose:)` and `verify(token, purpose:)`, which returns `nil` for a token it didn't make. `Sidereal.signer` reads it |
 
 Implement any of them to replace it. See [Custom backends](#custom-backends).
