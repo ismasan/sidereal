@@ -87,8 +87,38 @@ RSpec.describe Sidereal::Falcon::Environment::Service do
     end
   end
 
+  # Stand-ins for the server make_server returns and the host that boots the
+  # config, so #run can be driven without a real config or listener.
+  let(:server) { double('server', run: nil) }
+  let(:host) { double('host', start: nil, stop: nil) }
+
+  describe 'booting a worker' do
+    before { allow(Sidereal).to receive(:new_host).and_return(host) }
+
+    it 'starts the host, building every component, before the server accepts requests' do
+      allow(evaluator).to receive(:make_server).and_return(server)
+
+      expect(host).to receive(:start).ordered
+      expect(server).to receive(:run).ordered
+
+      expect(service.run(instance, evaluator, listener)).to be(server)
+    end
+
+    it "doesn't run the server when the host fails to start" do
+      allow(Console).to receive(:error)
+      allow(host).to receive(:start).and_raise(Errno::EADDRINUSE.new('pubsub socket'))
+      allow(evaluator).to receive(:make_server).and_return(server)
+
+      expect(server).not_to receive(:run)
+      service.run(instance, evaluator, listener)
+    end
+  end
+
   describe 'a boot failure' do
-    before { allow(Console).to receive(:error) }
+    before do
+      allow(Console).to receive(:error)
+      allow(Sidereal).to receive(:new_host).and_return(host)
+    end
 
     it 'terminates the host instead of returning into the restart loop' do
       allow(evaluator).to receive(:make_server).and_raise(NoMethodError, 'undefined method for nil')
@@ -130,8 +160,7 @@ RSpec.describe Sidereal::Falcon::Environment::Service do
       # Reached after #run returns, so this failure has no rescue above it in
       # the call stack — only the guard inside the task itself.
       error = Errno::EADDRINUSE.new('pubsub socket')
-      server = double('server')
-      allow(server).to receive(:run).and_raise(error)
+      allow(host).to receive(:start).and_raise(error)
       allow(evaluator).to receive(:make_server).and_return(server)
 
       expect(Console).to receive(:error) do |_subject, _message, **meta|
@@ -161,8 +190,7 @@ RSpec.describe Sidereal::Falcon::Environment::Service do
     # SignalException): an interrupt that lands while the host is still booting
     # is a shutdown, and must reach the orderly #stop path, not boot_failed!.
     it 'lets a cancellation during boot inside the async task through, as a shutdown' do
-      server = double('server')
-      allow(server).to receive(:run).and_raise(Async::Cancel)
+      allow(host).to receive(:start).and_raise(Async::Cancel)
       allow(evaluator).to receive(:make_server).and_return(server)
 
       expect(Console).not_to receive(:error)

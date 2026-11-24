@@ -91,13 +91,17 @@ module Sidereal
             # #run has already returned and cannot rescue it. Only the two boot
             # calls are covered — waiting on the children below is the running
             # state, not boot.
+            #
+            # The host starts first: the app reads components while it handles
+            # requests (ex. a session secret from Sidereal.secrets), so the
+            # server only accepts them once every component is built and
+            # started. Until then, connections wait in the listener's backlog.
             begin
-              server.run
               @sidereal_host.start(task)
+              server.run
             rescue *SHUTDOWN
-              # server.run answers requests before host.start returns, so a
-              # shutdown can land in the middle of boot. Let the task stop, so
-              # the host reaches #stop rather than boot_failed!'s exit!.
+              # A shutdown can land in the middle of boot. Let the task stop,
+              # so the host reaches #stop rather than boot_failed!'s exit!.
               raise
             rescue ::Exception => e # rubocop:disable Lint/RescueException
               boot_failed!(e)
