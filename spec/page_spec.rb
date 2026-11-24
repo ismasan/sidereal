@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 require 'spec_helper'
-require 'tmpdir'
 
 PageTestItemAdded = Sidereal::Message.define('page_test.item_added') do
   attribute :title, Sidereal::Types::String
@@ -199,6 +198,14 @@ RSpec.describe Sidereal::Page do
 
     def session_with_id(id) = double(:session, id: Rack::Session::SessionId.new(id))
 
+    # Rebuild the components with live reload on, and the same signer.
+    def enable_live_reload!
+      Sidereal.reset_config!
+      Sidereal.config.config!('sidereal.signer') { Sidereal::Signer.new('k' * 32) }
+      Sidereal.config.config!('sidereal.assets.live_reload') { true }
+      Sidereal.config.build!
+    end
+
     before do
       Sidereal.config.config!('sidereal.signer') { Sidereal::Signer.new('k' * 32) }
       Sidereal.config.build!
@@ -219,10 +226,7 @@ RSpec.describe Sidereal::Page do
     end
 
     it 'subscribes to the assets channel when live reload is on' do
-      Sidereal.reset_config!
-      Sidereal.config.config!('sidereal.signer') { Sidereal::Signer.new('k' * 32) }
-      Sidereal.config.config!('sidereal.assets.live_reload') { true }
-      Sidereal.config.build!
+      enable_live_reload!
       ctx = context_with
       token = described_class.stream_token(page_class.new, { id: '42' }, ctx)
 
@@ -284,10 +288,7 @@ RSpec.describe Sidereal::Page do
     end
 
     it 'streams only the assets of a page whose channels are nil or empty, when live reload is on' do
-      Sidereal.reset_config!
-      Sidereal.config.config!('sidereal.signer') { Sidereal::Signer.new('k' * 32) }
-      Sidereal.config.config!('sidereal.assets.live_reload') { true }
-      Sidereal.config.build!
+      enable_live_reload!
       ctx = context_with(session: session_with_id('s1'))
       [nil, []].each do |none|
         silent = Class.new(Sidereal::Page) do
@@ -888,23 +889,11 @@ RSpec.describe Sidereal::Page do
       end.new
     end
 
-    around do |example|
-      Dir.mktmpdir('sidereal-live') do |dir|
-        @dir = dir
-        example.run
-      end
-    end
+    include_context 'tmp files'
 
     before do
       Sidereal.config.config!('sidereal.assets.live_reload') { true }
       Sidereal.config.build!
-    end
-
-    def write(name, content)
-      path = File.join(@dir, name)
-      File.write(path, content)
-      File.utime(Time.now + (@writes = (@writes || 0) + 1), Time.now + @writes, path)
-      path
     end
 
     # A URL as the sync script quotes it.

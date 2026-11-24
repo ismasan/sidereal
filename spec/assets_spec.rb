@@ -1,28 +1,11 @@
 # frozen_string_literal: true
 
 require 'spec_helper'
-require 'tmpdir'
-require 'fileutils'
 
 RSpec.describe Sidereal::Assets do
   subject(:assets) { described_class.new }
 
-  around do |example|
-    Dir.mktmpdir('sidereal-assets') do |dir|
-      @dir = dir
-      example.run
-    end
-  end
-
-  # Write a file under the example's directory, and return its path.
-  def write(relative, content)
-    path = File.join(@dir, relative)
-    FileUtils.mkdir_p(File.dirname(path))
-    File.write(path, content)
-    # A later write in the same example must show as a change to the mtime.
-    File.utime(Time.now + (@writes = (@writes || 0) + 1), Time.now + @writes, path)
-    path
-  end
+  include_context 'tmp files'
 
   def request(path, method: 'GET', headers: {}, script_name: '')
     env = Rack::MockRequest.env_for(path, method:, 'SCRIPT_NAME' => script_name, **headers)
@@ -52,7 +35,7 @@ RSpec.describe Sidereal::Assets do
       write('lib/a.css', 'a {}')
       write('lib/nested/b.js', 'b()')
       write('lib/img/logo.png', 'png')
-      assets.directory File.join(@dir, 'lib'), prefix: 'acme'
+      assets.directory File.join(tmp_dir, 'lib'), prefix: 'acme'
 
       expect(assets.stylesheet_paths).to contain_exactly(%r{\A/_assets/acme/a-\h{16}\.css\z})
       expect(assets.javascript_paths).to contain_exactly(%r{\A/_assets/acme/nested/b-\h{16}\.js\z})
@@ -61,7 +44,7 @@ RSpec.describe Sidereal::Assets do
 
     it 'takes Pathnames' do
       write('lib/a.css', 'a {}')
-      assets.directory Pathname(@dir).join('lib')
+      assets.directory Pathname(tmp_dir).join('lib')
       assets.file 'b.txt', path: Pathname(write('b.txt', 'b'))
 
       expect(assets.registered?('a.css')).to be(true)
@@ -69,7 +52,7 @@ RSpec.describe Sidereal::Assets do
     end
 
     it 'raises for a missing file, at registration' do
-      expect { assets.stylesheet 'app.css', path: File.join(@dir, 'nope.css') }
+      expect { assets.stylesheet 'app.css', path: File.join(tmp_dir, 'nope.css') }
         .to raise_error(ArgumentError, /no file at/)
     end
 
@@ -226,7 +209,7 @@ RSpec.describe Sidereal::Assets do
     before do
       write('styles/img/logo.svg', '<svg/>')
       write('styles/fonts/a.woff2', 'font')
-      assets.directory File.join(@dir, 'styles')
+      assets.directory File.join(tmp_dir, 'styles')
     end
 
     it 'rewrites relative references to registered files to their digested paths, relative to the URL' do
@@ -237,7 +220,7 @@ RSpec.describe Sidereal::Assets do
         .d { background: url(/elsewhere.png); }
         .e { background: url('../img/unregistered.png'); }
       CSS
-      assets.stylesheet 'acme/charts.css', path: File.join(@dir, 'styles/acme/charts.css')
+      assets.stylesheet 'acme/charts.css', path: File.join(tmp_dir, 'styles/acme/charts.css')
 
       body = body_of(request(assets.path('acme/charts.css')))
       expect(body).to include(%(url("../img/logo-#{assets.digest('img/logo.svg')}.svg")))
@@ -252,7 +235,7 @@ RSpec.describe Sidereal::Assets do
 
     it "changes a stylesheet's digest when a file it references changes" do
       write('page.css', '.a { background: url(styles/img/logo.svg); }')
-      assets.stylesheet 'page.css', path: File.join(@dir, 'page.css')
+      assets.stylesheet 'page.css', path: File.join(tmp_dir, 'page.css')
       before = assets.digest('page.css')
 
       write('styles/img/logo.svg', '<svg id="new"/>')
@@ -281,7 +264,7 @@ RSpec.describe Sidereal::Assets do
       expect(status).to eq(200)
       expect(headers['content-type']).to eq('image/png')
       expect(headers['content-length']).to eq(png.bytesize.to_s)
-      expect(body.to_path).to eq(File.join(@dir, 'logo.png'))
+      expect(body.to_path).to eq(File.join(tmp_dir, 'logo.png'))
       expect(body_of([status, headers, body]).b).to eq(png)
     end
 
@@ -418,6 +401,15 @@ RSpec.describe Sidereal::Assets do
                           registries: -> { [registry] })
     end
 
+    # Register a stylesheet from a file, and lock the registry by rendering
+    # its path, as the app does once it renders a page. Returns its path.
+    def stylesheet_in_use
+      path = write('app.css', 'a {}')
+      assets.stylesheet 'app.css', path: path
+      assets.path('app.css')
+      path
+    end
+
     def published
       [].tap do |messages|
         channel = pubsub.subscribe(Sidereal::Assets::CHANNEL)
@@ -431,9 +423,7 @@ RSpec.describe Sidereal::Assets do
     end
 
     it 'publishes Changed when an asset in use changes, after recording them on the first check' do
-      path = write('app.css', 'a {}')
-      assets.stylesheet 'app.css', path: path
-      assets.path('app.css')
+      stylesheet_in_use
 
       messages = published do
         expect(watcher.check).to be(false)
@@ -447,9 +437,7 @@ RSpec.describe Sidereal::Assets do
     end
 
     it 'keeps the last digests of a registry while one of its files is missing' do
-      path = write('app.css', 'a {}')
-      assets.stylesheet 'app.css', path: path
-      assets.path('app.css')
+      path = stylesheet_in_use
       watcher.check
 
       File.delete(path)
@@ -468,9 +456,7 @@ RSpec.describe Sidereal::Assets do
     end
 
     it 'checks on its own once started, while this process leads' do
-      path = write('app.css', 'a {}')
-      assets.stylesheet 'app.css', path: path
-      assets.path('app.css')
+      stylesheet_in_use
 
       messages = published do
         Async { |task| watcher.start(task) }
@@ -485,9 +471,7 @@ RSpec.describe Sidereal::Assets do
 
     it 'does nothing when not enabled' do
       disabled = watcher_for(enabled: false)
-      path = write('app.css', 'a {}')
-      assets.stylesheet 'app.css', path: path
-      assets.path('app.css')
+      stylesheet_in_use
 
       messages = published do
         Async { |task| disabled.start(task) }

@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'json'
+require_relative '../scripts'
 
 module Sidereal
   class Assets
@@ -13,21 +14,14 @@ module Sidereal
       # app's stylesheets and scripts: a stylesheet whose URL changed is
       # replaced by a new +<link>+, and the old one removed once the new one
       # loads, so the page isn't left unstyled meanwhile. A changed script, or a
-      # different number of tags, reloads the page, at most once every 10
-      # seconds per tab, as {App}'s stale stream reload does.
+      # different number of tags, reloads the page, through
+      # {Scripts::THROTTLED_RELOAD}.
       SCRIPT = <<~JS.gsub(/\s*\n\s*/, ' ').strip
         ((css, js) => {
           const tags = (type, attr) => [...document.querySelectorAll(`${type}[data-sidereal-asset]`)].map((el) => [el, el.getAttribute(attr)]);
           const links = tags('link', 'href'), scripts = tags('script', 'src');
           const same = (list, urls) => list.length === urls.length && list.every(([, url], i) => url === urls[i]);
-          if (links.length !== css.length || !same(scripts, js)) {
-            const key = 'sidereal.assets-reload', now = Date.now();
-            try {
-              if (now - Number(sessionStorage.getItem(key) || 0) <= 10000) return;
-              sessionStorage.setItem(key, String(now));
-            } catch (_) { return; }
-            return location.reload();
-          }
+          if (links.length !== css.length || !same(scripts, js)) return #{Scripts::THROTTLED_RELOAD}('sidereal.assets-reload');
           links.forEach(([old, url], i) => {
             if (url === css[i]) return;
             const link = old.cloneNode();
@@ -43,11 +37,7 @@ module Sidereal
       # the components aren't built.
       #
       # @return [Boolean]
-      def self.enabled?
-        Sidereal.config['sidereal.assets.live_reload']
-      rescue Sourced::Component::NotBuiltError
-        false
-      end
+      def self.enabled? = Assets.setting('sidereal.assets.live_reload', false)
 
       # @param browser [#execute_script, #patch_elements] the page's stream
       # @param ctx [Sidereal::App] the stream request's app instance
@@ -69,9 +59,8 @@ module Sidereal
         return unless @context.class.respond_to?(:assets)
 
         assets = @context.class.assets
-        href = ->(path) { assets.href(path, script_name: @context.script_name) }
-        css = assets.stylesheet_paths.map(&href)
-        js = assets.javascript_paths.map(&href)
+        css = assets.stylesheet_hrefs(script_name: @context.script_name)
+        js = assets.javascript_hrefs(script_name: @context.script_name)
         @browser.execute_script("#{SCRIPT}(#{JSON.generate(css, script_safe: true)}, #{JSON.generate(js, script_safe: true)})")
 
         files = assets.digests(:file)

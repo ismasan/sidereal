@@ -44,11 +44,11 @@ module Sidereal
       # find (see {Sidereal::Assets::LiveReload::SCRIPT}).
       def sidereal_head
         assets = context.class.assets if context.class.respond_to?(:assets)
-        assets&.stylesheet_paths&.each do |path|
-          link(rel: 'stylesheet', href: assets.href(path, script_name: context.script_name), data_sidereal_asset: true)
+        assets&.stylesheet_hrefs(script_name: context.script_name)&.each do |href|
+          link(rel: 'stylesheet', href:, data_sidereal_asset: true)
         end
-        assets&.javascript_paths&.each do |path|
-          script(type: 'module', src: assets.href(path, script_name: context.script_name), data_sidereal_asset: true)
+        assets&.javascript_hrefs(script_name: context.script_name)&.each do |src|
+          script(type: 'module', src:, data_sidereal_asset: true)
         end
         script(type: "module", src: 'https://cdn.jsdelivr.net/gh/starfederation/datastar@v1.0.1/bundles/datastar.js')
       end

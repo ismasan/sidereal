@@ -139,6 +139,17 @@ module Sidereal
     # @return [Array<Assets>]
     def self.registries = REGISTRIES_LOCK.synchronize { REGISTRIES.keys }
 
+    # The +key+ component's value, or +default+ while the components aren't
+    # built, as in a script that renders without starting the app.
+    #
+    # @param key [String]
+    # @return [Object]
+    def self.setting(key, default)
+      Sidereal.config[key]
+    rescue Sourced::Component::NotBuiltError
+      default
+    end
+
     # @param parent [Assets, nil] the registry whose assets come before this one's
     def initialize(parent = nil)
       REGISTRIES_LOCK.synchronize { REGISTRIES[self] = true }
@@ -217,11 +228,11 @@ module Sidereal
 
     # @return [Symbol] the +sidereal.assets.mode+ component, or +:single+ when
     #   the components aren't built
-    def mode = setting('sidereal.assets.mode', :single)
+    def mode = self.class.setting('sidereal.assets.mode', :single)
 
     # @return [String, nil] the +sidereal.assets.host+ component: a host, ex.
     #   a CDN's, that asset URLs start with
-    def host = setting('sidereal.assets.host', nil)
+    def host = self.class.setting('sidereal.assets.host', nil)
 
     # The current digest of an asset.
     #
@@ -279,6 +290,19 @@ module Sidereal
     #
     # @return [Array<String>]
     def javascript_paths = paths_for(:js)
+
+    # The URLs of the stylesheets a layout links: the {#stylesheet_paths},
+    # each through {#href}.
+    #
+    # @param script_name [String] the app's mount path
+    # @return [Array<String>]
+    def stylesheet_hrefs(script_name: '') = stylesheet_paths.map { |path| href(path, script_name:) }
+
+    # The URLs of the scripts a layout loads. See {#stylesheet_hrefs}.
+    #
+    # @param script_name [String] the app's mount path
+    # @return [Array<String>]
+    def javascript_hrefs(script_name: '') = javascript_paths.map { |path| href(path, script_name:) }
 
     # A URL for +path+: the {#host}, if any, the app's mount path, and +path+.
     #
@@ -353,12 +377,6 @@ module Sidereal
       return members(kind).map { |asset| path(asset.name) } unless mode == :combined
 
       members(kind).empty? ? [] : [bundle_path(kind)]
-    end
-
-    def setting(key, default)
-      Sidereal.config[key]
-    rescue Sourced::Component::NotBuiltError
-      default
     end
 
     # +:single+ mode watches files when it renders paths. Serving always does,

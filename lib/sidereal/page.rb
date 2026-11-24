@@ -338,7 +338,7 @@ module Sidereal
         return unless registry[page_class.page_key].equal?(page_class)
 
         channels = Array(page.channel_names)
-        return if channels.empty? && !Assets::LiveReload.enabled?
+        return if stream_channels(channels, nil).empty?
 
         channels.each { |pattern| PubSub::Pattern.validate_subscription!(pattern) }
         decoded = page_class.parse_params(params)
@@ -381,17 +381,28 @@ module Sidereal
         page_class = registry[data['page']]
         return unless page_class
 
-        channels = data['channels']
         params = page_class.parse_params(data['params'])
         return unless params.valid?
 
-        # A page that names no channels takes no live updates, so in
-        # development it only follows its assets, not its session.
-        channels += [session_channel_for(session)] if session && channels.any?
-        channels += [Assets::CHANNEL] if Assets::LiveReload.enabled?
+        channels = stream_channels(data['channels'], session)
         return if channels.empty?
 
         Stream.new(page_class:, params: params.value, channels:)
+      end
+
+      # The channels a stream subscribes to: the page's +channels+, the
+      # channel of the +session+ digest when the page named any, and
+      # {Assets::CHANNEL} while live reload is on. A page that names no
+      # channels takes no live updates, so with live reload it only follows
+      # its assets, not its session.
+      #
+      # @param channels [Array<String>] the page's {#channel_names}
+      # @param session [String, nil] a {.session_digest}
+      # @return [Array<String>]
+      private def stream_channels(channels, session)
+        channels += [session_channel_for(session)] if session && channels.any?
+        channels += [Assets::CHANNEL] if Assets::LiveReload.enabled?
+        channels
       end
 
       # The private channel of the session +ctx+ carries, which every page

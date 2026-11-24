@@ -3,6 +3,7 @@
 require 'datastar'
 require 'datastar/async_executor'
 require_relative 'commander'
+require_relative 'scripts'
 require_relative 'components/basic_layout'
 
 Datastar.configure do |config|
@@ -395,19 +396,8 @@ module Sidereal
 
     # Reloads the page, at most once every 10 seconds per tab: a token that
     # keeps failing, as with a secret that differs between processes, would
-    # otherwise reload it in a loop. Where sessionStorage is unavailable, as
-    # some browsers' privacy settings make it, the page isn't reloaded, since
-    # nothing would stop such a loop.
-    STALE_STREAM_SCRIPT = <<~JS.gsub(/\s*\n\s*/, ' ').strip
-      (() => {
-        const key = 'sidereal.stale-stream-reload', now = Date.now();
-        try {
-          if (now - Number(sessionStorage.getItem(key) || 0) <= 10000) return;
-          sessionStorage.setItem(key, String(now));
-        } catch (_) { return; }
-        location.reload();
-      })()
-    JS
+    # otherwise reload it in a loop. See {Scripts::THROTTLED_RELOAD}.
+    STALE_STREAM_SCRIPT = "#{Scripts::THROTTLED_RELOAD}('sidereal.stale-stream-reload')"
 
     private def reload_stale_page
       Console.warn(self, 'Rejected a live updates token: reloading the page for a fresh one')

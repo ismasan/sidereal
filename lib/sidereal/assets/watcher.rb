@@ -10,7 +10,9 @@ module Sidereal
     # It checks every {Assets.registries registry} that is locked, which is
     # what happens once a registry has rendered a URL or served a request.
     # A registry still being filled isn't read, since reading it would lock
-    # it. Only files whose modification time or size changed are read again.
+    # it. Files other than stylesheets are only read again when their
+    # modification time or size changed. Stylesheets are read on every check,
+    # since their digest depends on the files they reference.
     class Watcher
       DEFAULT_INTERVAL = 0.3
 
@@ -67,7 +69,7 @@ module Sidereal
         rescue SystemCallError
           current[registry] = last[registry] if last.key?(registry)
         end
-        changed = !@last.nil? && current.any? { |registry, digests| last.key?(registry) && last[registry] != digests }
+        changed = current.any? { |registry, digests| last.key?(registry) && last[registry] != digests }
         @last = current
         @pubsub.publish(CHANNEL, Changed.new) if changed
         changed
