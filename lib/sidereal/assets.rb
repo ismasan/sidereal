@@ -372,20 +372,18 @@ module Sidereal
     end
 
     def register_unlocked(name, kind, source_path, content)
-      raise LockedError, "can't register #{name}: assets are locked once they are read or served" if @locked
       raise ArgumentError, "an asset needs a path or its content, not both: #{name}" unless source_path.nil? ^ content.nil?
       raise ArgumentError, "#{name} is a bundle's name" if BUNDLE_NAMES.value?(name)
       raise ArgumentError, "an asset's name is relative: #{name}" if name.start_with?('/')
       raise ArgumentError, "#{name} needs an extension" if File.extname(name).empty?
       raise ArgumentError, "a #{kind} asset's name ends in .#{kind}: #{name}" if kind != :file && File.extname(name) != ".#{kind}"
       source_path = File.expand_path(source_path) if source_path
-      if (existing = find(name))
-        # The same asset again, as when two components that share an ancestor
-        # are installed, is already registered.
-        return self if existing.kind == kind && existing.source_path == source_path && existing.content == content
-
-        raise DuplicateAssetError, "#{name} is already registered"
-      end
+      existing = find(name)
+      # The same asset again, as when two components that share an ancestor
+      # are installed, is already registered, locked or not.
+      return self if existing && existing.kind == kind && existing.source_path == source_path && existing.content == content
+      raise LockedError, "can't register #{name}: assets are locked once they are read or served" if @locked
+      raise DuplicateAssetError, "#{name} is already registered" if existing
       raise ArgumentError, "no file at #{source_path} for #{name}" if source_path && !File.file?(source_path)
 
       @assets[name] = Asset.new(name:, kind:, source_path:, content:)

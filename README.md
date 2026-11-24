@@ -949,7 +949,7 @@ end
 
 ### Components' and pages' own assets
 
-A component or a page can declare the stylesheets, scripts and files it needs, next to its code. A relative `path:` is relative to the file that declares it, as with `require_relative`:
+A component or a page can declare the stylesheets, scripts and files it needs, next to its code. A relative `path:` is relative to the file that calls `stylesheet`, `javascript` or `file`, as with `require_relative`. Called from a helper module, that's the helper's file, so pass a helper an absolute path, such as `File.expand_path('chat.css', __dir__)`:
 
 ```ruby
 class UI::Chat < Sidereal::Components::BaseComponent
@@ -957,7 +957,7 @@ class UI::Chat < Sidereal::Components::BaseComponent
   javascript 'chat.js', path: 'chat.js'
   file 'chat/avatar.svg', path: 'avatar.svg'
 
-  # Inline, named after the class: ui/chat1.css, ui/chat1.js, ui/chat2.css...
+  # Inline, named after the class: ui/chat-1.css, ui/chat-1.js, ui/chat-2.css...
   css <<~CSS
     .chat { border: 1px solid; }
   CSS
@@ -979,7 +979,9 @@ class ChatApp < Sidereal::App
 end
 ```
 
-Components that share a superclass share its assets, which are registered once, however many of them the app installs. A component without a class name, such as `Class.new(...)`, can't declare inline assets, since they're named after it.
+Components that share a superclass share its assets, which are registered once, however many of them the app installs. Installing a component again, even after the app has served a request, changes nothing. A component without a class name, such as `Class.new(...)`, can't declare inline assets, since they're named after it.
+
+Layouts link stylesheets in the order they're registered, so the order of these lines in the app is the order of the cascade: a layout's reset after `install UI::Chat` overrides Chat's rules. Set the layout first for its styles to come first.
 
 ### URLs and caching
 

@@ -41,7 +41,8 @@ module Sidereal
       # Declare a stylesheet this component needs, from a file or inline. It's
       # registered with an app's assets when the component is installed in it,
       # with {.sidereal_install}, and layouts link it. A relative +path+ is
-      # relative to the file that declares it.
+      # relative to the file that calls this method: called from a helper
+      # module, that's the helper's file, so pass it an absolute path.
       #
       #   class Chat < Sidereal::Components::BaseComponent
       #     stylesheet 'chat.css', path: 'chat.css'
@@ -81,7 +82,7 @@ module Sidereal
       end
 
       # Declare an inline stylesheet, named after the class and numbered:
-      # UI::Chat's first is +ui/chat1.css+, its second +ui/chat2.css+.
+      # UI::Chat's first is +ui/chat-1.css+, its second +ui/chat-2.css+.
       #
       #   class UI::Chat < Sidereal::Components::BaseComponent
       #     css <<~CSS
@@ -94,7 +95,7 @@ module Sidereal
       # @raise [ArgumentError] for a class without a name
       def self.css(content) = declare_asset(inline_asset_name(:css), :css, nil, content)
 
-      # Declare an inline script, named like {.css}'s: +ui/chat1.js+.
+      # Declare an inline script, named like {.css}'s: +ui/chat-1.js+.
       #
       # @param content [String]
       # @return [Assets::Declaration]
@@ -109,15 +110,23 @@ module Sidereal
         inherited + (@assets || [])
       end
 
-      # Register this component's {.assets} with +app+'s. {App.install} calls
-      # it, and {App.page} for a page. An asset already registered, as by
-      # another component with the same superclass, is left as it is.
+      # Register this component's {.assets} with +registry+. An asset already
+      # registered, as by another component with the same superclass, is left
+      # as it is. {App.page} calls it for a page and its layout, and
+      # {App.layout} for a layout.
+      #
+      # @param registry [Assets]
+      # @return [void]
+      def self.register_assets(registry)
+        assets.each { |asset| asset.register_in(registry) }
+      end
+
+      # Register this component's {.assets} with +app+'s: what {App.install}
+      # calls.
       #
       # @param app [Class<Sidereal::App>]
       # @return [void]
-      def self.sidereal_install(app)
-        assets.each { |asset| asset.register_in(app.assets) }
-      end
+      def self.sidereal_install(app) = register_assets(app.assets)
 
       def self.declare_asset(name, kind, path, content)
         Assets::Declaration.new(name:, kind:, path:, content:).tap { |asset| (@assets ||= []) << asset }
@@ -128,7 +137,8 @@ module Sidereal
 
         @inline_asset_counts ||= Hash.new(0)
         number = @inline_asset_counts[kind] += 1
-        "#{name.split('::').map { |part| Utils.snake_case(part) }.join('/')}#{number}.#{kind}"
+        # The dash keeps Chat's 11th apart from Chat1's first.
+        "#{name.split('::').map { |part| Utils.snake_case(part) }.join('/')}-#{number}.#{kind}"
       end
 
       private_class_method :declare_asset, :inline_asset_name

@@ -39,9 +39,9 @@ RSpec.describe Sidereal::Components::BaseComponent do
       end
 
       expect(UI::ChatBox.assets).to eq([
-        declaration('ui/chat_box1.css', :css, content: '.a {}'),
-        declaration('ui/chat_box1.js', :js, content: 'a()'),
-        declaration('ui/chat_box2.css', :css, content: '.b {}')
+        declaration('ui/chat_box-1.css', :css, content: '.a {}'),
+        declaration('ui/chat_box-1.js', :js, content: 'a()'),
+        declaration('ui/chat_box-2.css', :css, content: '.b {}')
       ])
     end
 
@@ -53,14 +53,14 @@ RSpec.describe Sidereal::Components::BaseComponent do
       named('Chat') { css '.chat {}' }
       named('LoudChat', Chat) { css '.loud {}' }
 
-      expect(LoudChat.assets.map(&:name)).to eq(%w[chat1.css loud_chat1.css])
-      expect(Chat.assets.map(&:name)).to eq(%w[chat1.css])
+      expect(LoudChat.assets.map(&:name)).to eq(%w[chat-1.css loud_chat-1.css])
+      expect(Chat.assets.map(&:name)).to eq(%w[chat-1.css])
     end
 
     it 'gives pages the same declarations' do
       named('ChatPage', Sidereal::Page) { css '.page {}' }
 
-      expect(ChatPage.assets.map(&:name)).to eq(%w[chat_page1.css])
+      expect(ChatPage.assets.map(&:name)).to eq(%w[chat_page-1.css])
     end
   end
 
@@ -76,7 +76,7 @@ RSpec.describe Sidereal::Components::BaseComponent do
 
       app.install(Chat)
 
-      expect(app.assets.stylesheet_paths).to eq([app.assets.path('chat1.css')])
+      expect(app.assets.stylesheet_paths).to eq([app.assets.path('chat-1.css')])
       expect(app.assets.registered?('chat/logo.svg')).to be(true)
     end
 
@@ -87,11 +87,11 @@ RSpec.describe Sidereal::Components::BaseComponent do
 
       app.install(LoudChat).install(QuietChat).install(Chat)
 
-      expect(app.assets.stylesheet_paths).to eq(%w[chat1.css loud_chat1.css quiet_chat1.css].map { app.assets.path(_1) })
+      expect(app.assets.stylesheet_paths).to eq(%w[chat-1.css loud_chat-1.css quiet_chat-1.css].map { app.assets.path(_1) })
     end
 
     it 'raises for a name the app has registered to a different asset' do
-      app.assets.stylesheet 'chat1.css', css: '.other {}'
+      app.assets.stylesheet 'chat-1.css', css: '.other {}'
       named('Chat') { css '.chat {}' }
 
       expect { app.install(Chat) }.to raise_error(Sidereal::Assets::DuplicateAssetError)
@@ -105,7 +105,42 @@ RSpec.describe Sidereal::Components::BaseComponent do
 
       app.page(ChatPage)
 
-      expect(app.assets.javascript_paths).to eq([app.assets.path('chat_page1.js')])
+      expect(app.assets.javascript_paths).to eq([app.assets.path('chat_page-1.js')])
+    end
+
+    it 'mounts a page whose own sidereal_install mounts it' do
+      named('ChatPage', Sidereal::Page) do
+        path '/chat'
+        css '.chat {}'
+        def self.sidereal_install(app) = app.page(self)
+      end
+
+      app.install(ChatPage)
+
+      expect(app.assets.stylesheet_paths).to eq([app.assets.path('chat_page-1.css')])
+    end
+
+    it 'raises ArgumentError for something that is not a page, before registering any assets' do
+      named('ChatLayout', Sidereal::Components::Layout) { css '.chat {}' }
+
+      expect { app.page(Object, layout: ChatLayout) }.to raise_error(ArgumentError, /Page subclass/)
+      expect(app.assets.registered?('chat_layout-1.css')).to be(false)
+    end
+
+    it "doesn't set a layout whose assets can't be registered" do
+      app.assets.stylesheet 'app_layout-1.css', css: '.other {}'
+      named('AppLayout', Sidereal::Components::Layout) { css '.app {}' }
+
+      expect { app.layout(AppLayout) }.to raise_error(Sidereal::Assets::DuplicateAssetError)
+      expect(app.layout).to be(Sidereal::Components::BasicLayout)
+    end
+
+    it 'installs a component again once the assets are locked' do
+      named('Chat') { css '.chat {}' }
+      app.install(Chat)
+      app.assets.lock!
+
+      expect { app.install(Chat) }.not_to raise_error
     end
 
     it "registers a layout's assets when the app sets it, or a page is given it" do
@@ -116,7 +151,7 @@ RSpec.describe Sidereal::Components::BaseComponent do
       app.layout(AppLayout)
       app.page(ChatPage, layout: ChatLayout)
 
-      expect(app.assets.stylesheet_paths).to eq(%w[app_layout1.css chat_layout1.css].map { app.assets.path(_1) })
+      expect(app.assets.stylesheet_paths).to eq(%w[app_layout-1.css chat_layout-1.css].map { app.assets.path(_1) })
     end
 
     it 'sets a layout that has no assets to install' do

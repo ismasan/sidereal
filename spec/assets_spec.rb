@@ -80,6 +80,15 @@ RSpec.describe Sidereal::Assets do
       expect { child.stylesheet 'app.css', css: 'b {}' }.to raise_error(described_class::DuplicateAssetError)
     end
 
+    it 'does nothing for the same asset registered again once locked, and raises for a new one' do
+      assets.stylesheet 'app.css', css: 'a {}'
+      assets.lock!
+
+      expect { assets.stylesheet 'app.css', css: 'a {}' }.not_to raise_error
+      expect { assets.stylesheet 'app.css', css: 'b {}' }.to raise_error(described_class::LockedError)
+      expect { assets.stylesheet 'new.css', css: 'b {}' }.to raise_error(described_class::LockedError)
+    end
+
     it 'does nothing for the same asset registered again, here or in the parent' do
       path = write('app.css', 'a {}')
       assets.stylesheet 'app.css', path: path

@@ -121,10 +121,11 @@ module Sidereal
         super
       end
 
-      # Install +component+, for its assets, if it can be: a layout needn't be
-      # a Sidereal component.
-      private def install_assets_of(component)
-        install(component) if component.respond_to?(:sidereal_install)
+      # Register the assets +component+ declares with the app's, if it
+      # declares any: a layout needn't be a Sidereal component. Not through
+      # {.install}, since a page's own +sidereal_install+ may mount it.
+      private def register_assets_of(component)
+        component.register_assets(assets) if component.respond_to?(:register_assets)
       end
 
       private def asset_request?(env)
@@ -139,8 +140,8 @@ module Sidereal
       # @return [Class]
       def layout(ly = nil)
         if ly
+          register_assets_of(ly)
           @layout = ly
-          install_assets_of(ly)
         end
         @layout || Components::BasicLayout
       end
@@ -149,9 +150,6 @@ module Sidereal
       # those of the +layout+ it's given, if any (see
       # {Components::BaseComponent.stylesheet}).
       def page(pg, layout: nil, &block)
-        install_assets_of(layout) if layout
-        layout ||= self.layout
-
         page_class = case pg
         in String => path if block_given?
           pagek = Class.new(Page, &block)
@@ -160,12 +158,14 @@ module Sidereal
         in Class => pagek if pagek < Page
           pagek
         else
-          raise ArgumentError, "unknown arguments #{args.inspect}"
+          raise ArgumentError, "expected a Page subclass, or a path and a block, but got #{pg.inspect}"
         end
 
+        register_assets_of(layout) if layout
+        register_assets_of(page_class)
+        layout ||= self.layout
+
         Sidereal::Page.register(page_class)
-        # The page's own assets (see Components::BaseComponent.stylesheet)
-        install(page_class)
         get(page_class.path) do
           page_params = page_class.parse_params(params)
           halt 400, 'Bad Request' unless page_params.valid?
