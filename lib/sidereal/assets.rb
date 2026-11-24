@@ -60,6 +60,8 @@ module Sidereal
     # Cache headers for a URL whose digest matches what it serves.
     IMMUTABLE = 'public, max-age=31536000, immutable'
 
+    # Raised for a name already registered, here or in the parent, to a
+    # different asset. Registering the same asset again does nothing.
     DuplicateAssetError = Class.new(Sidereal::Error)
     LockedError = Class.new(Sidereal::Error)
     UnknownAssetError = Class.new(Sidereal::Error)
@@ -83,6 +85,28 @@ module Sidereal
     # from, if any. Cached as one value, so a reader never pairs one's digest
     # with another's stamp.
     Cached = Data.define(:digest, :stamp)
+
+    # An asset that a component or page declares, to register with an app's
+    # assets when it's installed. See {Components::BaseComponent.stylesheet}.
+    #
+    # @!attribute kind
+    #   @return [:css, :js, :file]
+    # @!attribute path
+    #   @return [String, nil] the file, an absolute path, or +nil+ for inline
+    #   content
+    Declaration = Data.define(:name, :kind, :path, :content) do
+      # Register this asset with +assets+.
+      #
+      # @param assets [Assets]
+      # @return [Assets]
+      def register_in(assets)
+        case kind
+        when :css then assets.stylesheet(name, path:, css: content)
+        when :js then assets.javascript(name, path:, js: content)
+        else assets.file(name, path:)
+        end
+      end
+    end
 
     # A registered asset. It caches its digest, behind a lock, since requests
     # in other threads read and replace it.
@@ -354,12 +378,15 @@ module Sidereal
       raise ArgumentError, "an asset's name is relative: #{name}" if name.start_with?('/')
       raise ArgumentError, "#{name} needs an extension" if File.extname(name).empty?
       raise ArgumentError, "a #{kind} asset's name ends in .#{kind}: #{name}" if kind != :file && File.extname(name) != ".#{kind}"
-      raise DuplicateAssetError, "#{name} is already registered" if find(name)
+      source_path = File.expand_path(source_path) if source_path
+      if (existing = find(name))
+        # The same asset again, as when two components that share an ancestor
+        # are installed, is already registered.
+        return self if existing.kind == kind && existing.source_path == source_path && existing.content == content
 
-      if source_path
-        source_path = File.expand_path(source_path)
-        raise ArgumentError, "no file at #{source_path} for #{name}" unless File.file?(source_path)
+        raise DuplicateAssetError, "#{name} is already registered"
       end
+      raise ArgumentError, "no file at #{source_path} for #{name}" if source_path && !File.file?(source_path)
 
       @assets[name] = Asset.new(name:, kind:, source_path:, content:)
       self

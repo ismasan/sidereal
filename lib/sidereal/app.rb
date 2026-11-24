@@ -121,17 +121,35 @@ module Sidereal
         super
       end
 
+      # Install +component+, for its assets, if it can be: a layout needn't be
+      # a Sidereal component.
+      private def install_assets_of(component)
+        install(component) if component.respond_to?(:sidereal_install)
+      end
+
       private def asset_request?(env)
         env[Rack::PATH_INFO].to_s.start_with?(Assets::PATH_PREFIX) &&
           (env[Rack::REQUEST_METHOD] == Rack::GET || env[Rack::REQUEST_METHOD] == Rack::HEAD)
       end
 
+      # The layout pages render in. Setting one registers its assets with the
+      # app's (see {Components::BaseComponent.stylesheet}).
+      #
+      # @param ly [Class, nil] a layout component, to set it
+      # @return [Class]
       def layout(ly = nil)
-        @layout = ly if ly
+        if ly
+          @layout = ly
+          install_assets_of(ly)
+        end
         @layout || Components::BasicLayout
       end
 
+      # Mount a page at its path, and register its assets with the app's, and
+      # those of the +layout+ it's given, if any (see
+      # {Components::BaseComponent.stylesheet}).
       def page(pg, layout: nil, &block)
+        install_assets_of(layout) if layout
         layout ||= self.layout
 
         page_class = case pg
@@ -146,6 +164,8 @@ module Sidereal
         end
 
         Sidereal::Page.register(page_class)
+        # The page's own assets (see Components::BaseComponent.stylesheet)
+        install(page_class)
         get(page_class.path) do
           page_params = page_class.parse_params(params)
           halt 400, 'Bad Request' unless page_params.valid?

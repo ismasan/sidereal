@@ -38,6 +38,101 @@ module Sidereal
         @machine_reader || (superclass.machine_reader if superclass.respond_to?(:machine_reader))
       end
 
+      # Declare a stylesheet this component needs, from a file or inline. It's
+      # registered with an app's assets when the component is installed in it,
+      # with {.sidereal_install}, and layouts link it. A relative +path+ is
+      # relative to the file that declares it.
+      #
+      #   class Chat < Sidereal::Components::BaseComponent
+      #     stylesheet 'chat.css', path: 'chat.css'
+      #   end
+      #
+      #   class ChatApp < Sidereal::App
+      #     install Chat
+      #   end
+      #
+      # @param name [String] its name in the app, ending in +.css+
+      # @param path [String, Pathname, nil] the file
+      # @param css [String, nil] its content
+      # @return [Assets::Declaration]
+      def self.stylesheet(name, path: nil, css: nil)
+        declare_asset(name, :css, path && File.expand_path(path, File.dirname(caller_locations(1, 1).first.path)), css)
+      end
+
+      # Declare a script this component needs, from a file or inline. See
+      # {.stylesheet}.
+      #
+      # @param name [String] its name in the app, ending in +.js+
+      # @param path [String, Pathname, nil] the file
+      # @param js [String, nil] its content
+      # @return [Assets::Declaration]
+      def self.javascript(name, path: nil, js: nil)
+        declare_asset(name, :js, path && File.expand_path(path, File.dirname(caller_locations(1, 1).first.path)), js)
+      end
+
+      # Declare another file this component needs, such as an image, which it
+      # links with {#asset_url}. See {.stylesheet}.
+      #
+      # @param name [String] its name in the app, with its extension
+      # @param path [String, Pathname] the file
+      # @return [Assets::Declaration]
+      def self.file(name, path:)
+        declare_asset(name, :file, File.expand_path(path, File.dirname(caller_locations(1, 1).first.path)), nil)
+      end
+
+      # Declare an inline stylesheet, named after the class and numbered:
+      # UI::Chat's first is +ui/chat1.css+, its second +ui/chat2.css+.
+      #
+      #   class UI::Chat < Sidereal::Components::BaseComponent
+      #     css <<~CSS
+      #       .chat { border: 1px solid; }
+      #     CSS
+      #   end
+      #
+      # @param content [String]
+      # @return [Assets::Declaration]
+      # @raise [ArgumentError] for a class without a name
+      def self.css(content) = declare_asset(inline_asset_name(:css), :css, nil, content)
+
+      # Declare an inline script, named like {.css}'s: +ui/chat1.js+.
+      #
+      # @param content [String]
+      # @return [Assets::Declaration]
+      # @raise [ArgumentError] for a class without a name
+      def self.js(content) = declare_asset(inline_asset_name(:js), :js, nil, content)
+
+      # The assets this component declares, after its superclass's.
+      #
+      # @return [Array<Assets::Declaration>]
+      def self.assets
+        inherited = superclass.respond_to?(:assets) ? superclass.assets : []
+        inherited + (@assets || [])
+      end
+
+      # Register this component's {.assets} with +app+'s. {App.install} calls
+      # it, and {App.page} for a page. An asset already registered, as by
+      # another component with the same superclass, is left as it is.
+      #
+      # @param app [Class<Sidereal::App>]
+      # @return [void]
+      def self.sidereal_install(app)
+        assets.each { |asset| asset.register_in(app.assets) }
+      end
+
+      def self.declare_asset(name, kind, path, content)
+        Assets::Declaration.new(name:, kind:, path:, content:).tap { |asset| (@assets ||= []) << asset }
+      end
+
+      def self.inline_asset_name(kind)
+        raise ArgumentError, "#{inspect} has no name to name its inline #{kind} after" unless name
+
+        @inline_asset_counts ||= Hash.new(0)
+        number = @inline_asset_counts[kind] += 1
+        "#{name.split('::').map { |part| Utils.snake_case(part) }.join('/')}#{number}.#{kind}"
+      end
+
+      private_class_method :declare_asset, :inline_asset_name
+
       private def around_template(&block)
         reader = self.class.machine_reader
         return super unless reader
