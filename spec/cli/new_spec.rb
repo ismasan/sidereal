@@ -57,13 +57,14 @@ RSpec.describe Sidereal::CLI::New do
       bin/sid
       boot.rb
       config.ru
+      config/components/assets.rb
       config/components/example.rb
       config/components/secrets.rb
       falcon.rb
       storage/.keep
       system/greetings.rb
       web/app.rb
-      web/public/css/app.css
+      web/assets/app.css
       web/ui/components/hello.rb
       web/ui/layout.rb
       web/ui/welcome_page.rb

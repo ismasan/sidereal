@@ -825,3 +825,92 @@ RSpec.describe 'Sidereal::App.dep' do
       .to raise_error(Sourced::Component::InjectionError, /already defines #store/)
   end
 end
+
+RSpec.describe 'Sidereal::App.assets' do
+  # Pages sign their stream URLs with the sidereal.signer component.
+  before { Sidereal.config.build! }
+
+  include Rack::Test::Methods
+
+  let(:app) do
+    Class.new(Sidereal::App) do
+      session(secret: 'a' * 64)
+      assets.stylesheet 'app.css', css: 'body { color: red }'
+      assets.javascript 'app.js', js: 'console.log(1)'
+
+      page '/' do
+        def self.load(_params, _ctx) = new
+
+        def view_template
+          div { 'home' }
+        end
+      end
+    end
+  end
+
+  it "reads its superclass's assets" do
+    child = Class.new(app)
+    expect(child.assets.registered?('app.css')).to be(true)
+    expect(child.assets).not_to equal(app.assets)
+  end
+
+  it 'serves its assets, without a session cookie' do
+    get app.assets.path('app.css')
+
+    expect(last_response.status).to eq(200)
+    expect(last_response.body).to eq('body { color: red }')
+    expect(last_response.headers['cache-control']).to eq('public, max-age=31536000, immutable')
+    expect(last_response.headers['set-cookie']).to be_nil
+  end
+
+  it 'links each asset from the layout: stylesheets, then scripts, then Datastar' do
+    get '/'
+
+    html = last_response.body
+    css = html.index(%(<link rel="stylesheet" href="#{app.assets.path('app.css')}">))
+    datastar = html.index('starfederation/datastar')
+    js = html.index(%(<script type="module" src="#{app.assets.path('app.js')}">))
+    expect([css, datastar, js]).to all(be_an(Integer))
+    expect(css).to be < js
+    expect(js).to be < datastar
+  end
+
+  it 'links the bundles in :combined mode' do
+    Sidereal.reset_config!
+    Sidereal.config.config!('sidereal.secret_key_base') { 'spec-secret-' * 6 }
+    Sidereal.config.config!('sidereal.assets.mode') { :combined }
+    Sidereal.config.build!
+    get '/'
+
+    expect(last_response.body).to include(%(href="#{app.assets.bundle_path(:css)}"))
+    expect(last_response.body).to include(%(src="#{app.assets.bundle_path(:js)}"))
+    expect(last_response.body).not_to include(app.assets.path('app.css'))
+  end
+
+  it 'prefixes asset URLs with the mount path' do
+    mounted = Rack::URLMap.new('/admin' => app)
+    response = Rack::MockRequest.new(mounted).get('/admin/')
+
+    expect(response.body).to include(%(href="/admin#{app.assets.path('app.css')}"))
+    expect(Rack::MockRequest.new(mounted).get("/admin#{app.assets.path('app.css')}").status).to eq(200)
+  end
+
+  it 'gives components an asset_url helper' do
+    logo = Tempfile.create(['logo', '.svg']).tap { |f| f.write('<svg/>'); f.close }
+    app.assets.file 'logo.svg', path: logo.path
+    image = Class.new(Sidereal::Components::BaseComponent) do
+      def view_template = img(src: asset_url('logo.svg'))
+    end
+    app.get('/logo') { component image.new }
+
+    get '/logo'
+    expect(last_response.body).to eq(%(<img src="#{app.assets.path('logo.svg')}">))
+  ensure
+    File.unlink(logo.path) if logo
+  end
+
+  it 'passes requests for other methods under the prefix to the router' do
+    post app.assets.path('app.css')
+    expect(last_response.status).to eq(404)
+  end
+end

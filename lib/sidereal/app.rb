@@ -101,6 +101,30 @@ module Sidereal
         @forms_codec ||= FormsCodec.new(registry: FormsCodec::HandledCommands.new(self)).compile!
       end
 
+      # This app's static assets: register stylesheets, scripts and files on
+      # it as the app loads. It reads its superclass's assets, which come first.
+      # Served under {Assets::PREFIX}; layouts link them. See {Sidereal::Assets}.
+      #
+      #   assets.stylesheet 'app.css', path: Sidereal.root.join('assets/app.css')
+      #
+      # @return [Sidereal::Assets]
+      def assets
+        @assets ||= Assets.new(superclass.respond_to?(:assets) ? superclass.assets : nil)
+      end
+
+      # Serves {.assets} ahead of {.app}, so asset responses carry no session
+      # cookie, and the rest through it.
+      def call(env)
+        return assets.call(env) if asset_request?(env)
+
+        super
+      end
+
+      private def asset_request?(env)
+        env[Rack::PATH_INFO].to_s.start_with?(Assets::PATH_PREFIX) &&
+          (env[Rack::REQUEST_METHOD] == Rack::GET || env[Rack::REQUEST_METHOD] == Rack::HEAD)
+      end
+
       def layout(ly = nil)
         @layout = ly if ly
         @layout || Components::BasicLayout
@@ -492,6 +516,16 @@ module Sidereal
 
     def params
       @params ||= request.env.fetch('router.params', EMPTY_PARAMS)
+    end
+
+    # The URL of one of the app's {.assets}: the +sidereal.assets.host+, if any,
+    # the app's mount path, and the asset's digested path.
+    #
+    # @param name [String] ex. +"logo.svg"+
+    # @return [String]
+    def asset_url(name)
+      assets = self.class.assets
+      assets.href(assets.path(name), script_name:)
     end
 
     def pubsub

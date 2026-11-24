@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'async'
+require 'pathname'
 require 'console'
 require_relative 'sidereal/logging' # quiets benign SSE-disconnect task warnings
 require_relative 'sidereal/version'
@@ -32,6 +33,22 @@ module Sidereal
   end
 
   def self.development? = environment == 'development'
+
+  # The app's root directory, to build paths from anywhere in the app:
+  #
+  #   assets.directory Sidereal.root.join('web/assets')
+  #
+  # The working directory unless set. A generated app's boot.rb sets it to its
+  # own directory.
+  #
+  # @return [Pathname]
+  def self.root = @root ||= Pathname(Dir.pwd)
+
+  # @param path [String, Pathname, nil] expanded; +nil+ goes back to the
+  #   working directory
+  def self.root=(path)
+    @root = path && Pathname(path).expand_path
+  end
 
   def self.message_method_name(prefix, name)
     "__handle_#{prefix}_#{name.split('::').map(&:downcase).join('_')}"
@@ -338,6 +355,7 @@ require_relative 'sidereal/channels'
 require_relative 'sidereal/signer'
 require_relative 'sidereal/key_generator'
 require_relative 'sidereal/exceptions'
+require_relative 'sidereal/assets'
 require_relative 'sidereal/router'
 require_relative 'sidereal/show_exceptions'
 require_relative 'sidereal/components/layout'

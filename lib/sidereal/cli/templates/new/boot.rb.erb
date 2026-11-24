@@ -6,6 +6,9 @@ require 'dotenv'
 require 'sidereal'
 require 'zeitwerk'
 
+# Paths in the app start here: Sidereal.root.join('web/assets').
+Sidereal.root = __dir__
+
 # Variables from .env, for development. It's git-ignored, and those already
 # set in the environment win, so production sets its own.
 Dotenv.load(File.expand_path('.env', __dir__))
@@ -23,8 +26,8 @@ LOADER = Zeitwerk::Loader.new
 LOADER.inflector.inflect('ui' => 'UI')
 LOADER.push_dir(File.expand_path('system', __dir__))
 LOADER.push_dir(File.expand_path('web', __dir__))
-# Static files, served by config.ru. Not code.
-LOADER.ignore(File.expand_path('web/public', __dir__))
+# Stylesheets, scripts and images, which App registers. Not code.
+LOADER.ignore(File.expand_path('web/assets', __dir__))
 LOADER.setup
 
 # Components from system/: a class there that includes

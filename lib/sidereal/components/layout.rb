@@ -36,7 +36,18 @@ module Sidereal
 
       attr_reader :page
 
+      # The app's stylesheets, the app's scripts, then Datastar, as the
+      # +sidereal.assets.mode+ has them: each one, or their bundles. Module
+      # scripts run in document order, so the app's custom elements and event
+      # listeners are in place before Datastar applies itself to the page.
       def sidereal_head
+        assets = context.class.assets if context.class.respond_to?(:assets)
+        assets&.stylesheet_paths&.each do |path|
+          link(rel: 'stylesheet', href: assets.href(path, script_name: context.script_name))
+        end
+        assets&.javascript_paths&.each do |path|
+          script(type: 'module', src: assets.href(path, script_name: context.script_name))
+        end
         script(type: "module", src: 'https://cdn.jsdelivr.net/gh/starfederation/datastar@v1.0.1/bundles/datastar.js')
       end
 

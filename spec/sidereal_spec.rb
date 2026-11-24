@@ -11,6 +11,23 @@ RSpec.describe Sidereal do
     expect(Sidereal::VERSION).not_to be nil
   end
 
+  describe '.root' do
+    after { Sidereal.root = nil }
+
+    it 'is the working directory, as a Pathname, unless set' do
+      expect(Sidereal.root).to eq(Pathname(Dir.pwd))
+    end
+
+    it 'can be set, expanded, and unset' do
+      Sidereal.root = 'spec/../lib'
+      expect(Sidereal.root).to eq(Pathname(File.expand_path('lib')))
+      expect(Sidereal.root.join('sidereal.rb')).to be_file
+
+      Sidereal.root = nil
+      expect(Sidereal.root).to eq(Pathname(Dir.pwd))
+    end
+  end
+
   describe '.dispatch!' do
     let(:store) { Sidereal::Store::Memory.new }
 

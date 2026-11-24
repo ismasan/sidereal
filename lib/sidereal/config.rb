@@ -37,6 +37,9 @@ module Sidereal
   #                       secret_key_base
   #   signer              Signer, with the key secrets derive for it: signs the
   #                       URLs of pages' live updates
+  #   assets.mode         :single (layouts link each asset) or :combined (they
+  #                       link one bundle per type). See Sidereal::Assets
+  #   assets.host         a host asset URLs start with, ex. a CDN's, or nil
   #
   # Components that run in the background (elector, pubsub, scheduler) start
   # themselves in their component's start hook, which a re-implementation
@@ -199,6 +202,11 @@ module Sidereal
         c.declare('signer', SignerInterface,
                   description: "Signs and verifies the URLs of pages' live updates")
         c.config!('signer', ['secrets']) { |secrets| Signer.new(secrets.derive('sidereal.signer')) }
+
+        c.declare('assets.mode', T::Symbol.options(Assets::MODES),
+                  description: 'What layouts link: each asset (:single), or one bundle per type (:combined)') { :single }
+        c.declare('assets.host', T::String.nullable,
+                  description: 'A host asset URLs start with, such as a CDN in front of the app, or nil') { nil }
       end
     end
   end

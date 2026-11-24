@@ -75,6 +75,11 @@ module Sidereal
         render Sidereal::Components::Command.new(klass, *args, &block)
       end
 
+      # The URL of one of the app's assets. See {Sidereal::App#asset_url}.
+      #
+      #   img(src: asset_url('logo.svg'))
+      def asset_url(name) = context.asset_url(name)
+
       def dom_id(prefix)
         [prefix, SecureRandom.hex(4)].join('-')
       end
