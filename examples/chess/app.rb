@@ -14,9 +14,14 @@ end
 
 class ChessApp < Sidereal::App
   # Scoped cookie name so this demo's session doesn't collide with the
-  # other examples on localhost (each app uses a different secret).
-  session secret: 'c' * 64, key: 'sidereal_chess.session'
+  # other examples on localhost. The key is derived from the app's secret,
+  # SIDEREAL_SECRET or storage/secret.txt.
+  session secret: -> { Sidereal.secrets.derive('session') }, key: 'sidereal_chess.session'
   layout ChessLayout
+
+  # public/: stylesheets, scripts and images, served with digests in
+  # their URLs. The layout links the stylesheets and scripts.
+  assets.directory Sidereal.root.join('public')
 
   # Stamps the session username onto every command. Each command declares
   # which field it actually accepts (`username` or `white_username`);

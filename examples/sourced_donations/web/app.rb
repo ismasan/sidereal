@@ -8,6 +8,10 @@ require_relative 'ui/donation_page'
 class App < Sidereal::App
   layout UI::Layout
 
+  # web/public/: stylesheets, scripts and images, served with digests in
+  # their URLs. The layout links the stylesheets and scripts.
+  assets.directory Sidereal.root.join('web/public')
+
   get '/blank' do
     body <<~HTML
       <!doctype html>

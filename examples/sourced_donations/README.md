@@ -11,10 +11,11 @@ Based on the same Event Lanes model: [Sidereal example: donations kiosk flow](ht
 ```bash
 cd examples/sourced_donations
 bundle install
+bin/sid db migrations run
 bundle exec falcon host
 ```
 
-Then open <http://localhost:9295>. The SQLite event store lives at `storage/donations.db`.
+Then open <http://localhost:9295>. The SQLite event store lives at `storage/donations.db`. Its tables, Sourced's included, come from the migrations in `db/migrations/`.
 
 ## Flow
 

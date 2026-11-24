@@ -16,8 +16,7 @@ https://github.com/user-attachments/assets/478b86ed-56ef-43df-98bd-261b10a600f8
 
 ```bash
 bundle install
-bundle exec rake db:sourced_migration
-bundle exec rake db:migrate
+bin/sid db migrations run
 bundle exec falcon host
 ```
 

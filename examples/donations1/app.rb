@@ -6,6 +6,18 @@ require 'securerandom'
 # Teaches both codecs the Money type, before any message declares one.
 require_relative 'money'
 
+# Paths in the app start here: Sidereal.root.join('public').
+Sidereal.root = __dir__
+
+# Layouts link each stylesheet and script, and open pages update when one
+# changes, in development. In production they link one bundle of each type.
+Sidereal.config.config!('sidereal.assets.mode') do
+  Sidereal.environment == 'production' ? :combined : :single
+end
+Sidereal.config.config!('sidereal.assets.live_reload') do
+  Sidereal.environment == 'development'
+end
+
 # The filesystem store, unix-socket pubsub and file-lock elector, under
 # ./storage, so the app can run more than one worker process.
 Sidereal.config.use_file_system!
@@ -155,6 +167,9 @@ end
 
 class DonationsApp < Sidereal::App
   layout DonationsLayout
+  # public/: stylesheets, scripts and images, served with digests in their
+  # URLs. The layout links the stylesheets and scripts.
+  assets.directory Sidereal.root.join('public')
 
   get '/verify/:token' do |token:|
     if (donation = DonationStore.find_by_token(token))

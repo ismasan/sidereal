@@ -6,6 +6,9 @@ require 'sqlite3'
 require 'sidereal'
 require 'sidereal/integrations/sourced'
 
+# Paths in the app start here: Sidereal.root.join('public').
+Sidereal.root = __dir__
+
 DB_PATH = File.expand_path('tmp/chat.db', __dir__)
 FileUtils.mkdir_p(File.dirname(DB_PATH))
 
@@ -21,6 +24,15 @@ Sidereal.config.declare('db', Sequel::Database)
 Sidereal.config.component!('db') do
   build { Sequel.sqlite(DB_PATH) }
   teardown(&:disconnect)
+end
+
+# Layouts link each stylesheet and script, and open pages update when one
+# changes, in development. In production they link one bundle of each type.
+Sidereal.config.config!('sidereal.assets.mode') do
+  Sidereal.environment == 'production' ? :combined : :single
+end
+Sidereal.config.config!('sidereal.assets.live_reload') do
+  Sidereal.environment == 'development'
 end
 
 # Cross-process pubsub + leader election (unix socket + file lock under

@@ -1,46 +1,19 @@
 # frozen_string_literal: true
 
 require_relative 'boot'
-require 'sequel/core'
-Sequel.extension :migration
 
 # Tasks read components, which are built when a process starts. Building
 # doesn't start anything: no pubsub, no workers.
+#
+# Migrations are bin/sid's: `bin/sid db migrations run`, and
+# `bin/sid db migrations add <name>` for a new one.
 Sidereal.config.build!
 
 namespace :db do
-  desc 'Run database migrations'
-  task :migrate do
-    Sequel::Migrator.run(Sourced.store.db, 'db/migrations')
-    puts 'Migrations complete.'
-  end
-
-  desc 'Generate the Sourced migration file into db/migrations'
-  task :sourced_migration do
-    Sourced.store.copy_migration_to do
-      "db/migrations/#{Time.now.strftime('%Y%m%d%H%M%S')}_create_sourced_tables.rb"
-    end
-    puts 'Sourced migration file created in db/migrations/'
-  end
-
   desc 'Wipe all events from the Sourced store and all projection rows'
   task :reset do
     Sourced.store.clear!
     Sourced.store.db[:campaigns].delete
     puts 'All events and projections deleted.'
-  end
-
-  desc 'Generate a new migration file: rake db:new_migration[name]'
-  task :new_migration, [:name] do |_t, args|
-    name = args[:name] || 'unnamed'
-    timestamp = Time.now.strftime('%Y%m%d%H%M%S')
-    filename = "db/migrations/#{timestamp}_#{name}.rb"
-    File.write(filename, <<~RUBY)
-      Sequel.migration do
-        change do
-        end
-      end
-    RUBY
-    puts "Created #{filename}"
   end
 end

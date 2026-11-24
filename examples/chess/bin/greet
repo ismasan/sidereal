@@ -1,0 +1,54 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# Dispatches SayHello commands in a loop, to give
+# `bin/sid sourced messages list --tail` something to watch.
+#
+# App::Commander handles each command and deletes it on ack, so with the
+# server running they vanish about as fast as they arrive. Stop its consumer
+# group first and they pile up in the store instead:
+#
+#   bin/sid sourced groups stop App::Commander --message 'watching the log'
+#   bin/sid sourced messages list --tail        # in one terminal
+#   bin/greet 100 0.3                           # in another
+#   bin/sid sourced groups start App::Commander # lets it catch up
+#
+# Only appends to the store, so it works whether or not the server is up.
+#
+# Usage:
+#   bin/greet              # 20 greetings, one every half second
+#   bin/greet 100 0.1      # 100 of them, faster
+#   bin/greet forever 2    # until Ctrl-C
+
+ENV['BUNDLE_GEMFILE'] ||= File.expand_path('../Gemfile', __dir__)
+require 'bundler/setup'
+require_relative '../boot'
+
+# Opens the database. Nothing is started: no workers, no pubsub.
+Sidereal.config.build!
+
+# Line by line, so progress shows as it happens rather than in a lump at the
+# end when this is piped somewhere.
+$stdout.sync = true
+
+NAMES = %w[Ada Grace Alan Edsger Barbara Donald Ken Dennis Linus Margaret].freeze
+
+count = ARGV[0] == 'forever' ? Float::INFINITY : Integer(ARGV.fetch(0, 20))
+interval = Float(ARGV.fetch(1, 0.5))
+
+# Ctrl-C is how `forever` ends, not a crash.
+trap('INT') do
+  warn "\nStopped."
+  exit 0
+end
+
+sent = 0
+while sent < count
+  name = "#{NAMES.sample} #{sent + 1}"
+  Sidereal.dispatch!(Greetings::SayHello, name:)
+  sent += 1
+  puts "dispatched  #{name}"
+  sleep interval unless sent >= count
+end
+
+warn "Sent #{sent}. `bin/sid sourced messages list` shows them."

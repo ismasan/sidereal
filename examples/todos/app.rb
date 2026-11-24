@@ -2,6 +2,18 @@
 
 require 'sidereal'
 
+# Paths in the app start here: Sidereal.root.join('public').
+Sidereal.root = __dir__
+
+# Layouts link each stylesheet and script, and open pages update when one
+# changes, in development. In production they link one bundle of each type.
+Sidereal.config.config!('sidereal.assets.mode') do
+  Sidereal.environment == 'production' ? :combined : :single
+end
+Sidereal.config.config!('sidereal.assets.live_reload') do
+  Sidereal.environment == 'development'
+end
+
 # -- Messages --
 
 AddTodo = Sidereal::Message.define('todos.add') do
@@ -26,9 +38,12 @@ Todo = Struct.new(:todo_id, :title, :done, keyword_init: true)
 TODOS = {}
 
 class TodoApp < Sidereal::App
-  session secret: 'a' * 64
+  session secret: -> { Sidereal.secrets.derive('session') }
 
   layout Layout
+  # public/: stylesheets, scripts and images, served with digests in their
+  # URLs. The layout links the stylesheets and scripts.
+  assets.directory Sidereal.root.join('public')
 
   handle AddTodo
   handle RemoveTodo

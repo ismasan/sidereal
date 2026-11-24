@@ -48,9 +48,12 @@ module MessageLog
 end
 
 class ChatApp < Sidereal::App
-  session secret: 'b' * 64
+  session secret: -> { Sidereal.secrets.derive('session') }
 
   layout ChatLayout
+  # public/: stylesheets, scripts and images, served with digests in
+  # their URLs. The layout links the stylesheets and scripts.
+  assets.directory Sidereal.root.join('public')
 
   before_command do |cmd|
     cmd.with_payload(author: session[:username].to_s, role: 'user')
