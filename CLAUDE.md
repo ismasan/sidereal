@@ -16,6 +16,7 @@ Sidereal is a Ruby gem for server-driven reactive web apps: a Rack router, typed
 | Commands, commanders, `dispatch`, scheduling | Commands, App |
 | Pages, `on`, causal reactivity, channels | Pages |
 | Static assets, digests, bundles, `asset_url` | Assets |
+| Components' own assets and command handlers, `Sidereal::Testing::Harness` | Assets, Commands |
 | Command forms, `with_machine` | Command forms |
 | Components, lifecycle, `dep` injection | Configuration |
 | Falcon, workers, preload, custom backends, FS store | Running with Falcon |

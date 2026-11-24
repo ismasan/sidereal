@@ -502,6 +502,34 @@ end
 
 As with assets, `page` installs a page's handlers, and `layout` a layout's. `UI::Chat.handlers` lists what a component declares, after its superclass's. A command handled twice, as by two components with the same superclass, is handled by the last one installed.
 
+#### Testing them
+
+`Sidereal::Testing::Harness` handles a component's commands as an app would, in a small app of its own with the component installed, and returns what each handler did. It's plain Ruby, for any test framework:
+
+```ruby
+require 'sidereal/testing'
+
+harness = Sidereal::Testing::Harness.new(UI::Chat)
+result = harness.handle(SendMessage, { text: 'hi' }, session: { username: 'ada' })
+
+result.status      # => 200
+result.command     # => the SendMessage the handler got
+result.dispatched  # => [#<StoreMessage text="hi" author="ada">]
+result.elements    # => the HTML the handler patched into the page
+result.signals     # => the signals it patched, merged
+result.events      # => every Datastar event it sent, with its data
+result.session     # => the session, as the handler left it
+
+result = harness.handle(SendMessage, { text: 'x' * 501 })
+result.rejected?   # => true
+result.errors      # => { text: 'is too long' }
+```
+
+- **As a browser sends it:** each command is posted to the app's `/commands`, as a form, so it's validated and decoded by the app, and its `before_command` and `reject` work as in the app. Pass `form:` instead of a payload to test what the app makes of a form's strings: `harness.handle(SendMessage, form: { 'text' => '' })`.
+- **Nothing runs in the background:** what the handler dispatches is recorded in `result.dispatched`, correlated to `result.command`, instead of appended to the store.
+- **Like your app:** pass `app: ChatApp` for a test app that subclasses it, with its sessions, `before_command` and helpers. `ChatApp` itself isn't changed. The session passed to `handle` is merged into the one the app's cookie session loads.
+
+Apps and gems can both use it, from RSpec, Minitest or plain Ruby: `require 'sidereal/testing'` in the test helper. A gem can test its components without an app of its own, since the harness installs them in a plain `Sidereal::App` subclass by default. Build the components first, with `Sidereal.config.build!`, when the handler uses any, such as `pubsub` or one injected with `dep`, or when the app passed as `app:` reads its session secret from them, as a generated app's `-> { Sidereal.secrets.derive('session') }` does. The harness itself doesn't need them. `sid new --rspec` sets this up, with a spec for the welcome page's command in `spec/web/ui/welcome_page_spec.rb`.
 
 ### Rendering components
 
