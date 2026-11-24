@@ -50,7 +50,7 @@ module Sidereal
         assets&.javascript_hrefs(script_name: context.script_name)&.each do |src|
           script(type: 'module', src:, data_sidereal_asset: true)
         end
-        script(type: "module", src: 'https://cdn.jsdelivr.net/gh/starfederation/datastar@v1.0.1/bundles/datastar.js')
+        script(type: "module", src: 'https://cdn.jsdelivr.net/gh/starfederation/datastar@v1.0.5/bundles/datastar.js')
       end
 
       # The URL of this page's live updates stream, carrying its signed
