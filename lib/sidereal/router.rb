@@ -297,18 +297,21 @@ module Sidereal
       #     end
       #   end
       def session(secret:, **opts)
-        self.app =
-          if secret.respond_to?(:call)
-            LazySession.new(app, secret:, **opts)
-          else
-            Rack::Session::Cookie.new(app, secret:, **opts)
-          end
+        @session_options = { secret:, **opts }
+        @app = nil
         self
       end
 
-      # Set the Rack app used by {.call}.
+      # The options {.session} was called with, here or in a superclass, so
+      # a subclass of a router with sessions has them too. +nil+ without.
       #
-      # Typically set by {.session} to wrap the router in middleware.
+      # @return [Hash, nil]
+      # @api private
+      def session_options
+        @session_options || (superclass.session_options if superclass.respond_to?(:session_options))
+      end
+
+      # Set the Rack app used by {.call}.
       #
       # @param a [#call] a Rack-compatible app
       # @api private
@@ -316,15 +319,32 @@ module Sidereal
         @app = a
       end
 
-      # The Rack app dispatched by {.call}.
-      #
-      # Defaults to {.route}. When middleware (e.g. sessions) is added,
-      # the middleware wraps this and becomes the new +app+.
+      # The Rack app dispatched by {.call}: the {.router_app}, wrapped in the
+      # {.session} middleware, if this router or a superclass has one.
       #
       # @return [#call]
       # @api private
       def app
-        @app ||= method(:route)
+        @app ||= with_session(router_app)
+      end
+
+      # The Rack app inside any middleware: {.route}.
+      #
+      # @return [#call]
+      # @api private
+      def router_app = method(:route)
+
+      private def with_session(app)
+        options = session_options
+        return app unless options
+
+        secret = options[:secret]
+        rest = options.except(:secret)
+        if secret.respond_to?(:call)
+          LazySession.new(app, secret:, **rest)
+        else
+          Rack::Session::Cookie.new(app, secret:, **rest)
+        end
       end
 
       # Register a route.

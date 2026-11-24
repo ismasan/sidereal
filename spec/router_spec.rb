@@ -293,6 +293,20 @@ RSpec.describe Sidereal::Router do
     end
   end
 
+  describe 'sessions, in a subclass of a router with them' do
+    def app
+      @app ||= Class.new(SessionRouter)
+    end
+
+    it 'has the same sessions as its superclass' do
+      post '/login', user_id: '7'
+      expect(last_response.headers['set-cookie']).to include('rack.session')
+
+      get '/profile'
+      expect(last_response.body).to eq('user:7')
+    end
+  end
+
   describe 'sessions with a callable secret' do
     let(:secrets) { ['a' * 64] }
 

@@ -60,9 +60,7 @@ module Sidereal
 
       # The router, wrapped in {ShowExceptions} when the app {.show_exceptions?},
       # inside any middleware added with {.session}.
-      def app
-        @app ||= show_exceptions? ? ShowExceptions.new(method(:route)) : method(:route)
-      end
+      def router_app = show_exceptions? ? ShowExceptions.new(method(:route)) : method(:route)
 
       # The class of {#datastar}: {ExceptionStreamer} when the app {.show_exceptions?}.
       def streamer_class
