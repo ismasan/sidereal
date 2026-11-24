@@ -10,6 +10,11 @@ module UI
     # This one adds to its sky log as messages arrive instead, so it opts out.
     disable_causal_reactivity!
 
+    # Accept SayHello from the form below. Without a block, the command is
+    # queued, for App's background worker to handle. `page UI::WelcomePage`
+    # installs this in App, as it does the page.
+    handle Greetings::SayHello
+
     # Reactions run for every browser showing this page, not just the sender.
     on Greetings::Transmitting do |evt|
       if evt.payload.step == 1

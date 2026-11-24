@@ -121,6 +121,10 @@ module Sidereal
           require_relative '../boot'
           Sidereal.config.build!
 
+          # Sidereal::Testing::Harness, to test the commands pages and
+          # components handle. See spec/web/ui/welcome_page_spec.rb.
+          require 'sidereal/testing'
+
         RUBY
       end
 
@@ -147,7 +151,8 @@ module Sidereal
         end
         if context.rspec? && !bundled
           terminal.puts
-          terminal.puts "After `rspec --init`, add `require_relative '../boot'` to the top of spec/spec_helper.rb."
+          terminal.puts "After `rspec --init`, add `require_relative '../boot'`, `Sidereal.config.build!` and " \
+                        "`require 'sidereal/testing'` to the top of spec/spec_helper.rb."
         end
       end
     end

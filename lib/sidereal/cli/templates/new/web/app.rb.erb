@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-# The web app: which commands browsers may send, how they're handled, and pages.
+# The web app: its pages, and how commands are handled in the background.
 # config.ru runs it.
 class App < Sidereal::App
   STARS = %w[Vega Sirius Polaris Rigel Altair Deneb Capella Arcturus Aldebaran Betelgeuse].freeze
@@ -21,10 +21,8 @@ class App < Sidereal::App
   # command it sent reach only its pages.
   session secret: -> { Sidereal.secrets.derive('session') }
 
-  # Accept SayHello from forms. It is queued, then handled below in a
-  # background worker, away from the request.
-  handle Greetings::SayHello
-
+  # SayHello comes from UI::WelcomePage's form, which the page accepts and
+  # queues. A background worker handles it here, away from the request.
   # `broadcast` publishes a message to every connected browser straight away.
   # `dispatch` records a follow-up message, published once the handler finishes.
   command Greetings::SayHello do |cmd|

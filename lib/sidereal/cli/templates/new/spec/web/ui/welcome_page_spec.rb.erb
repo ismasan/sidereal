@@ -1,0 +1,27 @@
+<% if rspec? -%>
+# frozen_string_literal: true
+
+RSpec.describe UI::WelcomePage do
+  # Handles the commands the page accepts as App does, in a small app of its
+  # own that subclasses App: each is posted as the page's form would post it.
+  # What the handler dispatches is recorded, not queued, so no background
+  # work runs. See Sidereal::Testing::Harness.
+  subject(:harness) { Sidereal::Testing::Harness.new(described_class, app: App) }
+
+  it 'queues a hello for the background worker' do
+    result = harness.handle(Greetings::SayHello, { name: 'Ada' })
+
+    expect(result.status).to eq(200)
+    expect(result.dispatched.map(&:class)).to eq([Greetings::SayHello])
+    expect(result.dispatched.first.payload.name).to eq('Ada')
+  end
+
+  it 'rejects a hello without a name' do
+    result = harness.handle(Greetings::SayHello, form: { 'name' => '' })
+
+    expect(result).to be_rejected
+    expect(result.errors).to have_key(:name)
+    expect(result.dispatched).to be_empty
+  end
+end
+<% end -%>

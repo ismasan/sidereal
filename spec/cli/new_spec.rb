@@ -129,6 +129,25 @@ RSpec.describe Sidereal::CLI::New do
       expect { sid_new(File.join(@dir, 'app'), '--skip-bundle') }.to output(%r{bundle install\n\s+bin/sid skills update\n}).to_stdout
     end
 
+    # `rspec --init` is stubbed to write a bare spec_helper, so this runs what
+    # `sid new` adds to it, then the generated spec, with Sidereal's bundle.
+    it 'generates a spec for the welcome page with --rspec, which passes against the app' do
+      root = File.join(@dir, 'app')
+      allow_any_instance_of(Sidereal::CLI::Installer).to receive(:run!) do |_, *command|
+        if command == %w[bundle exec rspec --init]
+          File.write(File.join(root, 'spec/spec_helper.rb'), "RSpec.configure { |config| config.order = :defined }\n")
+          File.write(File.join(root, '.rspec'), "--require spec_helper\n")
+        end
+        true
+      end
+      expect { expect(sid_new(root, '--rspec', '--no-skills')).to be(true), io.string }.to output.to_stdout
+
+      expect(read(root, 'spec/spec_helper.rb')).to include("require_relative '../boot'", "require 'sidereal/testing'")
+      out, status = Open3.capture2e({ 'SIDEREAL_SECRET' => nil }, RbConfig.ruby, '-S', 'rspec', chdir: root)
+      expect(status).to be_success, out
+      expect(out).to include('2 examples, 0 failures')
+    end
+
     it "doesn't mention skills with --skip-bundle --no-skills" do
       expect { sid_new(File.join(@dir, 'app'), '--skip-bundle', '--no-skills') }.not_to output(/skills/).to_stdout
     end

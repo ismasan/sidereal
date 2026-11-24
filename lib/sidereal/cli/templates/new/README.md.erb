@@ -26,6 +26,8 @@ The migrations in `db/migrations/` are committed and `storage/` isn't, so `bin/s
 ```sh
 bundle exec rspec
 ```
+
+`spec/web/ui/welcome_page_spec.rb` tests the command the welcome page accepts with `Sidereal::Testing::Harness`, which `spec/spec_helper.rb` requires. It handles a page's or component's commands as `App` does, posted as a form would post them, and returns what each handler did: what it dispatched, what it patched into the page, and the errors it rejected the command with.
 <% end -%>
 
 <% if database? -%>
@@ -51,8 +53,8 @@ Sourced keeps the app's commands and events in the same database, in tables its 
 | `boot.rb` | Loads and configures the app |
 | `config/components/` | Components: the connections, clients and other services the app's classes use, declared with `Sidereal.config`. `boot.rb` loads every file here. See `example.rb`, and `secrets.rb`, which gives Sidereal the app's master secret, that it derives the keys for the session cookie and for signing the URLs of pages' live updates from, and `assets.rb`, which says how layouts link the app's assets |
 | `system/` | Backend code that doesn't know about the web: messages, commanders, Sourced deciders and reactors, and components (see below) |
-| `web/app.rb` | `App`, the web app: commands it accepts, their handlers, and pages |
-| `web/ui/` | Pages and the layout, in the `UI` namespace |
+| `web/app.rb` | `App`, the web app: its pages, and the background handlers of commands |
+| `web/ui/` | Pages and the layout, in the `UI` namespace. A page declares the commands its forms send with `handle` |
 | `web/ui/components/` | Components used by pages, in `UI::Components` |
 | `web/assets/` | Stylesheets, scripts and images. `App` registers the directory, and the layout links its stylesheets and scripts. See `config/components/assets.rb` |
 <% if database? -%>
