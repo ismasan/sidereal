@@ -2,6 +2,11 @@
 
 require 'spec_helper'
 
+ComponentHandleTestAdd = Sidereal::Message.define('component_handle_test.add') do
+  attribute :title, Sidereal::Types::String.present
+end
+ComponentHandleTestRemove = Sidereal::Message.define('component_handle_test.remove')
+
 RSpec.describe Sidereal::Components::BaseComponent do
   include_context 'tmp files'
 
@@ -159,6 +164,55 @@ RSpec.describe Sidereal::Components::BaseComponent do
 
       expect { app.layout(layout) }.not_to raise_error
       expect(app.layout).to be(layout)
+    end
+  end
+
+  describe 'declaring command handlers' do
+    let(:app) { Class.new(Sidereal::App) }
+
+    it 'stores each command with its block, or nil for the default' do
+      block = proc { |_cmd| }
+      component = Class.new(described_class) do
+        handle ComponentHandleTestAdd, &block
+        handle ComponentHandleTestRemove
+      end
+
+      expect(component.handlers).to eq([
+        described_class::Handler.new(command_class: ComponentHandleTestAdd, block:),
+        described_class::Handler.new(command_class: ComponentHandleTestRemove, block: nil)
+      ])
+    end
+
+    it "lists a superclass's handlers first" do
+      parent = Class.new(described_class) { handle ComponentHandleTestAdd }
+      child = Class.new(parent) { handle ComponentHandleTestRemove }
+
+      expect(child.handlers.map(&:command_class)).to eq([ComponentHandleTestAdd, ComponentHandleTestRemove])
+      expect(parent.handlers.map(&:command_class)).to eq([ComponentHandleTestAdd])
+    end
+
+    it 'raises without a command class' do
+      expect { Class.new(described_class) { handle } }.to raise_error(ArgumentError)
+    end
+
+    it 'exposes the commands on the app that installs the component' do
+      component = Class.new(described_class) { handle ComponentHandleTestAdd, ComponentHandleTestRemove }
+
+      app.component(component)
+
+      expect(app.handled_commands.values).to eq([ComponentHandleTestAdd, ComponentHandleTestRemove])
+    end
+
+    it 'exposes the commands of a page the app mounts, and of its layout' do
+      named('AppLayout', Sidereal::Components::Layout) { handle ComponentHandleTestRemove }
+      named('ChatPage', Sidereal::Page) do
+        path '/chat'
+        handle ComponentHandleTestAdd
+      end
+
+      app.page(ChatPage, layout: AppLayout)
+
+      expect(app.handled_commands.values).to contain_exactly(ComponentHandleTestAdd, ComponentHandleTestRemove)
     end
   end
 end

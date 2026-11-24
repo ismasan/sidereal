@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require 'securerandom'
+require_relative 'components/new_game_button'
 require_relative 'components/games_list'
 
 class HomePage < Sidereal::Page
@@ -89,10 +89,7 @@ class HomePage < Sidereal::Page
       h2 { "Hello, #{@username}" }
       p(class: 'lede') { 'Start a new game and share the URL with your opponent. You play White.' }
 
-      command Game::CreateGame, class: 'new-game-form' do |f|
-        f.payload_fields(game_id: SecureRandom.uuid)
-        button(type: :submit, class: 'primary-button') { 'Start new game' }
-      end
+      render NewGameButton.new(form_class: 'new-game-form')
     end
   end
 end

@@ -464,7 +464,72 @@ end
 
 `install` raises `ArgumentError` for an object without `sidereal_install`, and returns the app so it chains like the other macros.
 
-Components and pages respond to `sidereal_install` too: installing one registers the assets it declares. `component` is another name for `install`, which reads better for them: `component UI::Chat` (see [Components' and pages' own assets](#components-and-pages-own-assets)).
+Components and pages respond to `sidereal_install` too: installing one registers the assets and command handlers it declares. `component` is another name for `install`, which reads better for them: `component UI::Chat` (see [Components' and pages' own assets](#components-and-pages-own-assets) and [Components' and pages' own command handlers](#components-and-pages-own-command-handlers)).
+
+### Components' and pages' own command handlers
+
+A component, page or layout can declare the commands it takes from the browser, and handle them, next to the forms that send them. `handle` works as `App.handle` does, but only records the handler: the app that installs the component exposes the commands and runs the blocks, in its own requests, with its helpers (`browser`, `session`, `params`, `reject`, `dispatch`):
+
+```ruby
+class UI::Chat < Sidereal::Components::BaseComponent
+  # Runs during the request, in the app that installs UI::Chat
+  handle SendMessage do |cmd|
+    reject(text: 'is too long') if cmd.payload.text.size > 500
+
+    # Hand the work on to a background handler
+    dispatch StoreMessage, text: cmd.payload.text, author: session[:username]
+    browser.patch_elements UI::Chat::Composer.new
+  end
+
+  # Without a block, the default: dispatch the command itself
+  handle ClearChat
+
+  def view_template
+    command SendMessage do |f|
+      # ...
+    end
+  end
+end
+
+class ChatApp < Sidereal::App
+  component UI::Chat    # exposes SendMessage and ClearChat, with their handlers
+
+  command StoreMessage do |cmd|
+    # background work
+  end
+end
+```
+
+As with assets, `page` installs a page's handlers, and `layout` a layout's. `UI::Chat.handlers` lists what a component declares, after its superclass's. A command handled twice, as by two components with the same superclass, is handled by the last one installed.
+
+#### Testing them
+
+`Sidereal::Testing::Harness` handles a component's commands as an app would, in a small app of its own with the component installed, and returns what each handler did. It's plain Ruby, for any test framework:
+
+```ruby
+require 'sidereal/testing'
+
+harness = Sidereal::Testing::Harness.new(UI::Chat)
+result = harness.handle(SendMessage, { text: 'hi' }, session: { username: 'ada' })
+
+result.status      # => 200
+result.command     # => the SendMessage the handler got
+result.dispatched  # => [#<StoreMessage text="hi" author="ada">]
+result.elements    # => the HTML the handler patched into the page
+result.signals     # => the signals it patched, merged
+result.events      # => every Datastar event it sent, with its data
+result.session     # => the session, as the handler left it
+
+result = harness.handle(SendMessage, { text: 'x' * 501 })
+result.rejected?   # => true
+result.errors      # => { text: 'is too long' }
+```
+
+- **As a browser sends it:** each command is posted to the app's `/commands`, as a form, so it's validated and decoded by the app, and its `before_command` and `reject` work as in the app. Pass `form:` instead of a payload to test what the app makes of a form's strings: `harness.handle(SendMessage, form: { 'text' => '' })`.
+- **Nothing runs in the background:** what the handler dispatches is recorded in `result.dispatched`, correlated to `result.command`, instead of appended to the store.
+- **Like your app:** pass `app: ChatApp` for a test app that subclasses it, with its sessions, `before_command` and helpers. `ChatApp` itself isn't changed. The session passed to `handle` is merged into the one the app's cookie session loads.
+
+Apps and gems can both use it, from RSpec, Minitest or plain Ruby: `require 'sidereal/testing'` in the test helper. A gem can test its components without an app of its own, since the harness installs them in a plain `Sidereal::App` subclass by default. Build the components first, with `Sidereal.config.build!`, when the handler uses any, such as `pubsub` or one injected with `dep`, or when the app passed as `app:` reads its session secret from them, as a generated app's `-> { Sidereal.secrets.derive('session') }` does. The harness itself doesn't need them. `sid new --rspec` sets this up, with a spec for the welcome page's command in `spec/web/ui/welcome_page_spec.rb`.
 
 ### Rendering components
 
@@ -1454,7 +1519,7 @@ Commands dispatched from `bin/sid` don't go through the app's `before_command` h
 
 ### Agent skills
 
-Sidereal and its integrations provide skills that teach AI coding agents to work with an app, such as `sidereal-cli`, for using `bin/sid`, and `sidereal-components`, for giving classes their dependencies with `dep`. `bin/sid skills update` writes them into the app's `.agents/skills/` directory, where agents look for skills, and links `.claude/skills` to it for Claude Code. `sid new` runs it for a new app, unless you pass `--no-skills`.
+Sidereal and its integrations provide skills that teach AI coding agents to work with an app, such as `sidereal-cli`, for using `bin/sid`, `sidereal-components`, for giving classes their dependencies with `dep`, and `sidereal-ui`, for pages and components that handle their own commands and declare their own assets. `bin/sid skills update` writes them into the app's `.agents/skills/` directory, where agents look for skills, and links `.claude/skills` to it for Claude Code. `sid new` runs it for a new app, unless you pass `--no-skills`.
 
 Run it again after updating Sidereal or adding an integration:
 

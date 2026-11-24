@@ -1,0 +1,28 @@
+/* SeatPanel: the two seats, their players and roles. */
+
+.seat-panel {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.seat-panel__seat {
+  background: var(--panel);
+  border-radius: 10px;
+  padding: 12px 14px;
+  box-shadow: var(--shadow);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.seat-panel__chip {
+  font-size: 22px;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+}
+.seat-panel__chip--white { background: var(--light-square); }
+.seat-panel__chip--black { background: var(--dark-square); color: white; }
+.seat-panel__role { color: var(--muted); font-size: 13px; margin-left: auto; }
+.seat-panel__role.muted { font-style: italic; }

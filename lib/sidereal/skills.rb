@@ -114,4 +114,5 @@ module Sidereal
 
   skills.add('sidereal-cli', File.expand_path('skills/sidereal-cli', __dir__))
   skills.add('sidereal-components', File.expand_path('skills/sidereal-components', __dir__))
+  skills.add('sidereal-ui', File.expand_path('skills/sidereal-ui', __dir__))
 end

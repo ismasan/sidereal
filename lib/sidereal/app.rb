@@ -119,11 +119,13 @@ module Sidereal
         super
       end
 
-      # Register the assets +component+ declares with the app's, if it
-      # declares any: a layout needn't be a Sidereal component. Not through
-      # {.install}, since a page's own +sidereal_install+ may mount it.
-      private def register_assets_of(component)
+      # Register the assets and command handlers +component+ declares with
+      # the app, if it declares any: a layout needn't be a Sidereal component.
+      # Not through {.install}, since a page's own +sidereal_install+ may
+      # mount it.
+      private def register_declarations_of(component)
         component.register_assets(assets) if component.respond_to?(:register_assets)
+        component.register_handlers(self) if component.respond_to?(:register_handlers)
       end
 
       private def asset_request?(env)
@@ -131,22 +133,24 @@ module Sidereal
           (env[Rack::REQUEST_METHOD] == Rack::GET || env[Rack::REQUEST_METHOD] == Rack::HEAD)
       end
 
-      # The layout pages render in. Setting one registers its assets with the
-      # app's (see {Components::BaseComponent.stylesheet}).
+      # The layout pages render in. Setting one registers the assets and
+      # command handlers it declares (see {Components::BaseComponent.stylesheet}
+      # and {Components::BaseComponent.handle}).
       #
       # @param ly [Class, nil] a layout component, to set it
       # @return [Class]
       def layout(ly = nil)
         if ly
-          register_assets_of(ly)
+          register_declarations_of(ly)
           @layout = ly
         end
         @layout || Components::BasicLayout
       end
 
-      # Mount a page at its path, and register its assets with the app's, and
-      # those of the +layout+ it's given, if any (see
-      # {Components::BaseComponent.stylesheet}).
+      # Mount a page at its path, and register the assets and command handlers
+      # it declares, and those of the +layout+ it's given, if any (see
+      # {Components::BaseComponent.stylesheet} and
+      # {Components::BaseComponent.handle}).
       def page(pg, layout: nil, &block)
         page_class = case pg
         in String => path if block_given?
@@ -159,8 +163,8 @@ module Sidereal
           raise ArgumentError, "expected a Page subclass, or a path and a block, but got #{pg.inspect}"
         end
 
-        register_assets_of(layout) if layout
-        register_assets_of(page_class)
+        register_declarations_of(layout) if layout
+        register_declarations_of(page_class)
         layout ||= self.layout
 
         Sidereal::Page.register(page_class)
@@ -262,8 +266,9 @@ module Sidereal
         self
       end
 
-      # Install a component, which registers the assets it declares (see
-      # {Components::BaseComponent.stylesheet}) with the app's: {.install},
+      # Install a component, which registers the assets and command handlers
+      # it declares (see {Components::BaseComponent.stylesheet} and
+      # {Components::BaseComponent.handle}) with the app: {.install},
       # named for what it's given. Unrelated to {#component}, which renders a
       # component from a route.
       #

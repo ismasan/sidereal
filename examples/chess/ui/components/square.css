@@ -1,0 +1,58 @@
+/* Square: one cell of the board, and its source and target states. */
+
+.square {
+  all: unset;
+  display: grid;
+  place-items: center;
+  font-size: clamp(24px, 6vw, 48px);
+  line-height: 1;
+  cursor: default;
+  user-select: none;
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.square--light { background: var(--light-square); }
+.square--dark  { background: var(--dark-square); }
+
+/* Every interactive square (source button or target button) is a
+   submit button. */
+button.square { cursor: pointer; }
+
+/* Friendly source buttons: hover ring to invite a click. */
+button.square--friendly:hover {
+  box-shadow: inset 0 0 0 3px rgba(74, 144, 226, 0.5);
+}
+
+/* Currently selected source — server-rendered class, persistent
+   blue ring until the player clicks elsewhere or makes a move. */
+.square.selected { box-shadow: inset 0 0 0 4px var(--selected) !important; }
+
+/* Valid destinations from the selected source — empty squares get a
+   small dot; capture targets (occupied destination) get a red ring. */
+.square--valid-target::after {
+  content: "";
+  position: absolute;
+  width: 28%;
+  aspect-ratio: 1/1;
+  border-radius: 50%;
+  background: rgba(74, 144, 226, 0.45);
+  pointer-events: none;
+}
+.square--valid-target.square--has-piece::after {
+  width: 100%;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: inset 0 0 0 4px rgba(220, 70, 70, 0.55);
+}
+button.square--valid-target:hover::after {
+  background: rgba(74, 144, 226, 0.7);
+}
+button.square--valid-target.square--has-piece:hover::after {
+  box-shadow: inset 0 0 0 4px rgba(220, 70, 70, 0.85);
+}
+
+/* Each cell-form lays out as `display: contents` so the inner button
+   takes the grid cell rather than the form box. */
+.square-form { display: contents; }
