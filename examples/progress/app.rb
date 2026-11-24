@@ -48,8 +48,8 @@ class ProgressApp < Sidereal::App
   # ActivityItem its stylesheet. Installing one registers them with the app's
   # assets, after public/'s, so they come later in the cascade. The layout
   # links them too.
-  install WorkView
-  install ActivityItem
+  component WorkView
+  component ActivityItem
 
   # Expose StartProgress to the web; the default handler appends it to the
   # store so a worker fiber picks it up and runs `command StartProgress`.

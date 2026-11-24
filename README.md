@@ -464,7 +464,7 @@ end
 
 `install` raises `ArgumentError` for an object without `sidereal_install`, and returns the app so it chains like the other macros.
 
-Components and pages respond to `sidereal_install` too: installing one registers the assets it declares (see [Components' and pages' own assets](#components-and-pages-own-assets)).
+Components and pages respond to `sidereal_install` too: installing one registers the assets it declares. `component` is another name for `install`, which reads better for them: `component UI::Chat` (see [Components' and pages' own assets](#components-and-pages-own-assets)).
 
 ### Rendering components
 
@@ -968,11 +968,11 @@ class UI::Chat < Sidereal::Components::BaseComponent
 end
 ```
 
-Declaring only records them, in `UI::Chat.assets`, after the superclass's. They're registered with an app's assets when the app installs the component, for a page when the app mounts it, and for a layout when the app sets it, or gives it to a page:
+Declaring only records them, in `UI::Chat.assets`, after the superclass's. They're registered with an app's assets when the app installs the component with `component`, for a page when the app mounts it, and for a layout when the app sets it, or gives it to a page:
 
 ```ruby
 class ChatApp < Sidereal::App
-  install UI::Chat                     # registers UI::Chat.assets with ChatApp.assets
+  component UI::Chat                   # registers UI::Chat.assets with ChatApp.assets
   layout UI::Layout                    # sets the layout, and registers its assets
   page ChatPage                        # mounts ChatPage, and registers its assets
   page AdminPage, layout: AdminLayout  # and AdminLayout's
@@ -981,7 +981,7 @@ end
 
 Components that share a superclass share its assets, which are registered once, however many of them the app installs. Installing a component again, even after the app has served a request, changes nothing. A component without a class name, such as `Class.new(...)`, can't declare inline assets, since they're named after it.
 
-Layouts link stylesheets in the order they're registered, so the order of these lines in the app is the order of the cascade: a layout's reset after `install UI::Chat` overrides Chat's rules. Set the layout first for its styles to come first.
+Layouts link stylesheets in the order they're registered, so the order of these lines in the app is the order of the cascade: a layout's reset after `component UI::Chat` overrides Chat's rules. Set the layout first for its styles to come first.
 
 ### URLs and caching
 

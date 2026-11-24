@@ -74,7 +74,7 @@ RSpec.describe Sidereal::Components::BaseComponent do
         file 'chat/logo.svg', path: logo
       end
 
-      app.install(Chat)
+      app.component(Chat)
 
       expect(app.assets.stylesheet_paths).to eq([app.assets.path('chat-1.css')])
       expect(app.assets.registered?('chat/logo.svg')).to be(true)
@@ -85,7 +85,7 @@ RSpec.describe Sidereal::Components::BaseComponent do
       named('LoudChat', Chat) { css '.loud {}' }
       named('QuietChat', Chat) { css '.quiet {}' }
 
-      app.install(LoudChat).install(QuietChat).install(Chat)
+      app.component(LoudChat).component(QuietChat).install(Chat)
 
       expect(app.assets.stylesheet_paths).to eq(%w[chat-1.css loud_chat-1.css quiet_chat-1.css].map { app.assets.path(_1) })
     end
@@ -94,7 +94,7 @@ RSpec.describe Sidereal::Components::BaseComponent do
       app.assets.stylesheet 'chat-1.css', css: '.other {}'
       named('Chat') { css '.chat {}' }
 
-      expect { app.install(Chat) }.to raise_error(Sidereal::Assets::DuplicateAssetError)
+      expect { app.component(Chat) }.to raise_error(Sidereal::Assets::DuplicateAssetError)
     end
 
     it "registers a page's assets when the app mounts it" do
@@ -137,10 +137,10 @@ RSpec.describe Sidereal::Components::BaseComponent do
 
     it 'installs a component again once the assets are locked' do
       named('Chat') { css '.chat {}' }
-      app.install(Chat)
+      app.component(Chat)
       app.assets.lock!
 
-      expect { app.install(Chat) }.not_to raise_error
+      expect { app.component(Chat) }.not_to raise_error
     end
 
     it "registers a layout's assets when the app sets it, or a page is given it" do

@@ -264,6 +264,18 @@ module Sidereal
         self
       end
 
+      # Install a component, which registers the assets it declares (see
+      # {Components::BaseComponent.stylesheet}) with the app's: {.install},
+      # named for what it's given. Unrelated to {#component}, which renders a
+      # component from a route.
+      #
+      # @example
+      #   component UI::Chat
+      #
+      # @param component [#sidereal_install]
+      # @return [self]
+      alias_method :component, :install
+
       # Register a channel-name resolver. Sugar for
       # {Sidereal.channels.channel_name}.
       #

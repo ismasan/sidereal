@@ -39,8 +39,8 @@ module Sidereal
       end
 
       # Declare a stylesheet this component needs, from a file or inline. It's
-      # registered with an app's assets when the component is installed in it,
-      # with {.sidereal_install}, and layouts link it. A relative +path+ is
+      # registered with an app's assets when the app installs the component,
+      # with +component Chat+ (see {.sidereal_install}), and layouts link it. A relative +path+ is
       # relative to the file that calls this method: called from a helper
       # module, that's the helper's file, so pass it an absolute path.
       #
@@ -49,7 +49,7 @@ module Sidereal
       #   end
       #
       #   class ChatApp < Sidereal::App
-      #     install Chat
+      #     component Chat
       #   end
       #
       # @param name [String] its name in the app, ending in +.css+
