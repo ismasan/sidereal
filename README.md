@@ -464,6 +464,8 @@ end
 
 `install` raises `ArgumentError` for an object without `sidereal_install`, and returns the app so it chains like the other macros.
 
+Components and pages respond to `sidereal_install` too: installing one registers the assets it declares. `component` is another name for `install`, which reads better for them: `component UI::Chat` (see [Components' and pages' own assets](#components-and-pages-own-assets)).
+
 ### Rendering components
 
 The `component` helper renders any object responding to `#call(context:)`, passing the app instance as context. This is how Sidereal pages and layouts are rendered under the hood, and it's available inside any route block defined on an App subclass.
@@ -929,7 +931,7 @@ class MyApp < Sidereal::App
 end
 ```
 
-- **Names** are paths with the file's extension, unique in the app: `'app.css'`, `'acme/charts.css'`, `'img/logo.svg'`. A stylesheet's ends in `.css` and a script's in `.js`. `bundle.css` and `bundle.js` are taken.
+- **Names** are paths with the file's extension, unique in the app: `'app.css'`, `'acme/charts.css'`, `'img/logo.svg'`. A stylesheet's ends in `.css` and a script's in `.js`. `bundle.css` and `bundle.js` are taken. Registering a name again raises `Sidereal::Assets::DuplicateAssetError`, unless it's the same asset again, which is left as it is.
 - **Content** comes from a file (`path:`), checked when it's registered, or inline (`css:`, `js:`). `Sidereal.root` is a `Pathname` of the app's root directory to build paths from: the working directory, unless the app sets it (`Sidereal.root = __dir__`), as a generated app's `boot.rb` does.
 - **Order** is registration order. An app reads its superclass's assets, which come first.
 - **Extensions** register theirs in `sidereal_install`, with `app.assets` (see [Installing extensions](#installing-extensions)):
@@ -944,6 +946,42 @@ end
   ```
 
 - **Locking:** registering raises once the assets are read or served, so register them all as the app loads.
+
+### Components' and pages' own assets
+
+A component or a page can declare the stylesheets, scripts and files it needs, next to its code. A relative `path:` is relative to the file that calls `stylesheet`, `javascript` or `file`, as with `require_relative`. Called from a helper module, that's the helper's file, so pass a helper an absolute path, such as `File.expand_path('chat.css', __dir__)`:
+
+```ruby
+class UI::Chat < Sidereal::Components::BaseComponent
+  stylesheet 'chat.css', path: 'chat.css'
+  javascript 'chat.js', path: 'chat.js'
+  file 'chat/avatar.svg', path: 'avatar.svg'
+
+  # Inline, named after the class: ui/chat-1.css, ui/chat-1.js, ui/chat-2.css...
+  css <<~CSS
+    .chat { border: 1px solid; }
+  CSS
+
+  js <<~JS
+    console.log('chat')
+  JS
+end
+```
+
+Declaring only records them, in `UI::Chat.assets`, after the superclass's. They're registered with an app's assets when the app installs the component with `component`, for a page when the app mounts it, and for a layout when the app sets it, or gives it to a page:
+
+```ruby
+class ChatApp < Sidereal::App
+  component UI::Chat                   # registers UI::Chat.assets with ChatApp.assets
+  layout UI::Layout                    # sets the layout, and registers its assets
+  page ChatPage                        # mounts ChatPage, and registers its assets
+  page AdminPage, layout: AdminLayout  # and AdminLayout's
+end
+```
+
+Components that share a superclass share its assets, which are registered once, however many of them the app installs. Installing a component again, even after the app has served a request, changes nothing. A component without a class name, such as `Class.new(...)`, can't declare inline assets, since they're named after it.
+
+Layouts link stylesheets in the order they're registered, so the order of these lines in the app is the order of the cascade: a layout's reset after `component UI::Chat` overrides Chat's rules. Set the layout first for its styles to come first.
 
 ### URLs and caching
 

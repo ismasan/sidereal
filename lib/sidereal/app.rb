@@ -121,19 +121,35 @@ module Sidereal
         super
       end
 
+      # Register the assets +component+ declares with the app's, if it
+      # declares any: a layout needn't be a Sidereal component. Not through
+      # {.install}, since a page's own +sidereal_install+ may mount it.
+      private def register_assets_of(component)
+        component.register_assets(assets) if component.respond_to?(:register_assets)
+      end
+
       private def asset_request?(env)
         env[Rack::PATH_INFO].to_s.start_with?(Assets::PATH_PREFIX) &&
           (env[Rack::REQUEST_METHOD] == Rack::GET || env[Rack::REQUEST_METHOD] == Rack::HEAD)
       end
 
+      # The layout pages render in. Setting one registers its assets with the
+      # app's (see {Components::BaseComponent.stylesheet}).
+      #
+      # @param ly [Class, nil] a layout component, to set it
+      # @return [Class]
       def layout(ly = nil)
-        @layout = ly if ly
+        if ly
+          register_assets_of(ly)
+          @layout = ly
+        end
         @layout || Components::BasicLayout
       end
 
+      # Mount a page at its path, and register its assets with the app's, and
+      # those of the +layout+ it's given, if any (see
+      # {Components::BaseComponent.stylesheet}).
       def page(pg, layout: nil, &block)
-        layout ||= self.layout
-
         page_class = case pg
         in String => path if block_given?
           pagek = Class.new(Page, &block)
@@ -142,8 +158,12 @@ module Sidereal
         in Class => pagek if pagek < Page
           pagek
         else
-          raise ArgumentError, "unknown arguments #{args.inspect}"
+          raise ArgumentError, "expected a Page subclass, or a path and a block, but got #{pg.inspect}"
         end
+
+        register_assets_of(layout) if layout
+        register_assets_of(page_class)
+        layout ||= self.layout
 
         Sidereal::Page.register(page_class)
         get(page_class.path) do
@@ -243,6 +263,18 @@ module Sidereal
         installer.sidereal_install(self, ...)
         self
       end
+
+      # Install a component, which registers the assets it declares (see
+      # {Components::BaseComponent.stylesheet}) with the app's: {.install},
+      # named for what it's given. Unrelated to {#component}, which renders a
+      # component from a route.
+      #
+      # @example
+      #   component UI::Chat
+      #
+      # @param component [#sidereal_install]
+      # @return [self]
+      alias_method :component, :install
 
       # Register a channel-name resolver. Sugar for
       # {Sidereal.channels.channel_name}.

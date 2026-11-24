@@ -80,6 +80,28 @@ RSpec.describe Sidereal::Assets do
       expect { child.stylesheet 'app.css', css: 'b {}' }.to raise_error(described_class::DuplicateAssetError)
     end
 
+    it 'does nothing for the same asset registered again once locked, and raises for a new one' do
+      assets.stylesheet 'app.css', css: 'a {}'
+      assets.lock!
+
+      expect { assets.stylesheet 'app.css', css: 'a {}' }.not_to raise_error
+      expect { assets.stylesheet 'app.css', css: 'b {}' }.to raise_error(described_class::LockedError)
+      expect { assets.stylesheet 'new.css', css: 'b {}' }.to raise_error(described_class::LockedError)
+    end
+
+    it 'does nothing for the same asset registered again, here or in the parent' do
+      path = write('app.css', 'a {}')
+      assets.stylesheet 'app.css', path: path
+      assets.javascript 'app.js', js: 'a()'
+      child = described_class.new(assets)
+
+      expect { assets.stylesheet 'app.css', path: path }.not_to raise_error
+      expect { child.javascript 'app.js', js: 'a()' }.not_to raise_error
+      expect { child.javascript 'app.js', js: 'b()' }.to raise_error(described_class::DuplicateAssetError)
+      expect(child.stylesheet_paths).to eq([child.path('app.css')])
+      expect(child.javascript_paths).to eq([child.path('app.js')])
+    end
+
     it 'locks once a path is read, with its parent' do
       parent = described_class.new
       child = described_class.new(parent)
