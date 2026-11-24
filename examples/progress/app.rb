@@ -43,12 +43,13 @@ class ProgressApp < Sidereal::App
   # layout links it.
   assets.directory Sidereal.root.join('public')
 
-  # Components that bring their own assets: WorkView its <circular-progress>
-  # script and a style, ActivityItem an inline stylesheet. Installing one
-  # registers them with the app's assets, after public/'s, so they come later
-  # in the cascade. The layout links them too.
-  install ProgressPage::WorkView
-  install ProgressPage::ActivityItem
+  # Components that bring their own assets, each in its own directory under
+  # ui/: WorkView its <circular-progress> script and an inline style,
+  # ActivityItem its stylesheet. Installing one registers them with the app's
+  # assets, after public/'s, so they come later in the cascade. The layout
+  # links them too.
+  install WorkView
+  install ActivityItem
 
   # Expose StartProgress to the web; the default handler appends it to the
   # store so a worker fiber picks it up and runs `command StartProgress`.

@@ -14,7 +14,17 @@ Demonstrates:
 - Sibling fibers via `Async do ... end` for concurrent event streams (fast progress ticks + slow activity log)
 - Page `on Message` reactions driving `browser.patch_elements` and `browser.patch_signals`
 - Rendering a custom HTML element from Phlex via `register_element`
-- Components that bring their own assets: `ProgressPage::WorkView` declares the `<circular-progress>` script next to it in `ui/`, and `ActivityItem` an inline stylesheet. `install` registers them with the app's assets, beside the app-wide stylesheet in `public/`
+- UI organised by component, each in its own directory with the assets it needs, declared next to its code and registered when the app `install`s it, beside the app-wide stylesheet in `public/`:
+
+  ```
+  ui/
+    work_view/
+      component.rb    # WorkView: the progress ring, with an inline css block
+      component.js    # the <circular-progress> custom element it renders
+    activity_item/
+      component.rb    # ActivityItem: one line of the activity log
+      component.css   # its stylesheet
+  ```
 
 ## Setup
 
