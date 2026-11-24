@@ -1519,7 +1519,7 @@ Commands dispatched from `bin/sid` don't go through the app's `before_command` h
 
 ### Agent skills
 
-Sidereal and its integrations provide skills that teach AI coding agents to work with an app, such as `sidereal-cli`, for using `bin/sid`, and `sidereal-components`, for giving classes their dependencies with `dep`. `bin/sid skills update` writes them into the app's `.agents/skills/` directory, where agents look for skills, and links `.claude/skills` to it for Claude Code. `sid new` runs it for a new app, unless you pass `--no-skills`.
+Sidereal and its integrations provide skills that teach AI coding agents to work with an app, such as `sidereal-cli`, for using `bin/sid`, `sidereal-components`, for giving classes their dependencies with `dep`, and `sidereal-ui`, for pages and components that handle their own commands and declare their own assets. `bin/sid skills update` writes them into the app's `.agents/skills/` directory, where agents look for skills, and links `.claude/skills` to it for Claude Code. `sid new` runs it for a new app, unless you pass `--no-skills`.
 
 Run it again after updating Sidereal or adding an integration:
 

@@ -1,6 +1,6 @@
 ---
 name: sidereal-components
-description: Give this Sidereal app's classes the things they depend on (a database connection, an API client, a repository, a setting) as components, with `dep`. Use to add a connection, client or setting, to use one from a commander, App, decider, projector or other class, to write a class in system/ that other classes depend on, to replace one of Sidereal's own components, or to fix a boot error about a missing, undeclared or unbuilt component.
+description: Give this Sidereal app's classes the things they depend on (a database connection, an API client, a repository, a setting) as components, with `dep`. Use to add a connection, client or setting, to use one from a commander, App, decider, projector or other class, to write a class in system/ that other classes depend on, to replace one of Sidereal's own components, or to fix a boot error about a missing, undeclared or unbuilt component. Not for Phlex UI components and pages (see the sidereal-ui skill).
 ---
 
 # Components and `dep`
