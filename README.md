@@ -1723,7 +1723,7 @@ A few caveats worth knowing:
 
 ### Basic routes
 
-Route blocks are evaluated in the context of a router instance, with access to `request`, `response`, and helper methods like `body`, `status`, `headers`, `halt`, and `redirect`.
+Route blocks are evaluated in the context of a router instance, with access to `request`, `response`, and helper methods like `body`, `status`, `headers`, `halt`, `redirect` and `send_file`.
 
 ```ruby
 class MyRouter < Sidereal::Router
@@ -1825,6 +1825,31 @@ redirect '/new-path'              # 301 by default
 redirect '/new-path', status: 302 # temporary redirect
 ```
 
+### Sending files
+
+`send_file` responds with a file and halts, for files that aren't [assets](#assets), such as uploads or generated reports:
+
+```ruby
+get '/uploads/:id' do |id:|
+  upload = Upload.find(id)
+  send_file upload.path,
+    filename: upload.name,                  # the name the browser shows, or saves it as
+    disposition: :attachment,               # download it; :inline (the default) shows it
+    cache_control: 'private, max-age=3600'
+end
+```
+
+- **Streamed:** the file is sent from disk, not read into memory. Its body answers `to_path`, which Falcon sends straight from the file.
+- **As Rack::Files serves it:**
+  - its type comes from its extension, or `type:` replaces it, and an unknown extension is `application/octet-stream`;
+  - a byte range is answered with a `206`, as PDF viewers and video players ask for;
+  - `If-Modified-Since` is answered with a `304`;
+  - a missing file is a `404`.
+- **Headers:**
+  - `x-content-type-options: nosniff` is always sent, so a browser never runs an uploaded file as another type, such as HTML.
+  - `filename:` can be any text: it's sent as an ASCII fallback and as UTF-8.
+  - `cache-control` is only sent when you pass it.
+
 ## Configuration
 
 Sidereal's configuration is a tree of typed components, built with [sourced-component](https://github.com/ismasan/sourced-component): each one has a type, a default or an implementation, the components it depends on, and lifecycle hooks. `Sidereal.config` is the root. Sidereal's own components live under `sidereal`, [integrations](#custom-backends) mount other libraries next to them (Sourced under `sourced`), and the app declares its own: a database connection, an API client, a setting.
@@ -1876,6 +1901,7 @@ Sidereal.config.config!('sidereal.workers.count') { 10 }
 | `sidereal.secret_key_base` | `SIDEREAL_SECRET`, or else `storage/secret.txt` in the working directory, which building creates | the app's master secret, at least 64 bytes. See [Running with Falcon](#running-with-falcon). A generated app implements it in `config/components/secrets.rb`, the same way, with the file in the app's `storage/` |
 | `sidereal.secrets` | `Sidereal::KeyGenerator` | derives a key for each purpose from the master secret, with HKDF-SHA256 (`derive('session')`), so one secret serves them all, and a derived key reveals neither the secret nor the other keys. Anything that answers `derive(purpose)`, ex. one that reads a key for each purpose from a vault. `Sidereal.secrets` reads it |
 | `sidereal.assets.mode` | `:single` | what layouts link: each [asset](#assets) (`:single`), or one bundle of each type (`:combined`) |
+| `sidereal.assets.watch` | `true`, `false` in production | in `:single` mode, whether layouts notice when an asset's file changes. See [Assets](#assets) |
 | `sidereal.assets.host` | `nil` | a host asset URLs start with, such as a CDN's |
 | `sidereal.assets.live_reload` | `false` | whether open pages update when an asset changes. See [Live reload](#live-reload) |
 | `sidereal.assets.watcher` | `Assets::Watcher` | checks assets for changes on the leader, when `live_reload` is on |
@@ -1901,7 +1927,6 @@ Implement any of them to replace it. See [Custom backends](#custom-backends).
 
 3. **Start.** Start hooks run in dependency order: the registries lock, the elector and pubsub start, the runner starts the dispatcher (now, or when the process is elected), then the scheduler.
 
-| `sidereal.assets.watch` | `true`, `false` in production | in `:single` mode, whether layouts notice when an asset's file changes. See [Assets](#assets) |
 `Sidereal::Host#stop` stops the dispatcher, then tears every component down in reverse order: stop hooks, then teardown hooks.
 
 Outside a host, reads raise `Sourced::Component::NotBuiltError` until the configuration is built. Rake tasks, consoles and specs call `Sidereal.config.build!` once the app has loaded. It builds every component, and starts none:

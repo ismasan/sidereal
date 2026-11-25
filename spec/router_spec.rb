@@ -181,6 +181,101 @@ RSpec.describe Sidereal::Router do
     end
   end
 
+  describe '#send_file' do
+    include_context 'tmp files'
+
+    # Each example routes GET /file to a block that sends a file.
+    def app = @app
+
+    def route(&block)
+      @app = Class.new(Sidereal::Router) { get('/file', &block) }
+    end
+
+    it 'streams the file, with its type and length, and no default text/html' do
+      pdf = write('report.pdf', '%PDF-1.4 hello')
+      route { send_file pdf }
+
+      status, headers, body = app.call(Rack::MockRequest.env_for('/file'))
+
+      expect(status).to eq(200)
+      expect(headers['content-type']).to eq('application/pdf')
+      expect(headers['content-length']).to eq('14')
+      expect(headers['x-content-type-options']).to eq('nosniff')
+      expect(body.to_path).to eq(pdf)
+      expect(body.to_enum(:each).to_a.join).to eq('%PDF-1.4 hello')
+    end
+
+    it 'answers a byte range with a 206' do
+      pdf = write('report.pdf', '%PDF-1.4 hello')
+      route { send_file pdf }
+
+      get '/file', {}, 'HTTP_RANGE' => 'bytes=0-3'
+
+      expect(last_response.status).to eq(206)
+      expect(last_response.headers['content-range']).to eq('bytes 0-3/14')
+      expect(last_response.body).to eq('%PDF')
+    end
+
+    it 'answers If-Modified-Since with a 304' do
+      pdf = write('report.pdf', '%PDF')
+      route { send_file pdf }
+
+      get '/file', {}, 'HTTP_IF_MODIFIED_SINCE' => File.mtime(pdf).httpdate
+
+      expect(last_response.status).to eq(304)
+      expect(last_response.body).to be_empty
+    end
+
+    it 'is a 404 for a missing file' do
+      missing = File.join(tmp_dir, 'nope.pdf')
+      route { send_file missing }
+
+      get '/file'
+
+      expect(last_response.status).to eq(404)
+    end
+
+    it 'names the file, in ASCII and in UTF-8, inline or as a download' do
+      pdf = write('a.pdf', '%PDF')
+      route { send_file pdf, filename: 'Café "menu".pdf', disposition: request.params['download'] ? :attachment : :inline }
+
+      get '/file'
+      expect(last_response.headers['content-disposition'])
+        .to eq(%(inline; filename="Caf_ _menu_.pdf"; filename*=UTF-8''Caf%C3%A9%20%22menu%22.pdf))
+
+      get '/file', download: '1'
+      expect(last_response.headers['content-disposition']).to start_with('attachment; filename="Caf_ _menu_.pdf"')
+    end
+
+    it 'sends a type and cache-control given, and a download without a name' do
+      data = write('blob', 'x')
+      route { send_file Pathname(data), type: 'text/plain', cache_control: 'private, max-age=60', disposition: :attachment }
+
+      get '/file'
+
+      expect(last_response.headers['content-type']).to eq('text/plain')
+      expect(last_response.headers['cache-control']).to eq('private, max-age=60')
+      expect(last_response.headers['content-disposition']).to eq('attachment')
+    end
+
+    it "sends a file of an unknown type as application/octet-stream, and doesn't name it unless asked" do
+      data = write('blob', 'x')
+      route { send_file data }
+
+      get '/file'
+
+      expect(last_response.headers['content-type']).to eq('application/octet-stream')
+      expect(last_response.headers).not_to have_key('content-disposition')
+    end
+
+    it 'raises for an unknown disposition' do
+      data = write('blob', 'x')
+      route { send_file data, disposition: :download }
+
+      expect { get '/file' }.to raise_error(ArgumentError, /disposition/)
+    end
+  end
+
   describe '404' do
     it 'returns 404 for unmatched path' do
       get '/nope'

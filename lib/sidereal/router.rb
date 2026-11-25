@@ -643,5 +643,64 @@ module Sidereal
     def redirect(location, status: 301)
       halt status, 'Location' => location
     end
+
+    DISPOSITIONS = %i[inline attachment].freeze
+    # Characters a +filename*+ parameter percent-encodes: all but RFC 8187's
+    # attr-char.
+    NOT_ATTR_CHAR = /[^A-Za-z0-9!#$&+\-.^_`|~]/
+    private_constant :DISPOSITIONS, :NOT_ATTR_CHAR
+
+    # Respond with the file at +path+, as Rack::Files serves it, and halt. It's
+    # streamed from disk, not read into memory: its body answers +to_path+,
+    # which servers such as Falcon send straight from the file. It answers a
+    # byte range with a 206, as PDF viewers and video players ask for, and
+    # +If-Modified-Since+ with a 304. A missing file is a 404.
+    #
+    #   get '/files/:id' do |id:|
+    #     upload = Upload.find(id)
+    #     send_file upload.path, filename: upload.name, cache_control: 'private, max-age=3600'
+    #   end
+    #
+    # @param path [String, Pathname] the file
+    # @param filename [String, nil] the name the browser shows, or saves it as.
+    #   Any characters are fine: it's sent as an ASCII fallback and as UTF-8.
+    # @param disposition [:inline, :attachment] whether the browser shows the
+    #   file or downloads it. Sent with +filename+, or on its own for
+    #   +:attachment+
+    # @param type [String, nil] its content type, instead of the one its
+    #   extension gives (+application/octet-stream+ for an unknown one)
+    # @param cache_control [String, nil] a +cache-control+ header
+    # @return [void] it halts
+    # @raise [ArgumentError] for an unknown +disposition+
+    def send_file(path, filename: nil, disposition: :inline, type: nil, cache_control: nil)
+      raise ArgumentError, "disposition must be one of #{DISPOSITIONS.join(', ')}" unless DISPOSITIONS.include?(disposition)
+
+      path = path.to_s
+      halt 404, 'Not found' unless File.file?(path)
+
+      st, file_headers, file_body = Rack::Files.new(File.dirname(path), {}, 'application/octet-stream').serving(request, path)
+      if type && file_headers['content-type'] && !file_headers['content-type'].start_with?('multipart/')
+        file_headers['content-type'] = type
+      end
+      # The browser must not guess another type than the one sent, ex. run an
+      # uploaded HTML file as a page.
+      file_headers['x-content-type-options'] = 'nosniff'
+      file_headers['cache-control'] = cache_control if cache_control
+      if filename || disposition == :attachment
+        file_headers['content-disposition'] = [disposition, *(content_disposition_filename(filename) if filename)].join('; ')
+      end
+
+      # Set, not added: #headers appends, which would keep the default text/html.
+      file_headers.each { |name, value| response.set_header(name, value) }
+      halt st, file_body
+    end
+
+    # +filename="..."+ with an ASCII fallback, and +filename*=+ with the name
+    # in UTF-8 for browsers that read it, as RFC 6266 describes.
+    def content_disposition_filename(filename)
+      fallback = filename.encode('US-ASCII', invalid: :replace, undef: :replace, replace: '_').gsub(/[^\w.\- ]/, '_')
+      encoded = filename.encode('UTF-8').b.gsub(NOT_ATTR_CHAR) { |c| format('%%%02X', c.ord) }
+      %(filename="#{fallback}"; filename*=UTF-8''#{encoded})
+    end
   end
 end
