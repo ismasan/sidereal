@@ -1061,10 +1061,12 @@ The `sidereal.assets.mode` component says which URLs layouts link:
 
 | Mode | Layouts link | Digests |
 | --- | --- | --- |
-| `:single` (default) | each stylesheet and script | recomputed when a file changes, so an edit shows without a restart |
+| `:single` (default) | each stylesheet and script | recomputed when a file changes, so an edit shows without a restart. With `sidereal.assets.watch` off, computed once per process |
 | `:combined` | one bundle of each | computed once per process for the links |
 
-Both serve every URL, so either works in any environment. Serving always checks a file against its digest, so a file changed under a running `:combined` process is redirected to its new URL, never served under its old one. A generated app sets it in `config/components/assets.rb`, bundling in production:
+Both serve every URL, so either works in any environment. Serving always checks a file against its digest, so a file changed under a running process that doesn't watch files is redirected to its new URL, never served under its old one.
+
+In `:single` mode, layouts notice a changed file by checking each asset's modification time and size as they render, and re-reading the ones that changed. `sidereal.assets.watch` turns that off, so production can link each asset without checking files on every page. It's on by default, except when `Sidereal.environment` is `production`. Over HTTP/2, linking each asset costs little: the browser fetches them in parallel over one connection, and a change to one asset only changes that asset's URL. Live reload needs it on. A generated app sets it in `config/components/assets.rb`, bundling in production:
 
 ```ruby
 Sidereal.config.config!('sidereal.assets.mode') do
@@ -1899,6 +1901,7 @@ Implement any of them to replace it. See [Custom backends](#custom-backends).
 
 3. **Start.** Start hooks run in dependency order: the registries lock, the elector and pubsub start, the runner starts the dispatcher (now, or when the process is elected), then the scheduler.
 
+| `sidereal.assets.watch` | `true`, `false` in production | in `:single` mode, whether layouts notice when an asset's file changes. See [Assets](#assets) |
 `Sidereal::Host#stop` stops the dispatcher, then tears every component down in reverse order: stop hooks, then teardown hooks.
 
 Outside a host, reads raise `Sourced::Component::NotBuiltError` until the configuration is built. Rake tasks, consoles and specs call `Sidereal.config.build!` once the app has loaded. It builds every component, and starts none:

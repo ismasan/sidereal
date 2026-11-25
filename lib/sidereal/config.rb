@@ -39,6 +39,8 @@ module Sidereal
   #                       URLs of pages' live updates
   #   assets.mode         :single (layouts link each asset) or :combined (they
   #                       link one bundle per type). See Sidereal::Assets
+  #   assets.watch        in :single mode, whether layouts notice when an asset
+  #                       file changes. Off in production
   #   assets.host         a host asset URLs start with, ex. a CDN's, or nil
   #   assets.live_reload  whether open pages update when an asset changes
   #   assets.watcher      Assets::Watcher: publishes asset changes, on the
@@ -209,6 +211,9 @@ module Sidereal
 
         c.declare('assets.mode', T::Symbol.options(Assets::MODES),
                   description: 'What layouts link: each asset (:single), or one bundle per type (:combined)') { :single }
+        c.declare('assets.watch', T::Boolean,
+                  description: 'In :single mode, whether layouts notice when an asset file changes, ' \
+                               'by checking it on each render. Off in production') { Sidereal.environment != 'production' }
         c.declare('assets.host', T::String.nullable,
                   description: 'A host asset URLs start with, such as a CDN in front of the app, or nil') { nil }
         c.declare('assets.live_reload', T::Boolean,

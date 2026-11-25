@@ -27,7 +27,8 @@ module Sidereal
   #
   # The +sidereal.assets.mode+ component picks which of them layouts link to
   # (see {#stylesheet_paths}): +:single+ links each asset, and notices when a
-  # file changes, so an edit shows without a restart. +:combined+ links the
+  # file changes, so an edit shows without a restart, unless
+  # +sidereal.assets.watch+ is off, as it is in production. +:combined+ links the
   # bundles, and digests each asset once for them. Serving checks a file against
   # its digest in either mode. The server serves both kinds of URL in
   # either mode. A URL whose digest isn't the current one is redirected to the
@@ -404,13 +405,18 @@ module Sidereal
       members(kind).empty? ? [] : [bundle_path(kind)]
     end
 
-    # +:single+ mode watches files when it renders paths. Serving always does,
-    # so it never sends a file's new content under its old digest.
-    def watching? = mode == :single
+    # +:single+ mode watches files when it renders paths, unless
+    # +sidereal.assets.watch+ is off. Serving always does, so it never sends a
+    # file's new content under its old digest.
+    def watching? = mode == :single && watch?
+
+    # @return [Boolean] the +sidereal.assets.watch+ component, or +true+ when
+    #   the components aren't built
+    def watch? = self.class.setting('sidereal.assets.watch', true)
 
     # With +fresh+, a file's digest is recomputed when its modification time
-    # or size changes, and a stylesheet's every time, since files it references
-    # may have. Without, the cached digest stands.
+    # or size changes. A stylesheet's is also recomputed when the digest of a
+    # file it references changes. Without, the cached digest stands.
     #
     # The stamp is taken before the file is read, so if the file changes while
     # it's read, the cached stamp is out of date and the next fresh digest
@@ -419,7 +425,7 @@ module Sidereal
       cached = asset.cached
       return cached.digest if cached && !(fresh && asset.file?)
       return asset.cache(hexdigest(asset.read)) unless asset.file?
-      return asset.cache(hexdigest(body_of(asset, File.dirname(asset.name), fresh))) if asset.kind == :css
+      return css_digest_of(asset, cached, fresh) if asset.kind == :css
 
       stamp = asset.stamp
       return cached.digest if cached && cached.stamp == stamp
@@ -431,6 +437,23 @@ module Sidereal
           hexdigest(asset.read)
         end
       asset.cache(digest, stamp)
+    end
+
+    # A stylesheet's stamp is its file's, with the digests of the files it
+    # references, as {#rewrite_css} rewrote them.
+    CssStamp = Data.define(:file, :refs)
+    private_constant :CssStamp
+
+    def css_digest_of(asset, cached, fresh)
+      stamp = asset.stamp
+      if cached&.stamp.is_a?(CssStamp) && cached.stamp.file == stamp &&
+         cached.stamp.refs.all? { |target, digest| digest_of(target, fresh) == digest }
+        return cached.digest
+      end
+
+      refs = []
+      body = rewrite_css(asset, asset.read, File.dirname(asset.name), fresh, refs)
+      asset.cache(hexdigest(body), CssStamp.new(file: stamp, refs:))
     end
 
     def hexdigest(string) = Digest::SHA256.hexdigest(string)[0, DIGEST_LENGTH]
@@ -446,7 +469,8 @@ module Sidereal
       asset.kind == :css && asset.file? ? rewrite_css(asset, body, base_dir, fresh) : body
     end
 
-    def rewrite_css(asset, css, base_dir, fresh)
+    # +refs+, if given, collects each file it references, with its digest.
+    def rewrite_css(asset, css, base_dir, fresh, refs = nil)
       dir = File.dirname(asset.source_path)
       css.gsub(CSS_URL) do
         original, quote, ref = Regexp.last_match.to_a
@@ -456,7 +480,9 @@ module Sidereal
         target = file_at(File.expand_path(ref_path, dir))
         next original unless target
 
-        relative = Pathname(target.digested_name(digest_of(target, fresh))).relative_path_from(Pathname(base_dir))
+        digest = digest_of(target, fresh)
+        refs&.push([target, digest])
+        relative = Pathname(target.digested_name(digest)).relative_path_from(Pathname(base_dir))
         "url(#{quote}#{relative}#{suffix}#{quote})"
       end
     end
@@ -492,9 +518,14 @@ module Sidereal
     def serve_asset(env, asset, requested)
       body = nil
       current =
-        if asset.kind != :file && asset.file?
+        if asset.kind == :css && asset.file?
           stamp = asset.stamp
-          body = body_of(asset, File.dirname(asset.name), true)
+          refs = []
+          body = rewrite_css(asset, asset.read, File.dirname(asset.name), true, refs)
+          asset.cache(hexdigest(body), CssStamp.new(file: stamp, refs:))
+        elsif asset.kind == :js && asset.file?
+          stamp = asset.stamp
+          body = asset.read
           asset.cache(hexdigest(body), stamp)
         else
           digest_of(asset, true)

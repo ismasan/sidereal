@@ -9,6 +9,10 @@ Sidereal.config.config!('sidereal.assets.mode') do
   Sidereal.environment == 'production' ? :combined : :single
 end
 
+# Over HTTP/2, :single works in production too: linking each file costs little,
+# and a change to one only changes its URL. sidereal.assets.watch, off in
+# production by default, stops :single checking files on every render there.
+
 # A host asset URLs start with, such as a CDN that fetches them from the app:
 #
 #   Sidereal.config.config!('sidereal.assets.host') { ENV['ASSETS_HOST'] }

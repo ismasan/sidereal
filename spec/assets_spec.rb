@@ -142,6 +142,47 @@ RSpec.describe Sidereal::Assets do
       expect(assets.path('app.js')).to eq(js_before)
     end
 
+    it "doesn't re-read a stylesheet whose file's modification time and size are unchanged" do
+      css = write('app.css', 'a {}')
+      assets.stylesheet 'app.css', path: css
+      before = assets.path('app.css')
+      mtime = File.mtime(css)
+
+      write('app.css', 'b {}')
+      File.utime(mtime, mtime, css)
+
+      expect(assets.path('app.css')).to eq(before)
+    end
+
+    it "computes digests once in :single mode with sidereal.assets.watch off, and still serves a file's new content" do
+      Sidereal.config.config!('sidereal.assets.watch') { false }
+      use_mode(:single)
+      assets.stylesheet 'app.css', path: write('app.css', 'a {}')
+      assets.javascript 'app.js', path: write('app.js', 'a()')
+      before = assets.stylesheet_paths
+      js_before = assets.javascript_paths
+
+      write('app.css', 'b {}')
+      write('app.js', 'b()')
+
+      expect(assets.stylesheet_paths).to eq(before)
+      expect(assets.javascript_paths).to eq(js_before)
+      expect(request(before.first).first).to eq(302)
+    end
+
+    it 'turns sidereal.assets.watch off by default in production only' do
+      original = Sidereal.environment
+      { 'production' => false, 'development' => true, 'test' => true }.each do |env, watch|
+        Sidereal.environment = env
+        Sidereal.reset_config!
+        Sidereal.config.build!
+
+        expect(Sidereal.config['sidereal.assets.watch']).to be(watch)
+      end
+    ensure
+      Sidereal.environment = original
+    end
+
     it 'computes digests once in :combined mode' do
       use_mode(:combined)
       assets.stylesheet 'app.css', path: write('app.css', 'a {}')
