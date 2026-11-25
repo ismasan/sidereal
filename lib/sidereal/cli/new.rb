@@ -7,7 +7,9 @@ module Sidereal
     # `sid new NAME`: generate a new Sidereal app.
     class New < Command
       TEMPLATES = File.expand_path('templates/new', __dir__)
-      NAME_FORMAT = /\A[a-z][a-z0-9_]*\z/
+      # Words of lowercase letters and digits, joined by single underscores or
+      # hyphens: my_app, sourced-todo-2.
+      NAME_FORMAT = /\A[a-z][a-z0-9]*(?:[_-][a-z0-9]+)*\z/
       SIDEREAL_GITHUB = 'ismasan/sidereal'
       PORT = 9292
 
@@ -33,7 +35,7 @@ module Sidereal
       self.description = 'Create a new Sidereal app'
 
       # Not `name`: Samovar::Command#name is the command's own name.
-      one :path, 'Where to create the app. Its last part names it, e.g. my_app', pattern: /\A[^-]/
+      one :path, 'Where to create the app. Its last part names it, e.g. my_app or my-app', pattern: /\A[^-]/
 
       options do
         option '-h/--help', 'Print usage'
@@ -52,7 +54,7 @@ module Sidereal
 
         app_name = File.basename(@path)
         unless NAME_FORMAT.match?(app_name)
-          raise Error, "#{app_name.inspect} isn't a valid app name. Use lowercase letters, digits and underscores, starting with a letter."
+          raise Error, "#{app_name.inspect} isn't a valid app name. Use lowercase letters and digits, separated by underscores or hyphens, starting with a letter."
         end
 
         root = File.expand_path(@path)
@@ -62,7 +64,7 @@ module Sidereal
 
         context = Context.new(
           app_name:,
-          title: app_name.split('_').map(&:capitalize).join(' '),
+          title: app_name.split(/[_-]/).map(&:capitalize).join(' '),
           sidereal_path: @options[:sidereal_path] && File.expand_path(@options[:sidereal_path]),
           rspec: !!@options[:rspec],
           sourced: !!@options[:sourced],

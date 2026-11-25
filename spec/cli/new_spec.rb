@@ -79,6 +79,14 @@ RSpec.describe Sidereal::CLI::New do
     expect(read(root, 'system/greetings.rb')).to include("'my_app.greetings.say_hello'")
   end
 
+  it 'takes hyphens and digits in the name' do
+    root = generate('sourced-todo-2')
+
+    expect(read(root, 'web/ui/layout.rb')).to include("title { 'Sourced Todo 2' }")
+    expect(read(root, 'system/greetings.rb')).to include("'sourced-todo-2.greetings.say_hello'")
+    expect(read(root, 'falcon.rb')).to include("service 'sourced-todo-2' do")
+  end
+
   it 'generates valid Ruby' do
     root = generate('my_app', '--rspec', '--sourced')
 
@@ -966,10 +974,17 @@ RSpec.describe Sidereal::CLI::New do
       expect(io.string).to include('Name the new app')
     end
 
-    it 'fails for a name that is not a valid Ruby identifier' do
+    it 'fails for a name that is not lowercase words joined by underscores or hyphens' do
       expect(sid_new(File.join(@dir, 'My-App'), '--skip-bundle')).to be(false)
       expect(io.string).to include(%("My-App" isn't a valid app name))
       expect(Dir.exist?(File.join(@dir, 'My-App'))).to be(false)
+    end
+
+    it 'fails for a name with leading, trailing or doubled separators' do
+      %w[2app my-app- my--app my_-app _app].each do |name|
+        expect(sid_new(File.join(@dir, name), '--skip-bundle')).to be(false), name
+        expect(io.string).to include(%(#{name.inspect} isn't a valid app name))
+      end
     end
 
     it 'refuses to write into a non-empty directory' do
