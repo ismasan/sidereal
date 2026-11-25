@@ -38,6 +38,10 @@ class TestRouter < Sidereal::Router
     body "deleted:#{id}"
   end
 
+  head '/items/:id' do |id:|
+    headers 'x-item-id' => id
+  end
+
   redirect '/old', '/items'
 
   get '/context' do
@@ -144,6 +148,12 @@ RSpec.describe Sidereal::Router do
       delete '/items/42'
       expect(last_response.status).to eq(200)
       expect(last_response.body).to eq('deleted:42')
+    end
+
+    it 'HEAD' do
+      head '/items/42'
+      expect(last_response.status).to eq(200)
+      expect(last_response.headers['x-item-id']).to eq('42')
     end
   end
 
@@ -284,6 +294,11 @@ RSpec.describe Sidereal::Router do
 
     it 'returns 404 for wrong HTTP method' do
       delete '/items'
+      expect(last_response.status).to eq(404)
+    end
+
+    it 'returns 404 for HEAD on a GET-only route' do
+      head '/items'
       expect(last_response.status).to eq(404)
     end
   end

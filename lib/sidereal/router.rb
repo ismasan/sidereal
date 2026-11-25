@@ -83,6 +83,7 @@ module Sidereal
     DELETE = 'DELETE'
     PATCH = 'PATCH'
     PUT = 'PUT'
+    HEAD = 'HEAD'
 
     # Split a path into segments, stripping leading/trailing slashes.
     #
@@ -155,7 +156,8 @@ module Sidereal
           POST => Node.new,
           DELETE => Node.new,
           PATCH => Node.new,
-          PUT => Node.new
+          PUT => Node.new,
+          HEAD => Node.new
         }
       end
 
@@ -245,6 +247,18 @@ module Sidereal
       # @return [self]
       def delete(path, handler = nil, &h)
         add DELETE, path, handler, &h
+      end
+
+      # Register a HEAD route. A HEAD request is matched only against
+      # HEAD routes, not GET ones.
+      #
+      # @param path [String] URL pattern
+      # @param handler [#call, nil] callable handler
+      # @yield (see .get)
+      # @yieldparam kwargs (see .get)
+      # @return [self]
+      def head(path, handler = nil, &h)
+        add HEAD, path, handler, &h
       end
 
       # Register a GET redirect from one path to another.
