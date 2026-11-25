@@ -230,7 +230,7 @@ module Sidereal
       end
 
       private def command(klass, *args, &block)
-        render Sidereal::Components::Command.new(klass, *args, &block)
+        render Sidereal::Components::Command.new(klass, *args), &block
       end
 
       # The URL of one of the app's assets. See {Sidereal::App#asset_url}.
