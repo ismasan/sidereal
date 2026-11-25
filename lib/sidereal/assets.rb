@@ -21,15 +21,17 @@ module Sidereal
   #
   # - Each asset has its own URL, +/_assets/logo-<digest>.svg+, whose digest
   #   changes only when that asset does.
-  # - The stylesheets, and the scripts, are also served combined into one
-  #   bundle each, +/_assets/bundle-<digest>.css+, whose digest is computed from
-  #   the digests of the assets it combines.
+  # - The stylesheets are also served combined into one bundle,
+  #   +/_assets/bundle-<digest>.css+, whose digest is computed from the digests
+  #   of the stylesheets it combines. Scripts are never combined: each is its
+  #   own ES module, and joining modules into one would make them share one
+  #   scope.
   #
   # The +sidereal.assets.mode+ component picks which of them layouts link to
   # (see {#stylesheet_paths}): +:single+ links each asset, and notices when a
   # file changes, so an edit shows without a restart, unless
   # +sidereal.assets.watch+ is off, as it is in production. +:combined+ links the
-  # bundles, and digests each asset once for them. Serving checks a file against
+  # stylesheet bundle and each script, and digests each asset once. Serving checks a file against
   # its digest in either mode. The server serves both kinds of URL in
   # either mode. A URL whose digest isn't the current one is redirected to the
   # current URL, uncached, as for a page rendered before a deploy.
@@ -42,8 +44,8 @@ module Sidereal
   # registered files rewritten to those files' digested URLs, so a stylesheet's
   # digest changes when a file it references does.
   #
-  # Only the bundles are kept in memory, one per type, replaced when their
-  # digest changes. Files are read from disk when served, and other files are
+  # Only the stylesheet bundle is kept in memory, replaced when its digest
+  # changes. Files are read from disk when served, and other files are
   # streamed from it.
   #
   # With +sidereal.assets.live_reload+ on, a {Watcher} publishes {Changed} on
@@ -69,8 +71,7 @@ module Sidereal
 
     DIGEST_LENGTH = 16
     KINDS = %i[css js file].freeze
-    BUNDLE_NAMES = { css: 'bundle.css', js: 'bundle.js' }.freeze
-    BUNDLE_SEPARATORS = { css: "\n", js: ";\n" }.freeze
+    BUNDLE_NAME = 'bundle.css'
     DIGESTED_PATH = /\A(?<stem>.+)-(?<digest>\h{#{DIGEST_LENGTH}})(?<ext>\.[^.\/]+)\z/
     # +url(...)+ in CSS, quoted or not
     CSS_URL = /url\(\s*(['"]?)([^'")]+?)\1\s*\)/
@@ -79,7 +80,7 @@ module Sidereal
     EXTERNAL_REF = %r{\A(?:[a-z][a-z0-9+.\-]*:|/|#)}i
     NOT_FOUND = [404, { 'content-type' => 'text/plain', 'cache-control' => 'no-cache' }.freeze, ['Not found'].freeze].freeze
 
-    private_constant :DIGEST_LENGTH, :KINDS, :BUNDLE_NAMES, :BUNDLE_SEPARATORS, :DIGESTED_PATH,
+    private_constant :DIGEST_LENGTH, :KINDS, :BUNDLE_NAME, :DIGESTED_PATH,
                      :CSS_URL, :EXTERNAL_REF, :NOT_FOUND
 
     # A digest, and the modification time and size of the file it was computed
@@ -180,7 +181,7 @@ module Sidereal
       REGISTRIES_LOCK.synchronize { REGISTRIES[self] = true }
       @parent = parent
       @assets = {}
-      @bundles = {}
+      @bundle = nil
       @locked = false
       # Guards the registry and the bundle cache, which requests in other
       # threads read and replace.
@@ -195,9 +196,8 @@ module Sidereal
     # @return [self]
     def stylesheet(name, path: nil, css: nil) = register(name, :css, path, css)
 
-    # Register a script, from a file or inline. Scripts are loaded as ES
-    # modules. Combined, they share one module, so each must stand on its own:
-    # no imports of other registered scripts, and no top-level names they share.
+    # Register a script, from a file or inline. Each script is loaded as its
+    # own ES module, in either {#mode}.
     #
     # @param name [String] its name, ending in +.js+
     # @param path [String, nil] the file to read it from
@@ -277,13 +277,13 @@ module Sidereal
       assets.to_h { |asset| [asset.name, digest_of(asset, true)] }
     end
 
-    # The current digest of a bundle, computed from its assets' digests.
+    # The current digest of the stylesheet bundle, computed from the
+    # stylesheets' digests.
     #
-    # @param kind [:css, :js]
     # @return [String]
-    def bundle_digest(kind)
+    def bundle_digest
       lock!
-      bundle_digest_of(kind, watching?)
+      bundle_digest_of(watching?)
     end
 
     # The path of an asset, under {PREFIX}, ex. +"/_assets/acme/logo-<digest>.svg"+.
@@ -297,24 +297,26 @@ module Sidereal
       "#{PREFIX}/#{asset.digested_name(digest_of(asset))}"
     end
 
-    # The path of a bundle, ex. +"/_assets/bundle-<digest>.css"+.
+    # The path of the stylesheet bundle, ex. +"/_assets/bundle-<digest>.css"+.
     #
-    # @param kind [:css, :js]
     # @return [String]
-    def bundle_path(kind)
-      "#{PREFIX}/#{BUNDLE_NAMES.fetch(kind).delete_suffix(".#{kind}")}-#{bundle_digest(kind)}.#{kind}"
-    end
+    def bundle_path = "#{PREFIX}/bundle-#{bundle_digest}.css"
 
     # The paths of the stylesheets a layout links, for the {#mode}: each one in
     # +:single+ mode, or their bundle in +:combined+ mode. Empty without any.
     #
     # @return [Array<String>]
-    def stylesheet_paths = paths_for(:css)
+    def stylesheet_paths
+      return paths_of(:css) unless mode == :combined
 
-    # The paths of the scripts a layout loads. See {#stylesheet_paths}.
+      lock!
+      members(:css).empty? ? [] : [bundle_path]
+    end
+
+    # The paths of the scripts a layout loads: each one, in either {#mode}.
     #
     # @return [Array<String>]
-    def javascript_paths = paths_for(:js)
+    def javascript_paths = paths_of(:js)
 
     # The URLs of the stylesheets a layout links: the {#stylesheet_paths},
     # each through {#href}.
@@ -338,7 +340,7 @@ module Sidereal
       "#{host&.chomp('/')}#{script_name}#{path}"
     end
 
-    # Serve a GET or HEAD request for an asset or a bundle, its path relative
+    # Serve a GET or HEAD request for an asset or the bundle, its path relative
     # to the app.
     #
     # @param env [Hash] the Rack environment
@@ -349,8 +351,8 @@ module Sidereal
       return NOT_FOUND unless match
 
       name = "#{match[:stem]}#{match[:ext]}"
-      if (kind = BUNDLE_NAMES.key(name))
-        serve_bundle(env, kind, match[:digest])
+      if name == BUNDLE_NAME
+        serve_bundle(env, match[:digest])
       elsif (asset = find(name))
         serve_asset(env, asset, match[:digest])
       else
@@ -374,7 +376,7 @@ module Sidereal
 
     def register_unlocked(name, kind, source_path, content)
       raise ArgumentError, "an asset needs a path or its content, not both: #{name}" unless source_path.nil? ^ content.nil?
-      raise ArgumentError, "#{name} is a bundle's name" if BUNDLE_NAMES.value?(name)
+      raise ArgumentError, "#{name} is the bundle's name" if name == BUNDLE_NAME
       raise ArgumentError, "an asset's name is relative: #{name}" if name.start_with?('/')
       raise ArgumentError, "#{name} needs an extension" if File.extname(name).empty?
       raise ArgumentError, "a #{kind} asset's name ends in .#{kind}: #{name}" if kind != :file && File.extname(name) != ".#{kind}"
@@ -398,11 +400,9 @@ module Sidereal
 
     def members(kind) = all.select { |asset| asset.kind == kind }
 
-    def paths_for(kind)
+    def paths_of(kind)
       lock!
-      return members(kind).map { |asset| path(asset.name) } unless mode == :combined
-
-      members(kind).empty? ? [] : [bundle_path(kind)]
+      members(kind).map { |asset| path(asset.name) }
     end
 
     # +:single+ mode watches files when it renders paths, unless
@@ -458,8 +458,8 @@ module Sidereal
 
     def hexdigest(string) = Digest::SHA256.hexdigest(string)[0, DIGEST_LENGTH]
 
-    def bundle_digest_of(kind, fresh)
-      hexdigest(members(kind).map { |asset| "#{asset.name}:#{digest_of(asset, fresh)}" }.join("\n"))
+    def bundle_digest_of(fresh)
+      hexdigest(members(:css).map { |asset| "#{asset.name}:#{digest_of(asset, fresh)}" }.join("\n"))
     end
 
     # An asset's text as served from +base_dir+, the directory of its URL under
@@ -489,28 +489,28 @@ module Sidereal
 
     def file_at(source_path) = all.find { |asset| asset.kind == :file && asset.source_path == source_path }
 
-    # The bundle's text, for its +digest+, or +nil+ if its assets changed while
-    # it was built, so it isn't served or cached under a digest it doesn't match.
-    def bundle_body(kind, digest)
-      cached = @lock.synchronize { @bundles[kind] }
+    # The bundle's text, for its +digest+, or +nil+ if its stylesheets changed
+    # while it was built, so it isn't served or cached under a digest it
+    # doesn't match.
+    def bundle_body(digest)
+      cached = @lock.synchronize { @bundle }
       return cached.last if cached && cached.first == digest
 
-      body = members(kind).map { |asset| body_of(asset, '.', false) }.join(BUNDLE_SEPARATORS.fetch(kind))
-      return unless bundle_digest_of(kind, true) == digest
+      body = members(:css).map { |asset| body_of(asset, '.', false) }.join("\n")
+      return unless bundle_digest_of(true) == digest
 
-      @lock.synchronize { @bundles[kind] = [digest, body] }
+      @lock.synchronize { @bundle = [digest, body] }
       body
     end
 
-    def serve_bundle(env, kind, requested)
-      return NOT_FOUND if members(kind).empty?
+    def serve_bundle(env, requested)
+      return NOT_FOUND if members(:css).empty?
 
-      current = bundle_digest_of(kind, true)
-      return redirect(env, bundle_path(kind)) unless requested == current
+      current = bundle_digest_of(true)
+      return redirect(env, bundle_path) unless requested == current
 
-      type = Rack::Mime.mime_type(".#{kind}")
-      respond(env, current, "#{type}; charset=utf-8") { bundle_body(kind, current) } ||
-        redirect(env, bundle_path(kind))
+      respond(env, current, 'text/css; charset=utf-8') { bundle_body(current) } ||
+        redirect(env, bundle_path)
     end
 
     # A stylesheet or script from a file is digested from the very text that's

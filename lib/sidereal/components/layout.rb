@@ -37,7 +37,8 @@ module Sidereal
       attr_reader :page
 
       # The app's stylesheets, the app's scripts, then Datastar, as the
-      # +sidereal.assets.mode+ has them: each one, or their bundles. Module
+      # +sidereal.assets.mode+ has them: each stylesheet, or their bundle, and
+      # each script. Module
       # scripts run in document order, so the app's custom elements and event
       # listeners are in place before Datastar applies itself to the page.
       # The asset tags are marked +data-sidereal-asset+, for live reload to

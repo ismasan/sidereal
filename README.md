@@ -996,7 +996,7 @@ class MyApp < Sidereal::App
 end
 ```
 
-- **Names** are paths with the file's extension, unique in the app: `'app.css'`, `'acme/charts.css'`, `'img/logo.svg'`. A stylesheet's ends in `.css` and a script's in `.js`. `bundle.css` and `bundle.js` are taken. Registering a name again raises `Sidereal::Assets::DuplicateAssetError`, unless it's the same asset again, which is left as it is.
+- **Names** are paths with the file's extension, unique in the app: `'app.css'`, `'acme/charts.css'`, `'img/logo.svg'`. A stylesheet's ends in `.css` and a script's in `.js`. `bundle.css` is taken. Registering a name again raises `Sidereal::Assets::DuplicateAssetError`, unless it's the same asset again, which is left as it is.
 - **Content** comes from a file (`path:`), checked when it's registered, or inline (`css:`, `js:`). `Sidereal.root` is a `Pathname` of the app's root directory to build paths from: the working directory, unless the app sets it (`Sidereal.root = __dir__`), as a generated app's `boot.rb` does.
 - **Order** is registration order. An app reads its superclass's assets, which come first.
 - **Extensions** register theirs in `sidereal_install`, with `app.assets` (see [Installing extensions](#installing-extensions)):
@@ -1053,7 +1053,7 @@ Layouts link stylesheets in the order they're registered, so the order of these 
 Every URL carries a digest of what it serves, under `/_assets`, so browsers and CDNs can keep it for good: it's served with `Cache-Control: public, max-age=31536000, immutable` and an `ETag`, and answers `If-None-Match` with a `304`.
 
 - **Each asset** has its own URL, `/_assets/img/logo-<digest>.svg`, whose digest changes only when that asset does.
-- **The stylesheets**, and **the scripts**, are also combined into one bundle each, `/_assets/bundle-<digest>.css` and `/_assets/bundle-<digest>.js`, whose digest is computed from the digests of the assets in it. Files never combine.
+- **The stylesheets** are also combined into one bundle, `/_assets/bundle-<digest>.css`, whose digest is computed from the digests of the stylesheets in it. Scripts and files never combine: each script is its own ES module, and joining modules would make them share one scope.
 
 A URL with a digest that isn't the current one, as from a page rendered before a deploy, is redirected to the current URL with a `302`, uncached. Asset requests skip the app's session and its `before` hook: assets are public, and their responses set no cookie.
 
@@ -1062,7 +1062,7 @@ The `sidereal.assets.mode` component says which URLs layouts link:
 | Mode | Layouts link | Digests |
 | --- | --- | --- |
 | `:single` (default) | each stylesheet and script | recomputed when a file changes, so an edit shows without a restart. With `sidereal.assets.watch` off, computed once per process |
-| `:combined` | one bundle of each | computed once per process for the links |
+| `:combined` | the stylesheet bundle, and each script | computed once per process for the links |
 
 Both serve every URL, so either works in any environment. Serving always checks a file against its digest, so a file changed under a running process that doesn't watch files is redirected to its new URL, never served under its old one.
 
@@ -1089,11 +1089,11 @@ Sidereal.config.config!('sidereal.assets.host') { 'https://cdn.example.com' }
 ### Stylesheets and scripts
 
 - **`url()` references:** in a stylesheet loaded from a file, a relative `url(...)` to a registered file is rewritten to that file's digested URL. So the stylesheet's digest changes when an image it references does. References to unregistered files, `data:` URIs, other hosts and root-relative paths are left as they are.
-- **Scripts** load as ES modules (`<script type="module">`). In a bundle they share one module, so each must stand on its own: no `import` of another registered script, and no top-level names they share. Importing from a full URL works. They load before Datastar, so custom elements and event listeners are in place before it applies itself to the page.
+- **Scripts** load as ES modules (`<script type="module">`), each its own, in either mode, so their top-level names never clash. They load before Datastar, so custom elements and event listeners are in place before it applies itself to the page.
 
 ### Memory
 
-Only the two bundles are held in memory, one of each type, replaced when their digest changes. Stylesheets and scripts are read from their files when served, and other files are streamed from disk. Digests are computed by streaming each file.
+Only the stylesheet bundle is held in memory, replaced when its digest changes. Stylesheets and scripts are read from their files when served, and other files are streamed from disk. Digests are computed by streaming each file.
 
 ### Live reload
 
@@ -1900,7 +1900,7 @@ Sidereal.config.config!('sidereal.workers.count') { 10 }
 | `sidereal.scheduler` | `Sidereal.scheduler` | the [Scheduler](#fixed-schedules). Starts after the runner |
 | `sidereal.secret_key_base` | `SIDEREAL_SECRET`, or else `storage/secret.txt` in the working directory, which building creates | the app's master secret, at least 64 bytes. See [Running with Falcon](#running-with-falcon). A generated app implements it in `config/components/secrets.rb`, the same way, with the file in the app's `storage/` |
 | `sidereal.secrets` | `Sidereal::KeyGenerator` | derives a key for each purpose from the master secret, with HKDF-SHA256 (`derive('session')`), so one secret serves them all, and a derived key reveals neither the secret nor the other keys. Anything that answers `derive(purpose)`, ex. one that reads a key for each purpose from a vault. `Sidereal.secrets` reads it |
-| `sidereal.assets.mode` | `:single` | what layouts link: each [asset](#assets) (`:single`), or one bundle of each type (`:combined`) |
+| `sidereal.assets.mode` | `:single` | what layouts link: each [asset](#assets) (`:single`), or one stylesheet bundle and each script (`:combined`) |
 | `sidereal.assets.watch` | `true`, `false` in production | in `:single` mode, whether layouts notice when an asset's file changes. See [Assets](#assets) |
 | `sidereal.assets.host` | `nil` | a host asset URLs start with, such as a CDN's |
 | `sidereal.assets.live_reload` | `false` | whether open pages update when an asset changes. See [Live reload](#live-reload) |

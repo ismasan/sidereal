@@ -199,7 +199,7 @@ RSpec.describe Sidereal::Assets do
       assets.file 'logo.svg', path: write('logo.svg', '<svg/>')
       old_css = assets.path('app.css')
       old_svg = assets.path('logo.svg')
-      old_bundle = assets.bundle_path(:js)
+      old_bundle = assets.bundle_path
       write('app.css', 'b {}')
       write('logo.svg', '<svg id="b"/>')
       write('app.js', 'b()')
@@ -213,9 +213,9 @@ RSpec.describe Sidereal::Assets do
       expect(request(old_svg).first).to eq(302)
       expect(body_of(request(assets.path('logo.svg')))).to eq('<svg id="b"/>')
 
-      status, headers, = request(old_bundle)
-      expect(status).to eq(302)
-      expect(body_of(request(headers['location']))).to eq('b()')
+      expect(request(old_bundle).first).to eq(302)
+      expect(body_of(request(assets.bundle_path))).to eq('b {}')
+      expect(body_of(request(assets.path('app.js')))).to eq('b()')
     end
 
     it 'unescapes the requested path' do
@@ -234,14 +234,20 @@ RSpec.describe Sidereal::Assets do
       expect(child.javascript_paths).to eq([child.path('app.js')])
     end
 
-    it 'links the bundles in :combined mode' do
+    it 'links the stylesheet bundle, and each script, in :combined mode' do
       use_mode(:combined)
       assets.stylesheet 'a.css', css: 'a {}'
       assets.stylesheet 'b.css', css: 'b {}'
-
-      expect(assets.stylesheet_paths).to eq([assets.bundle_path(:css)])
-      expect(assets.bundle_path(:css)).to match(%r{\A/_assets/bundle-\h{16}\.css\z})
       expect(assets.javascript_paths).to eq([])
+
+      assets2 = described_class.new
+      assets2.stylesheet 'a.css', css: 'a {}'
+      assets2.javascript 'a.js', js: 'a()'
+      assets2.javascript 'b.js', js: 'b()'
+
+      expect(assets.stylesheet_paths).to eq([assets.bundle_path])
+      expect(assets.bundle_path).to match(%r{\A/_assets/bundle-\h{16}\.css\z})
+      expect(assets2.javascript_paths).to eq([assets2.path('a.js'), assets2.path('b.js')])
     end
 
     it "computes a bundle's digest from its assets'" do
@@ -249,13 +255,11 @@ RSpec.describe Sidereal::Assets do
       assets.stylesheet 'a.css', path: css
       assets.stylesheet 'b.css', css: 'b {}'
       assets.javascript 'a.js', js: 'a()'
-      before = assets.bundle_digest(:css)
-      js_before = assets.bundle_digest(:js)
+      before = assets.bundle_digest
 
-      expect(assets.bundle_digest(:css)).to eq(before)
+      expect(assets.bundle_digest).to eq(before)
       write('a.css', 'changed {}')
-      expect(assets.bundle_digest(:css)).not_to eq(before)
-      expect(assets.bundle_digest(:js)).to eq(js_before)
+      expect(assets.bundle_digest).not_to eq(before)
     end
 
     it 'starts URLs with the host and the mount path' do
@@ -292,7 +296,7 @@ RSpec.describe Sidereal::Assets do
       expect(body).to include('url(/elsewhere.png)')
       expect(body).to include(%(url('../img/unregistered.png')))
 
-      bundled = body_of(request(assets.bundle_path(:css)))
+      bundled = body_of(request(assets.bundle_path))
       expect(bundled).to include(%(url("img/logo-#{assets.digest('img/logo.svg')}.svg")))
     end
 
@@ -331,27 +335,30 @@ RSpec.describe Sidereal::Assets do
       expect(body_of([status, headers, body]).b).to eq(png)
     end
 
-    it 'serves bundles, joined in order' do
+    it 'serves the stylesheet bundle, joined in order' do
       assets.stylesheet 'a.css', css: 'a {}'
       assets.stylesheet 'b.css', css: 'b {}'
-      assets.javascript 'a.js', js: 'a()'
-      assets.javascript 'b.js', js: 'b()'
 
-      expect(body_of(request(assets.bundle_path(:css)))).to eq("a {}\nb {}")
-      js = request(assets.bundle_path(:js))
-      expect(js[1]['content-type']).to eq('text/javascript; charset=utf-8')
-      expect(body_of(js)).to eq("a();\nb()")
+      bundle = request(assets.bundle_path)
+      expect(bundle[1]['content-type']).to eq('text/css; charset=utf-8')
+      expect(body_of(bundle)).to eq("a {}\nb {}")
+    end
+
+    it 'serves no script bundle' do
+      assets.javascript 'a.js', js: 'a()'
+
+      expect(request('/_assets/bundle-0000000000000000.js').first).to eq(404)
     end
 
     it "redirects, and doesn't cache, a bundle whose assets change while it's built" do
-      path = write('app.js', 'one()')
-      assets.javascript 'app.js', path: path
-      stale = assets.bundle_path(:js)
+      path = write('app.css', 'one {}')
+      assets.stylesheet 'app.css', path: path
+      stale = assets.bundle_path
       changed = false
       allow(File).to receive(:read).and_wrap_original do |original, *args|
         unless changed
           changed = true
-          write('app.js', 'two()')
+          write('app.css', 'two {}')
         end
         original.call(*args)
       end
@@ -359,7 +366,7 @@ RSpec.describe Sidereal::Assets do
       response = request(stale)
       expect(response.first).to eq(302)
       expect(response[1]['location']).not_to eq(stale)
-      expect(body_of(request(response[1]['location']))).to eq('two()')
+      expect(body_of(request(response[1]['location']))).to eq('two {}')
     end
 
     it 'serves every file under the digest of what it serves, while it changes, across threads' do
@@ -416,7 +423,7 @@ RSpec.describe Sidereal::Assets do
 
       status, headers, = request('/_assets/bundle-0000000000000000.css')
       expect(status).to eq(302)
-      expect(headers['location']).to eq(assets.bundle_path(:css))
+      expect(headers['location']).to eq(assets.bundle_path)
     end
 
     it 'returns 404 for unknown assets, undigested paths and empty bundles' do

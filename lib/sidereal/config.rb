@@ -38,7 +38,8 @@ module Sidereal
   #   signer              Signer, with the key secrets derive for it: signs the
   #                       URLs of pages' live updates
   #   assets.mode         :single (layouts link each asset) or :combined (they
-  #                       link one bundle per type). See Sidereal::Assets
+  #                       link one stylesheet bundle, and each script). See
+  #                       Sidereal::Assets
   #   assets.watch        in :single mode, whether layouts notice when an asset
   #                       file changes. Off in production
   #   assets.host         a host asset URLs start with, ex. a CDN's, or nil
@@ -210,7 +211,7 @@ module Sidereal
         c.config!('signer', ['secrets']) { |secrets| Signer.new(secrets.derive('sidereal.signer')) }
 
         c.declare('assets.mode', T::Symbol.options(Assets::MODES),
-                  description: 'What layouts link: each asset (:single), or one bundle per type (:combined)') { :single }
+                  description: 'What layouts link: each asset (:single), or one stylesheet bundle and each script (:combined)') { :single }
         c.declare('assets.watch', T::Boolean,
                   description: 'In :single mode, whether layouts notice when an asset file changes, ' \
                                'by checking it on each render. Off in production') { Sidereal.environment != 'production' }

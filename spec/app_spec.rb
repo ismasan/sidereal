@@ -875,15 +875,15 @@ RSpec.describe 'Sidereal::App.assets' do
     expect(js).to be < datastar
   end
 
-  it 'links the bundles in :combined mode' do
+  it 'links the stylesheet bundle, and each script, in :combined mode' do
     Sidereal.reset_config!
     Sidereal.config.config!('sidereal.secret_key_base') { 'spec-secret-' * 6 }
     Sidereal.config.config!('sidereal.assets.mode') { :combined }
     Sidereal.config.build!
     get '/'
 
-    expect(last_response.body).to include(%(href="#{app.assets.bundle_path(:css)}"))
-    expect(last_response.body).to include(%(src="#{app.assets.bundle_path(:js)}"))
+    expect(last_response.body).to include(%(href="#{app.assets.bundle_path}"))
+    expect(last_response.body).to include(%(src="#{app.assets.path('app.js')}"))
     expect(last_response.body).not_to include(app.assets.path('app.css'))
   end
 
