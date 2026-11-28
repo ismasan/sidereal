@@ -486,14 +486,14 @@ RSpec.describe Sidereal::Integrations::Sourced::CLI::Messages::List do
 end
 
 CLIListCourseCreated = Sourced::Event.define('cli_list.course_created') do
-  attribute :course_id, String
+  reference :course_id, String
 end
 CLIListUserJoined = Sourced::Event.define('cli_list.user_joined') do
-  attribute :course_id, String
-  attribute :user_id, String
+  reference :course_id, String
+  reference :user_id, String
 end
 CLIListUserRegistered = Sourced::Event.define('cli_list_users.user_registered') do
-  attribute :user_id, String
+  reference :user_id, String
 end
 
 # Against a real store: what --types and --partition select is the Selector's

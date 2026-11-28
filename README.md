@@ -2743,14 +2743,16 @@ With Sourced as the backend, use Sourced messages and Deciders instead of `App.c
 ```ruby
 # Define messages using Sourced's message class. AddTodo carries todo_id
 # because the Decider partitions by it (generate it client-side, or stamp it
-# in a `before_command` hook).
+# in a `before_command` hook). Partition keys are references, the attributes
+# the store indexes messages by: declare them with `reference` (UUIDs are
+# references already).
 AddTodo = Sourced::Message.define('todos.add') do
-  attribute :todo_id, String
+  reference :todo_id, String
   attribute :title, String
 end
 
 TodoAdded = Sourced::Message.define('todos.added') do
-  attribute :todo_id, String
+  reference :todo_id, String
   attribute :title, String
 end
 
@@ -2861,7 +2863,7 @@ Machines also have parallel and nested regions, `done` transitions, timers (`aft
 The integration publishes reactor output to Sidereal's PubSub for you, so Page reactions pick it up and stream DOM updates via SSE. Every path resolves its channel through your App's `channel_name` resolver (`Sidereal.channels.for(evt)`), and a publish/resolver failure is reported to `Sidereal.exceptions` (it's terminal — the store already committed).
 
 - **Deciders** publish the **events they emitted**. The integration injects one generic `after_sync` into every `Sourced::Decider` subclass, so no per-reactor wiring is needed.
-- **Projectors** publish a synthetic **"projected" signal** so Pages know to re-fetch their read model. You don't define or publish it: the integration wraps the `partition_by` macro to auto-define a `Projected` event class (one attribute per partition key) and register an `after_sync` that publishes it after each committed batch:
+- **Projectors** publish a synthetic **"projected" signal** so Pages know to re-fetch their read model. You don't define or publish it: the integration wraps the `partition_by` macro to auto-define a `Projected` event class (one reference attribute per partition key) and register an `after_sync` that publishes it after each committed batch:
 
   ```ruby
   class TodosProjector < Sourced::Projector::StateStored

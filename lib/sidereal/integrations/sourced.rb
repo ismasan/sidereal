@@ -378,7 +378,8 @@ module Sidereal
           type = "#{Sidereal::Utils.snake_case(name)}.projected" # e.g. "campaigns_projector.projected"
           signal = ::Sourced::Event.define(type) do
             # These events are dynamically defined here. Make sure attributes are serializable.
-            keys.each { |k| attribute k, ::Sourced::Types::Lax::String }
+            # The keys are references, as on the messages the projector partitions by.
+            keys.each { |k| reference k, ::Sourced::Types::Lax::String }
           end
           const_set(:Projected, signal) # Pages reference MyProjector::Projected
 

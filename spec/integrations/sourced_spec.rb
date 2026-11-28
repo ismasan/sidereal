@@ -64,8 +64,8 @@ class IntgWidget < Sourced::Decider
   consumer_group 'intg_widget'
   partition_by :widget_id
 
-  Create  = Sourced::Command.define('intg_widget.create') { attribute :widget_id, Sourced::Types::String }
-  Created = Sourced::Event.define('intg_widget.created')  { attribute :widget_id, Sourced::Types::String }
+  Create  = Sourced::Command.define('intg_widget.create') { reference :widget_id, Sourced::Types::String }
+  Created = Sourced::Event.define('intg_widget.created')  { reference :widget_id, Sourced::Types::String }
 
   context do
     { widget_id: nil, created: false }
@@ -85,7 +85,7 @@ class IntgDoor < Sourced::Machine
   consumer_group 'intg_door'
   partition_by :door_id
 
-  Open = Sourced::Command.define('intg_door.open') { attribute :door_id, Sourced::Types::String }
+  Open = Sourced::Command.define('intg_door.open') { reference :door_id, Sourced::Types::String }
   Opened = State(:opened)
 
   initial do
@@ -100,8 +100,8 @@ class IntgVault < Sourced::Machine
   consumer_group 'intg_vault'
   partition_by :vault_id
 
-  Arm    = Sourced::Command.define('intg_vault.arm')  { attribute :vault_id, Sourced::Types::String }
-  Locked = Sourced::Event.define('intg_vault.locked') { attribute :vault_id, Sourced::Types::String }
+  Arm    = Sourced::Command.define('intg_vault.arm')  { reference :vault_id, Sourced::Types::String }
+  Locked = Sourced::Event.define('intg_vault.locked') { reference :vault_id, Sourced::Types::String }
 
   Armed   = State(:armed)
   Bolted  = State(:bolted)
@@ -127,7 +127,7 @@ class IntgVault < Sourced::Machine
 end
 
 IntgThingHappenedEvt = Sourced::Event.define('intg.thing_happened_evt') do
-  attribute :thing_id, Sourced::Types::String
+  reference :thing_id, Sourced::Types::String
 end
 
 # Single partition key.
@@ -145,8 +145,8 @@ class IntgThingProjector < Sourced::Projector::StateStored
 end
 
 IntgEnrolledEvt = Sourced::Event.define('intg.enrolled') do
-  attribute :student_id, Sourced::Types::String
-  attribute :course_id, Sourced::Types::String
+  reference :student_id, Sourced::Types::String
+  reference :course_id, Sourced::Types::String
 end
 
 # Multiple partition keys (student_id + course_id).
@@ -298,7 +298,7 @@ RSpec.describe 'Sidereal::Commander on the Sourced runtime' do
 
     it "injects into a decider, for its command blocks" do
       named = Sourced::Event.define('intg_dep_widget.named') do
-        attribute :widget_id, Sourced::Types::String
+        reference :widget_id, Sourced::Types::String
         attribute :name, Sourced::Types::String
       end
       stub_const('IntgDepWidget', Class.new(Sourced::Decider) do
@@ -318,7 +318,7 @@ RSpec.describe 'Sidereal::Commander on the Sourced runtime' do
 
     it 'injects into a machine, for its command blocks' do
       named = Sourced::Event.define('intg_dep_door.named') do
-        attribute :door_id, Sourced::Types::String
+        reference :door_id, Sourced::Types::String
         attribute :name, Sourced::Types::String
       end
 

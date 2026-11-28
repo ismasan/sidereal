@@ -130,6 +130,18 @@ RSpec.describe Sidereal::CLI::Commands::SchemaTable do
 
     expect(described_class.new(schema).rows).to eq([['age', 'integer', '', '', 'In years; minimum: 0']])
   end
+
+  it 'notes the attributes that are references' do
+    message = Sidereal::Message.define('cli_schema.reference') do
+      reference :course_id, Sidereal::Types::String
+      attribute :title, Sidereal::Types::String
+    end
+
+    expect(rows_for(message)).to eq([
+      ['course_id', 'string', 'yes', '', 'reference'],
+      ['title', 'string', 'yes', '', '']
+    ])
+  end
 end
 
 RSpec.describe Sidereal::CLI::Commands, '.print_table' do

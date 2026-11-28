@@ -483,7 +483,7 @@ module Sidereal
             options do
               option '--limit <n>', 'How many to show (default 100)', type: Integer, default: 100
               option '--types <types>', 'Only these message types, comma-separated; prefix.* matches a namespace'
-              option '--partition <pairs>', 'Only messages carrying these attribute values, ex. course_id=c1,user_id=u1'
+              option '--partition <pairs>', 'Only messages carrying these references or tags, ex. course_id=c1,user_id=u1'
               option '--tail', 'Keep printing messages as they arrive'
             end
 

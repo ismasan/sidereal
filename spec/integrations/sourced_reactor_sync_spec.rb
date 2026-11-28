@@ -7,7 +7,7 @@ require 'zeitwerk'
 require 'sourced'
 require 'sidereal/integrations/sourced'
 
-RsyncThing = Sourced::Event.define('rsync.thing') { attribute :thing_id, String }
+RsyncThing = Sourced::Event.define('rsync.thing') { reference :thing_id, String }
 
 RSpec.describe Sidereal::Integrations::Sourced::ReactorSync do
   let(:registry) { Sourced::Registry.new }
@@ -116,8 +116,8 @@ RSpec.describe Sidereal::Integrations::Sourced, 'registering the reactors from_d
   def write_courses(version, delay: 0)
     File.write(File.join(system, 'rsync_courses.rb'), <<~RUBY)
       class RsyncCourses < Sourced::Decider
-        Create = Sourced::Command.define('rsync.courses.create') { attribute :course_id, String }
-        Created = Sourced::Event.define('rsync.courses.created') { attribute :course_id, String }
+        Create = Sourced::Command.define('rsync.courses.create') { reference :course_id, String }
+        Created = Sourced::Event.define('rsync.courses.created') { reference :course_id, String }
 
         partition_by :course_id
 

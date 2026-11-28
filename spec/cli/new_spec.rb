@@ -703,8 +703,8 @@ RSpec.describe Sidereal::CLI::New do
           extend Sidereal::Deps
           dep 'clocks.now'
 
-          Record = Sourced::Command.define('app.ledger.record') { attribute :entry_id, String }
-          Recorded = Sourced::Event.define('app.ledger.recorded') { attribute :entry_id, String }
+          Record = Sourced::Command.define('app.ledger.record') { reference :entry_id, String }
+          Recorded = Sourced::Event.define('app.ledger.recorded') { reference :entry_id, String }
 
           partition_by :entry_id
 
@@ -719,8 +719,8 @@ RSpec.describe Sidereal::CLI::New do
       FileUtils.mkdir_p(File.join(root, 'system/catalog'))
       File.write(File.join(root, 'system/catalog/books.rb'), <<~RUBY)
         class Catalog::Books < ApplicationDecider
-          Add = Sourced::Command.define('app.catalog.add') { attribute :book_id, String }
-          Added = Sourced::Event.define('app.catalog.added') { attribute :book_id, String }
+          Add = Sourced::Command.define('app.catalog.add') { reference :book_id, String }
+          Added = Sourced::Event.define('app.catalog.added') { reference :book_id, String }
 
           partition_by :book_id
 
@@ -918,11 +918,11 @@ RSpec.describe Sidereal::CLI::New do
           partition_by :title
 
           AddTodo = Sourced::Command.define('app.todos.add') do
-            attribute :title, String
+            reference :title, String
           end
 
           TodoAdded = Sourced::Event.define('app.todos.added') do
-            attribute :title, String
+            reference :title, String
           end
 
           command AddTodo => TodoAdded do |_state, cmd|
@@ -946,7 +946,7 @@ RSpec.describe Sidereal::CLI::New do
 
       expect(status).to be_success, out
       expect(out).to match(/^Handled by\s+Todos$/)
-      expect(out).to match(/^title\s+string\s+yes$/)
+      expect(out).to match(/^title\s+string\s+yes\s+reference$/)
 
       out, status = bin_sid(root, 'sourced', 'topology')
 

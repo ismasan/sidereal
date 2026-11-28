@@ -33,9 +33,9 @@ Gem::Specification.new do |spec|
   spec.executables = spec.files.grep(%r{\Aexe/}) { |f| File.basename(f) }
   spec.require_paths = ['lib']
 
-  # FormsCodec landed in 0.2.1, which Sidereal::FormsCodec subclasses; 0.4.0 is
-  # the first release built on plumb 0.4.
-  spec.add_dependency('sourced-message', '>= 0.4.0')
+  # 0.6.0 adds reference attributes, the payload attributes a store indexes
+  # (Sidereal::CLI::Commands shows them in `sid commands`).
+  spec.add_dependency('sourced-message', '>= 0.6.0')
   # Direct, not transitive. Sidereal requires plumb itself (Sidereal::Types),
   # and app authors register their own encoders on Plumb::Codec::JSON and
   # Plumb::Codec::Forms, so the codec API is part of Sidereal's public surface.

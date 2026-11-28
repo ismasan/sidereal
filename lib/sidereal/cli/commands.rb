@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'json'
+require 'sourced/message'
 
 module Sidereal
   module CLI
@@ -165,6 +166,8 @@ module Sidereal
         HEADERS = ['Attribute', 'Type', 'Required', 'Default', 'Notes'].freeze
         # Keywords shown in their own column or as the type.
         SHOWN = %w[type properties required items anyOf oneOf default enum description].freeze
+        # The metadata key that marks a reference, shown as the note "reference".
+        REFERENCE = ::Sourced::Message::Types::REFERENCE_KEY.to_s
 
         # @param schema [Hash] a JSON Schema for an object
         def initialize(schema)
@@ -221,8 +224,9 @@ module Sidereal
           notes = []
           notes << schema['description'] if schema['description']
           notes << "one of: #{schema['enum'].map { |value| JSON.generate(value) }.join(', ')}" if schema['enum']
+          notes << 'reference' if schema[REFERENCE]
           schema.each do |key, value|
-            notes << "#{key}: #{JSON.generate(value)}" unless SHOWN.include?(key)
+            notes << "#{key}: #{JSON.generate(value)}" unless SHOWN.include?(key) || key == REFERENCE
           end
           (schema['anyOf'] || schema['oneOf'] || []).each do |variant|
             notes.concat(notes_list(variant))

@@ -24,7 +24,7 @@ Machines (`Sourced::Machine`) appear in the topology like deciders. The event a 
 
 ## The data: what did happen
 
-- `bin/sid sourced messages list` prints the most recent messages in the store, oldest first, one per line with its id. `--limit N` shows more or fewer (default 100); `--tail` keeps printing new messages as they arrive. `--types 'todos.added,billing.*'` shows only those message types, and `--partition course_id=c1` only messages carrying that value (with several pairs, a message matches if every key it carries matches); both apply to `--tail` too.
+- `bin/sid sourced messages list` prints the most recent messages in the store, oldest first, one per line with its id. `--limit N` shows more or fewer (default 100); `--tail` keeps printing new messages as they arrive. `--types 'todos.added,billing.*'` shows only those message types, and `--partition course_id=c1` only messages carrying that reference or tag (with several pairs, a message matches if every key it carries matches); both apply to `--tail` too.
 - `bin/sid sourced messages correlation ID` prints every message in one workflow as a tree of what caused what: the command, the events it produced, the commands automations dispatched in response, and so on. `ID` is any message in the workflow, as `messages list` prints it. Use it to check what a dispatched command actually did.
 - `bin/sid sourced groups list` lists the consumer groups (one per reactor) with their status, partitions, the furthest position each has read, and its retries. Use it to find a reactor that has failed, is retrying or was stopped, and why. Groups are registered when the app runs, so an app that has never run has none.
 
